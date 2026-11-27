@@ -74,9 +74,9 @@ function respond(reply: Reply): Promise<Response> {
 const bytes = (): ArrayBuffer => new Uint8Array([1, 2, 3]).buffer;
 
 /** Abre la página con el reloj del móvil en `phoneNow` y las respuestas del servidor. */
-function openPage(opts: { phoneNow?: Date; pay?: Reply; state?: Reply[]; serverNow?: Date } = {}) {
+function openPage(opts: { phoneNow?: Date; pay?: Reply; state?: Reply[]; serverNow?: Date; suggest?: 'en' } = {}) {
   vi.setSystemTime(opts.phoneNow ?? NOW);
-  const html = renderQrChargePage('tok-1', 'es', view, opts.serverNow ?? NOW);
+  const html = renderQrChargePage('tok-1', 'es', view, opts.serverNow ?? NOW, { suggest: opts.suggest ?? null });
   const els = new Map<string, FakeEl>();
   for (const m of html.matchAll(/<[a-z0-9]+ [^>]*\bid="([A-Za-z]+)"[^>]*>/g)) {
     const found = new FakeEl(m[1]!, / hidden>$/.test(m[0]));
@@ -95,7 +95,15 @@ function openPage(opts: { phoneNow?: Date; pay?: Reply; state?: Reply[]; serverN
     return respond({ status: 404 });
   });
   const reload = vi.fn();
+  // document.querySelector: la barra de arriba y la franja de idioma (con su padre, para quitarla).
+  const queried = new Map<string, FakeEl & { parentNode: { removeChild: ReturnType<typeof vi.fn> } }>();
   const doc = {
+    querySelector: (sel: string) => {
+      if (sel === 'nav.sug' && !html.includes('<nav class="sug"')) return null;
+      const found = queried.get(sel) ?? Object.assign(new FakeEl(sel), { parentNode: { removeChild: vi.fn() } });
+      queried.set(sel, found);
+      return found;
+    },
     getElementById: (id: string) => els.get(id) ?? null,
     createElement: () => new FakeEl(''),
     addEventListener: () => undefined,
@@ -121,7 +129,7 @@ function openPage(opts: { phoneNow?: Date; pay?: Reply; state?: Reply[]; serverN
     if (!found) throw new Error(`sin #${id}`);
     return found;
   };
-  return { el, reload, calls };
+  return { el, reload, calls, queried };
 }
 
 /** Deja correr las promesas y los temporizadores de la página. */
@@ -190,6 +198,19 @@ describe('/s en el móvil: la cuenta atrás va con la hora del servidor', () => 
 });
 
 describe('/s en el móvil: un fallo que no se sabe si cobró no dice «no se ha cobrado nada» ni deja pagar a ciegas', () => {
+  it('pagado aquí con la franja de idioma arriba: la franja se quita (nunca queda encima del «Pagado»)', async () => {
+    const page = openPage({ suggest: 'en' });
+    await tapPay(page);
+    expect(page.el('paid').hidden).toBe(false);
+    const strip = page.queried.get('nav.sug');
+    expect(strip?.parentNode.removeChild).toHaveBeenCalledWith(strip);
+    expect(page.queried.get('header.top')?.classList.contains('over')).toBe(true);
+    // Sin franja, nada que quitar (y el «Pagado» sale igual).
+    const plain = openPage();
+    await tapPay(plain);
+    expect(plain.el('paid').hidden).toBe(false);
+  });
+
   it('pagado bien: el «Pagado» con lo que le queda', async () => {
     const page = openPage();
     await tapPay(page);
