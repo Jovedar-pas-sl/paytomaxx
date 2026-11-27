@@ -41,6 +41,10 @@ export function StaffCardBox({
   const [canWrite, setCanWrite] = useState(false);
   useEffect(() => setCanWrite(webNfcWriter() !== null), []);
   useEffect(() => () => writing?.abort(), [writing]);
+  // El sondeo trae la ficha viva (otra sesión pudo reponerla): sin pisar lo que se está haciendo aquí.
+  useEffect(() => {
+    if (!busy && !writing && !reserving) setCard(initial);
+  }, [initial]);
 
   /** Primer toque: el código del servidor, antes de acercar la ficha (sin NFC todavía). */
   async function prepare(): Promise<void> {
