@@ -14,7 +14,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { lastNightCutoff } from '../../common/time/madrid';
 import { cashFromRows, zStart } from '../nights/night-rules';
 import { bitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
-import { parseReportPeriod, type TimeWindow } from '../reports/report-period';
+import { MAX_PERIOD_DAYS, parseReportPeriod, type TimeWindow } from '../reports/report-period';
 import { MAX_EXPORT_ROWS, ReportsService } from '../reports/reports.service';
 import { PAID_STATUSES_SQL, REPORT_TX, cashTopUpCount, linesJson, paymentAt, paymentRecordedAt, refundAt } from '../reports/reporting-sql';
 import {
@@ -115,6 +115,23 @@ export class MoneyMapService {
 
   /** Lo que pide el panel: ?night=current|<id> o ?from&to (días de Madrid). */
   async forQuery(tenantId: string, q: MoneyMapQuery, now: Date = new Date()): Promise<MoneyMap> {
+    if (q.fromAt) {
+      // Varias noches (el selector del panel): por instantes, con el mismo cálculo que unas fechas.
+      const from = new Date(q.fromAt);
+      const toAt = q.toAt ? new Date(q.toAt) : null;
+      if (from.getTime() > now.getTime()) throw new BadRequestException('El periodo empieza en el futuro');
+      const live = !toAt || toAt.getTime() > now.getTime();
+      const to = live ? now : toAt;
+      if (to.getTime() - from.getTime() > MAX_PERIOD_DAYS * 86_400_000) {
+        throw new BadRequestException(`Como mucho ${MAX_PERIOD_DAYS} días por periodo`);
+      }
+      return this.compute(tenantId, { from, to }, {
+        scope: { kind: 'period' },
+        now,
+        openingFloatCents: null,
+        withLiveBalances: live,
+      });
+    }
     if (q.from && q.to) {
       const parsed = parseReportPeriod(q.from, q.to);
       if (!parsed.ok) throw new BadRequestException(parsed.error);
