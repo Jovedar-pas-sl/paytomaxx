@@ -7,7 +7,8 @@ import { isValidRange, lastDayOfMonth } from '@/lib/dates';
 import { lineaPeriodo, PERIODOS_INFORMES, resolverPeriodo, type Periodo } from '@/lib/periodos';
 import { SelectorNoches } from './SelectorNoches';
 
-const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
+/** `partners`: solo con la API de socios (Ajustes → «Otras plataformas» contesta). */
+const REPORTS: Array<{ kind: ExportKind; title: string; detail: string; partners?: true }> = [
   {
     kind: 'resumen',
     title: 'Resumen para la gestoría',
@@ -38,13 +39,19 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
     title: 'Saldo devuelto',
     detail: 'El saldo devuelto a los clientes, en efectivo y a la tarjeta, con su referencia.',
   },
+  {
+    kind: 'recargas-socios',
+    title: 'Cargas de otras plataformas',
+    detail: 'Cada carga de los cajeros de otras plataformas y cada anulación, en negativo, con su cajero.',
+    partners: true,
+  },
 ];
 
 /**
  * Informes para la gestoría (Fase 1C). CSV que Excel abre con doble clic
  * (separador ";", decimales con coma). Solo el dueño.
  */
-export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
+export function ReportsPanel({ isOwner, partnersOn = false }: { isOwner: boolean; partnersOn?: boolean }) {
   // Días de Madrid, como el API: a las 00:30 del día 1 ya es "este mes" aunque
   // el navegador esté en otra zona. Empieza en Mes pasado; no va a la URL.
   const [periodo, setPeriodo] = useState<Periodo>({ clave: 'mes-pasado' });
@@ -111,7 +118,7 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
       ) : null}
 
       <div style={reportGrid}>
-        {REPORTS.map((r) => (
+        {REPORTS.filter((r) => !r.partners || partnersOn).map((r) => (
           <Card key={r.kind} style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <div style={{ flex: 1 }}>
               <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 600 }}>{r.title}</h3>

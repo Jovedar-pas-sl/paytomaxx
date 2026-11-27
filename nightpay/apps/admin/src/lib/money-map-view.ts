@@ -80,6 +80,9 @@ export function legendFlex(cents: number, total: number): number {
   return Math.max(cents, total * 0.18);
 }
 
+/** El efectivo de los cajeros de otras plataformas (API de socios): no está en la caja de recepción. */
+export const PARTNER_CASH_LABEL = 'En cajeros de otras plataformas';
+
 const RAIL_NOTE: Readonly<Record<string, string>> = {
   MANUAL_CASH: 'efectivo',
   SEPA_IBAN: 'transferencia',
@@ -230,6 +233,10 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         // El bitcoin no pasa por el banco ni por la caja: está en la cartera del local (solo si hubo).
         ...(m.where.bitcoinCents
           ? [{ key: 'bitcoin', label: 'Bitcoin, en la cartera del local', cents: m.where.bitcoinCents, color: 'var(--np-mm-bitcoin)' }]
+          : []),
+        // El efectivo de los cajeros de otras plataformas (API de socios): del local, pero no en la caja (solo si viene).
+        ...(typeof m.where.partnerCashCents === 'number'
+          ? [{ key: 'partner-cash', label: PARTNER_CASH_LABEL, cents: m.where.partnerCashCents, color: 'var(--np-mm-efectivo)' }]
           : []),
       ],
       owners: [

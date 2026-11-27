@@ -1,5 +1,5 @@
 import type { MoneyMap } from '@nightpay/contracts';
-import { moneyMapIsCurrent, railNote } from './money-map-view';
+import { PARTNER_CASH_LABEL, moneyMapIsCurrent, railNote } from './money-map-view';
 
 export interface MoneyDetailRow {
   label: string;
@@ -64,6 +64,8 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: 'Caja esperada', cents: w.cashBoxCents },
         { label: 'Cobrado por banco, neto de devoluciones', cents: w.bbvaCents },
         ...(w.bitcoinCents ? [{ label: 'Bitcoin, en la cartera del local', cents: w.bitcoinCents }] : []),
+        // Fuera de la caja esperada: se cuenta en sus cajeros, contra «Movimientos» (solo si viene).
+        ...(typeof w.partnerCashCents === 'number' ? [{ label: PARTNER_CASH_LABEL, cents: w.partnerCashCents }] : []),
       ],
     },
     owed: {

@@ -31,6 +31,8 @@ import '../../../styles/panel-partners.css';
 import { SettingsCard } from '../SettingsBits';
 import { ConnectSheet } from './ConnectSheet';
 import { KeyIssuedSheet } from './KeyIssuedSheet';
+import { LimitsSheet } from './LimitsSheet';
+import { MovementsSheet } from './MovementsSheet';
 import { ResumeSheet } from './ResumeSheet';
 import { RotateSheet } from './RotateSheet';
 
@@ -38,7 +40,9 @@ import { RotateSheet } from './RotateSheet';
  * Ajustes → «Otras plataformas» (API de socios). Las plataformas que entran
  * con una clave en el saldo del local (la primera, la red de cajeros, que
  * solo carga saldo). El dueño conecta, cambia la clave, pausa, reanuda (no la
- * pausa de OxioPay) y anula; el encargado pausa y anula. Ningún botón añade
+ * pausa de OxioPay) y anula; el encargado pausa y anula. «Movimientos» (los
+ * dos, también en una anulada) enseña las cargas de una noche; «Topes», solo
+ * el dueño. Ningún botón añade
  * IP; la clave se ve una vez (KeyIssuedSheet) y al cerrar se suelta.
  */
 export function PartnersPanel({ role }: { role: string }) {
@@ -50,6 +54,8 @@ export function PartnersPanel({ role }: { role: string }) {
   const [connecting, setConnecting] = useState(false);
   const [rotating, setRotating] = useState<PartnerConnectionView | null>(null);
   const [resuming, setResuming] = useState<PartnerConnectionView | null>(null);
+  const [watching, setWatching] = useState<PartnerConnectionView | null>(null);
+  const [limiting, setLimiting] = useState<PartnerConnectionView | null>(null);
   /** La respuesta con la clave: solo aquí, y a null al cerrar su hoja. */
   const [issued, setIssued] = useState<PartnerKeyIssued | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -120,7 +126,9 @@ export function PartnersPanel({ role }: { role: string }) {
 
   function run(action: ConnectionAction, c: PartnerConnectionView): void {
     setRowError(null);
-    if (action === 'rotate') setRotating(c);
+    if (action === 'movements') setWatching(c);
+    else if (action === 'limits') setLimiting(c);
+    else if (action === 'rotate') setRotating(c);
     else if (action === 'resume') setResuming(c);
     else if (action === 'pause') void pause(c);
     else void revoke(c);
@@ -202,7 +210,15 @@ export function PartnersPanel({ role }: { role: string }) {
           <summary>Anuladas ({revoked.length})</summary>
           <ul className="np-ptn-list">
             {revoked.map((c) => (
-              <ConnectionCard key={c.id} c={c} role={role} timezone={timezone} busy={false} error={null} onAction={() => undefined} />
+              <ConnectionCard
+                key={c.id}
+                c={c}
+                role={role}
+                timezone={timezone}
+                busy={false}
+                error={null}
+                onAction={(a) => (a === 'movements' ? setWatching(c) : undefined)}
+              />
             ))}
           </ul>
         </details>
@@ -227,6 +243,18 @@ export function PartnersPanel({ role }: { role: string }) {
           onDone={(next) => {
             setResuming(null);
             toast.show(`${next.partnerName}, en marcha otra vez.`, { tone: 'success' });
+            reload();
+          }}
+        />
+      ) : null}
+      {watching ? <MovementsSheet connection={watching} timezone={timezone} onClose={() => setWatching(null)} /> : null}
+      {limiting ? (
+        <LimitsSheet
+          connection={limiting}
+          onClose={() => setLimiting(null)}
+          onDone={(next) => {
+            setLimiting(null);
+            toast.show(`Topes de ${next.partnerName}, guardados.`, { tone: 'success' });
             reload();
           }}
         />

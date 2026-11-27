@@ -8,15 +8,25 @@
 
 import {
   EXPIRY_REQUIRED_SCOPES,
+  LOAD_CAPS,
+  LOAD_PANEL_VOID_WINDOW_MS,
+  parseEuroCents,
+  stepUpActions,
   type CreatePartnerConnectionDto,
+  type PartnerConnectionLimits,
   type PartnerConnectionView,
   type PartnerKeyDelivery,
   type PartnerKeyIssued,
   type PartnerKeyOverlap,
+  type PartnerLoadAdminView,
   type PartnerOptionView,
+  type PartnerOwnerStatement,
+  type PartnerPauseReason,
   type PartnerScope,
   type RotatePartnerKeyDto,
 } from '@nightpay/contracts';
+import { centsToInput, formatEur } from './money';
+import { addDays as addNightDays } from './reservations';
 
 export type FormResult<T> = { ok: true; value: T } | { ok: false; error: string };
 const ok = <T>(value: T): FormResult<T> => ({ ok: true, value });
@@ -61,9 +71,11 @@ export function connectionTag(c: PartnerConnectionView): ConnectionTag {
   return { tone: 'success', label: 'Activa' };
 }
 
-export type ConnectionAction = 'rotate' | 'pause' | 'resume' | 'revoke';
+export type ConnectionAction = 'movements' | 'limits' | 'rotate' | 'pause' | 'resume' | 'revoke';
 
 export const ACTION_LABELS: Readonly<Record<ConnectionAction, string>> = {
+  movements: 'Movimientos',
+  limits: 'Topes',
   rotate: CHANGE_KEY_LABEL,
   pause: 'Pausar',
   resume: 'Reanudar',
@@ -71,18 +83,21 @@ export const ACTION_LABELS: Readonly<Record<ConnectionAction, string>> = {
 };
 
 /**
- * Los botones de una conexión: el dueño conecta, cambia la clave, pausa,
- * reanuda (no la pausa de OxioPay) y anula; el encargado pausa y anula.
+ * Los botones de una conexión: «Movimientos» para el dueño y el encargado,
+ * también en una anulada (el recuento de la mañana); «Topes», solo el dueño
+ * y no en una anulada. Además, el dueño cambia la clave, pausa, reanuda (no
+ * la pausa de OxioPay) y anula; el encargado pausa y anula.
  */
 export function connectionActions(c: PartnerConnectionView, role: string): ConnectionAction[] {
-  if (c.state === 'revoked') return [];
+  if (c.state === 'revoked') return ['movements'];
   const isOwner = role === 'OWNER';
   const paused = c.state === 'paused' || c.pausedBy !== null;
   const stopped = paused || c.state === 'dormant' || c.state === 'expired';
-  if (!isOwner) return stopped ? ['revoke'] : ['pause', 'revoke'];
-  if (c.state === 'expired' || c.pausedBy === 'oxiopay') return ['rotate', 'revoke'];
-  if (paused || c.state === 'dormant') return ['resume', 'rotate', 'revoke'];
-  return ['rotate', 'pause', 'revoke'];
+  if (!isOwner) return stopped ? ['movements', 'revoke'] : ['movements', 'pause', 'revoke'];
+  const head: ConnectionAction[] = ['movements', 'limits'];
+  if (c.state === 'expired' || c.pausedBy === 'oxiopay') return [...head, 'rotate', 'revoke'];
+  if (paused || c.state === 'dormant') return [...head, 'resume', 'rotate', 'revoke'];
+  return [...head, 'rotate', 'pause', 'revoke'];
 }
 
 export interface ConnectionNotice {
@@ -93,11 +108,23 @@ export interface ConnectionNotice {
   action: string | null;
 }
 
-/** Avisos que se quedan en la ficha: la clave usada desde otra IP o mandada en una dirección web. */
+/** Las pausas automáticas de las cargas (las quita el dueño con «Reanudar», con su 2FA). */
+const LOAD_PAUSE_TEXT: Partial<Record<PartnerPauseReason, string>> = {
+  load_refusals: 'En pausa: 3 cargas por encima del máximo por recarga en 10 minutos.',
+  load_burst: 'En pausa: más de 30 cargas en un minuto.',
+  load_voids: 'En pausa: 3 cargas anuladas por la plataforma esta noche.',
+};
+
+/**
+ * Avisos que se quedan en la ficha: la clave usada desde otra IP o mandada en
+ * una dirección web, y las cargas en pausa (por qué).
+ */
 export function connectionNotices(c: PartnerConnectionView, role: string): ConnectionNotice[] {
   if (c.state === 'revoked') return [];
   const action = role === 'OWNER' ? CHANGE_KEY_LABEL : null;
   const out: ConnectionNotice[] = [];
+  const loadPause = c.pausedBy ? LOAD_PAUSE_TEXT[c.pausedBy] : undefined;
+  if (loadPause) out.push({ tone: 'warning', title: 'Cargas en pausa', text: loadPause, action: null });
   if (c.keyExposedAt) out.push({ tone: 'danger', title: 'Clave en una dirección web', text: TEXT_EXPOSED, action });
   if (c.foreignIps.length > 0) {
     const ips = [...new Set(c.foreignIps.map((f) => f.ip))].join(', ');
@@ -247,4 +274,118 @@ export function issuedOutcome(issued: PartnerKeyIssued): IssuedOutcome {
   if (issued.key) return { kind: 'key', key: issued.key };
   if (issued.claim.delivered) return { kind: 'sent', sentTo: issued.claim.sentTo, expiresAt: issued.claim.expiresAt };
   return { kind: 'failed' };
+}
+
+// ─── «Movimientos»: las cargas de una noche (PR 3 B) ─────────────────────
+
+export const NIGHT_WINDOW_TEXT = 'La noche va de 08:00 a 08:00.';
+export const COUNT_CASH_TEXT = 'Cuenta este efectivo en sus cajeros: tiene que dar el neto.';
+export const NO_LOADS_TEXT = 'Esta noche no hay cargas.';
+export const NO_DEVICE_LABEL = 'Sin cajero';
+export const LOAD_VOIDED_NOTICE = 'Carga anulada.';
+
+/** La noche anterior y la siguiente; null: la siguiente sería después de hoy. */
+export function nightNav(day: string, today: string): { previous: string; next: string | null } {
+  const next = addNightDays(day, 1);
+  return { previous: addNightDays(day, -1), next: next <= today ? next : null };
+}
+
+export interface StatementTotal {
+  key: 'loads' | 'voids' | 'net';
+  label: string;
+  /** null: el neto no lleva número de cargas. */
+  count: number | null;
+  cents: number;
+}
+
+/** «Cargas», «Anuladas» y «Neto» de la noche (el `/statement` del socio). */
+export function statementTotals(st: PartnerOwnerStatement): StatementTotal[] {
+  return [
+    { key: 'loads', label: 'Cargas', count: st.loads.count, cents: st.loads.amount },
+    { key: 'voids', label: 'Anuladas', count: st.load_voids.count, cents: st.load_voids.amount },
+    { key: 'net', label: 'Neto', count: null, cents: st.net_loads },
+  ];
+}
+
+/** El cajero de una carga (el `device` que manda la plataforma); sin él, «Sin cajero». */
+export function deviceLabel(device: string | null): string {
+  return device && device.trim() ? device : NO_DEVICE_LABEL;
+}
+
+/** Una carga anulada: quién la anuló y por qué. null: no está anulada. */
+export function loadState(load: PartnerLoadAdminView): { label: string; reason: string | null } | null {
+  if (load.status !== 'voided') return null;
+  return { label: load.voidedBy === 'venue' ? 'Anulada en el panel' : 'Anulada por la plataforma', reason: load.reason };
+}
+
+/**
+ * «Anular carga»: sin anular y con menos de 36 h desde la carga (el panel). No
+ * `voidUntil`, que son los 10 minutos del socio por la API. Lo decide el
+ * servidor: aquí solo se esconde el botón.
+ */
+export function canVoidLoad(load: PartnerLoadAdminView, nowMs: number): boolean {
+  return load.status === 'succeeded' && !load.voidedAt && Date.parse(load.createdAt) + LOAD_PANEL_VOID_WINDOW_MS > nowMs;
+}
+
+export const VOID_REASON_MAX = 140;
+const VOID_REASON_TEXT = 'Explica por qué se anula';
+
+/** El motivo de la anulación: de 3 a 140 letras (como PartnerLoadVoidSchema). */
+export function voidReasonProblem(reason: string): string | null {
+  const t = reason.trim();
+  return t.length >= 3 && t.length <= VOID_REASON_MAX ? null : VOID_REASON_TEXT;
+}
+
+/** Lo que pasa al anular una carga. */
+export function voidLoadWarning(amountCents: number): string {
+  return `El saldo del cliente baja ${formatEur(amountCents)} y le llega el aviso «Carga anulada». Hazlo solo si el dinero no se quedó en el local.`;
+}
+
+// ─── «Topes» (solo el dueño) ──────────────────────────────────────────
+
+export const LIMITS_START_TEXT = 'Si los cajeros se vacían menos de una vez al día, empieza con 2.000 € por noche.';
+
+export interface LimitsForm {
+  perOperation: string;
+  walletDay: string;
+  night: string;
+}
+
+export const LIMIT_FIELDS: ReadonlyArray<{ key: keyof LimitsForm; cents: keyof PartnerConnectionLimits; label: string; max: number }> = [
+  { key: 'perOperation', cents: 'perOperationCents', label: 'Máximo por recarga', max: LOAD_CAPS.perOperation.max },
+  { key: 'walletDay', cents: 'walletDayCents', label: 'Máximo por cliente al día', max: LOAD_CAPS.walletDay.max },
+  { key: 'night', cents: 'nightCents', label: 'Máximo por noche', max: LOAD_CAPS.night.max },
+];
+
+/** Los topes de ahora, en euros como se escriben («300», «10,50»). */
+export function limitsFormOf(l: PartnerConnectionLimits): LimitsForm {
+  const euros = (cents: number) => (cents % 100 === 0 ? String(cents / 100) : centsToInput(cents));
+  return { perOperation: euros(l.perOperationCents), walletDay: euros(l.walletDayCents), night: euros(l.nightCents) };
+}
+
+/**
+ * Lo que se manda al cambiar los topes y si sube alguno (entonces, la 2FA).
+ * El API lo vuelve a mirar con los topes de ese momento (PARTNER_LIMITS_CHANGED).
+ */
+export function limitsPayload(
+  form: LimitsForm,
+  current: PartnerConnectionLimits,
+): FormResult<{ body: PartnerConnectionLimits; raises: boolean }> {
+  const body: PartnerConnectionLimits = { perOperationCents: 0, walletDayCents: 0, nightCents: 0 };
+  for (const f of LIMIT_FIELDS) {
+    const cents = parseEuroCents(form[f.key], f.max);
+    if (cents === null) {
+      return fail(`El ${f.label.charAt(0).toLowerCase()}${f.label.slice(1)} va de ${formatEur(1)} a ${formatEur(f.max)}.`);
+    }
+    body[f.cents] = cents;
+  }
+  const same = LIMIT_FIELDS.every((f) => body[f.cents] === current[f.cents]);
+  if (same) return fail('No has cambiado ningún tope.');
+  const raises = LIMIT_FIELDS.some((f) => body[f.cents] > current[f.cents]);
+  return ok({ body, raises });
+}
+
+/** La acción de la llave para subir los topes: partner:limits:<conexión>:<op>-<día>-<noche> (céntimos). */
+export function limitsStepUpAction(id: string, body: PartnerConnectionLimits): string {
+  return stepUpActions.partner('limits', id, `${body.perOperationCents}-${body.walletDayCents}-${body.nightCents}`);
 }

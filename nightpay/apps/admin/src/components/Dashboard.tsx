@@ -258,6 +258,7 @@ export function Dashboard({ user, onLogout }: Props) {
       onLogout={() => void logout()}
       loggingOut={loggingOut}
       posOn={posOn}
+      partnersOn={partnersOn}
       onPosChange={setPosOn}
       canCloseNight={isOwner || reports.perms?.closeNight === true}
       closeRequested={closeRequested}
@@ -459,6 +460,8 @@ interface ActivePanelProps {
   loggingOut: boolean;
   /** El local cobra con datáfono (Formas de cobro). */
   posOn: boolean;
+  /** La API de socios contesta («Otras plataformas»): el informe de sus cargas. */
+  partnersOn: boolean;
   /** Formas de cobro guardadas: las pestañas se ponen al día sin recargar. */
   onPosChange: (posOn: boolean) => void;
   /** El dueño, o el encargado con «cerrar la noche» (Permisos): «Cerrar noche» en Resumen. */
@@ -525,7 +528,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'nights':
       return <NightsPanel tabs={tabs} onNavigate={onNavigate} isOwner={isOwner} onOpenCobros={props.onOpenCobros} />;
     case 'reports':
-      return <ReportsPanel isOwner={isOwner} />;
+      return <ReportsPanel isOwner={isOwner} partnersOn={props.partnersOn} />;
     case 'bank':
       return <BankReconPanel isOwner={isOwner} />;
     case 'oxiopay':
