@@ -44,7 +44,7 @@ export class NightsController {
   @Get('current')
   @Roles('OWNER', 'MANAGER')
   async current(@CurrentUser() user: JwtPayload): Promise<{ night: NightView | null }> {
-    const night = await this.nights.current(user.tenantId);
+    const night = await this.nights.current(user.tenantId, user.role);
     return { night: night && forRole(user, night) };
   }
 
@@ -81,7 +81,7 @@ export class NightsController {
     @CurrentUser() user: JwtPayload,
     @Body(new ZodValidationPipe(OpenNightSchema)) body: OpenNightDto,
   ): Promise<NightView> {
-    return forRole(user, await this.nights.open(user.tenantId, user.sub, body.openingFloatCents));
+    return forRole(user, await this.nights.open(user.tenantId, user.sub, body.openingFloatCents, user.role));
   }
 
   @Post(':id/close')
@@ -106,7 +106,7 @@ export class NightsController {
   @Get(':id')
   @Roles('OWNER', 'MANAGER')
   async get(@CurrentUser() user: JwtPayload, @Param('id', ParseUUIDPipe) id: string): Promise<NightView> {
-    return forRole(user, await this.nights.get(user.tenantId, id));
+    return forRole(user, await this.nights.get(user.tenantId, id, user.role));
   }
 }
 

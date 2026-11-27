@@ -92,6 +92,20 @@ describe('cierre a ciegas en el API (no solo en la pantalla)', () => {
     expect((await c.get(user('MANAGER'), 'n-1')).openingFloatCents).toBe(20_000);
   });
 
+  it('las horas del minigráfico: el controlador pasa quién mira, para que el servicio las saque sin el efectivo', async () => {
+    const roles: Array<string | undefined> = [];
+    const svc = {
+      current: async (_t: string, role?: string) => (roles.push(role), view()),
+      open: async (_t: string, _u: string, _f?: number, role?: string) => (roles.push(role), view()),
+      get: async (_t: string, _id: string, role?: string) => (roles.push(role), view()),
+    };
+    const c = new NightsController(svc as never);
+    await c.current(user('MANAGER'));
+    await c.open(user('MANAGER'), {});
+    await c.get(user('OWNER'), 'n-1');
+    expect(roles).toEqual(['MANAGER', 'MANAGER', 'OWNER']);
+  });
+
   it('GET /admin/money-map: en directo, a la encargada no le llega la caja esperada; una noche cerrada o unas fechas, sí', async () => {
     let m = map();
     const c = new MoneyMapController({ forQuery: async () => m } as never, {} as never);
