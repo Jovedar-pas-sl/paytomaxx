@@ -26,7 +26,7 @@ const voidByPanel: RecargaSocioRow = {
 };
 const voidByApi: RecargaSocioRow = { ...voidByPanel, id: 'v2', loadId: LOAD_ID, at: LATER, amountCents: 3000, device: 'ATM0042', reason: null, voidedByName: null, voidedByEmail: null };
 
-const lines = (csv: string) => csv.replace(/^﻿/, '').trimEnd().split('\r\n');
+const lines = (csv: string) => csv.replace(/^\uFEFF/, '').trimEnd().split('\r\n');
 
 describe('CSV «recargas-socios»', () => {
   it('columnas y orden', () => {
