@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
+import type { NightView } from '@/lib/api';
 import type { CobroRow, MoneyMap } from '@nightpay/contracts';
 import { Button, Etiqueta, FormError } from '@nightpay/ui';
-import { fetchCobros, fetchMoneyMap } from '@/lib/api';
+import { fetchCobros, fetchCurrentNight, fetchMoneyMap } from '@/lib/api';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount } from '@/lib/bottom-nav';
 import { keepIfSame } from '@/lib/diff';
@@ -16,6 +17,8 @@ import { usePolling } from '@/lib/use-polling';
 import { useSections } from '@/lib/use-sections';
 import { useVenue, useVenueTimezone } from '@/lib/venue-context';
 import { CobrosTable } from './fichas/CobrosTable';
+import { NightCloseScreen } from './NightCloseScreen';
+import { PrimerosPasos } from './PrimerosPasos';
 import { QuestionCardView } from './money-map/MoneyMapView';
 import { Skel } from './Skeleton';
 import { TonightStrip } from './TonightStrip';
@@ -29,6 +32,10 @@ const MAP_CARDS = ['ganado', 'caja', 'debo'] as const;
 
 interface Props {
   isOwner: boolean;
+  /** El local (las marcas de Primeros pasos van por local). */
+  tenantId: string;
+  /** El dueño, o el encargado con «cerrar la noche»: el botón «Cerrar noche» de «Esta noche». */
+  canCloseNight: boolean;
   /** Quien ve el mapa del dinero (el dueño, y el encargado con «ver informes»). */
   showMoneyMap: boolean;
   /** Ya se sabe si lo ve (el permiso del encargado tarda): hasta entonces, siluetas. */
@@ -48,18 +55,59 @@ interface Props {
  * botones del dinero (devolver, anular, resolver) siguen en el detalle de
  * Cobros. Cada bloque carga y falla aparte.
  */
-export function ResumenPanel({ isOwner, showMoneyMap, mapKnown, tabs, onNavigate, onOpenPayment, onOpenCobro }: Props) {
+export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, mapKnown, tabs, onNavigate, onOpenPayment, onOpenCobro }: Props) {
   const withMap = showMoneyMap || !mapKnown;
+  /** «Cerrar noche»: la noche abierta, pedida al tocar (como en Noches). */
+  const [closing, setClosing] = useState<NightView | null>(null);
+  const [opening, setOpening] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
+  /** Al cerrar la noche se vuelve a cargar todo el Resumen. */
+  const [generation, setGeneration] = useState(0);
+
+  async function openClose(): Promise<void> {
+    setOpening(true);
+    setCloseError(null);
+    try {
+      const night = await fetchCurrentNight();
+      if (night) setClosing(night);
+      else setGeneration((g) => g + 1);
+    } catch (err) {
+      setCloseError((err as Error).message);
+    } finally {
+      setOpening(false);
+    }
+  }
+
   return (
-    <div className="np-resumen">
+    <div className="np-resumen" key={generation}>
+      {isOwner ? <PrimerosPasos tenantId={tenantId} onNavigate={onNavigate} /> : null}
+      {closeError ? <FormError>No se pudo abrir el cierre: {closeError}</FormError> : null}
       <div className="np-resumen-figs" data-map={withMap ? '' : undefined}>
-        <TonightStrip variant={withMap ? 'hero' : 'full'} onNavigate={onNavigate} />
+        <TonightStrip
+          variant={withMap ? 'hero' : 'full'}
+          onNavigate={onNavigate}
+          onCloseNight={canCloseNight ? () => void openClose() : undefined}
+          closeBusy={opening}
+        />
         {withMap ? <MapFigures known={mapKnown} onOpen={() => onNavigate('money')} /> : null}
       </div>
       <div className="np-resumen-cols">
         <Attention isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={onOpenPayment} />
         <LatestCobros onOpenCobro={onOpenCobro} onNavigate={onNavigate} />
       </div>
+      {closing ? (
+        <NightCloseScreen
+          night={closing}
+          isOwner={isOwner}
+          tabs={tabs}
+          onNavigate={onNavigate}
+          onClose={() => setClosing(null)}
+          onClosed={() => {
+            setClosing(null);
+            setGeneration((g) => g + 1);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

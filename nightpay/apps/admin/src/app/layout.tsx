@@ -21,6 +21,8 @@ import '../styles/panel-grafito.css';
 import '../styles/panel-vivo.css';
 // Hoy → Resumen: encima de la franja, las preguntas del mapa y la tabla de Cobros.
 import '../styles/panel-resumen.css';
+// Panel II (A): Ajustes como lista, el cierre plegado, Primeros pasos y la cabecera.
+import '../styles/panel-2.css';
 // OxioParty (solo clases np-party-*: con OxioPay no pinta nada).
 import '../styles/panel-party.css';
 import { appleAppMetadata } from '@nightpay/ui/app-manifest';

@@ -16,7 +16,8 @@
 // Una cifra negativa se explica en su texto (y se pinta de aviso, no en verde).
 
 import { venueEarnedCents, type MoneyMap, type VenueSection } from '@nightpay/contracts';
-import { eurShort, moneyMapIsCurrent, moneyMapView, type SectionRow } from './money-map-view';
+import { formatEur } from './money';
+import { moneyMapIsCurrent, moneyMapView, type SectionRow } from './money-map-view';
 import { BLIND_CASH_TEXT } from './night-close';
 
 export type QuestionKey = 'ganado' | 'caja' | 'banco' | 'debo';
@@ -52,12 +53,12 @@ function earnedCard(m: MoneyMap): Card {
   const refunded = refunds.salesCents ?? 0;
   const cents = venueEarnedCents(m);
   const who = m.split.camarerosCents > 0 ? 'las compañeras, los camareros' : 'las compañeras';
-  const minus = refunded > 0 ? `, y menos ${eurShort(refunded)} devueltos de ventas` : '';
+  const minus = refunded > 0 ? `, y menos ${formatEur(refunded)} devueltos de ventas` : '';
   const bank = m.split.commissions.bankCents === null ? ' Sin la comisión del banco: sale en su extracto.' : '';
   // Un mapa guardado antes de separar lo devuelto de ventas: la cifra va sin restar, y se avisa.
   const unknown =
     refunds.salesCents === undefined && refunds.cardCents > 0
-      ? ` No descuenta los ${eurShort(refunds.cardCents)} devueltos a tarjeta: en esta noche, ya cerrada, no se sabe cuánto era de ventas.`
+      ? ` No descuenta los ${formatEur(refunds.cardCents)} devueltos a tarjeta: en esta noche, ya cerrada, no se sabe cuánto era de ventas.`
       : '';
   const negative = cents < 0 ? ' Sale negativo: en estas fechas se devolvió más de lo que se ganó.' : '';
   return {
@@ -82,15 +83,15 @@ function cashCard(m: MoneyMap): Card {
     return {
       question: noNight ? 'Efectivo desde el último cierre' : 'Efectivo de estas fechas',
       cents,
-      caption: `Efectivo cobrado ${eurShort(box.inCents)} − salidas ${eurShort(box.outCents)}. El fondo y el arqueo van por noche: míralos en Noches.`,
+      caption: `Efectivo cobrado ${formatEur(box.inCents)} − salidas ${formatEur(box.outCents)}. El fondo y el arqueo van por noche: míralos en Noches.`,
       action: null,
     };
   }
   const float = box.openingFloatCents;
   const parts = [
-    float === null ? 'Sin fondo de caja apuntado' : `Fondo de caja ${eurShort(float)}`,
-    `+ efectivo cobrado ${eurShort(box.inCents)}`,
-    `− salidas ${eurShort(box.outCents)}`,
+    float === null ? 'Sin fondo de caja apuntado' : `Fondo de caja ${formatEur(float)}`,
+    `+ efectivo cobrado ${formatEur(box.inCents)}`,
+    `− salidas ${formatEur(box.outCents)}`,
   ];
   const negative = cents < 0 ? (float === null ? ' Sale negativo: ¿falta apuntar el fondo de caja?' : ' Sale negativo: revisa las salidas de caja.') : '';
   return {
@@ -104,7 +105,7 @@ function cashCard(m: MoneyMap): Card {
 function bankCard(m: MoneyMap): Card {
   const refunded = m.outflow.refunds.cardCents;
   const base = 'Lo cobrado con tarjeta (ventas y recargas)';
-  const net = refunded > 0 ? `${base}, menos ${eurShort(refunded)} devueltos.` : `${base}.`;
+  const net = refunded > 0 ? `${base}, menos ${formatEur(refunded)} devueltos.` : `${base}.`;
   const cents = m.where.bbvaCents;
   const negative = cents < 0 ? ' Sale negativo: se devolvió más de lo que se cobró con tarjeta, y el banco lo descontará.' : '';
   return { question: '¿Cuánto llega al banco?', cents, caption: `${net} El día de abono lo confirma el banco.${negative}`, action: null };
@@ -115,10 +116,10 @@ function owedCard(m: MoneyMap): Card {
   const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
   const owed = m.where.owed;
   const waitersCents = owed ? owed.camarerosCents : m.outflow.pendingStaff.camarerosCents;
-  const extra = waitersCents > 0 ? ` Aparte, a camareros: ${eurShort(waitersCents)}.` : '';
+  const extra = waitersCents > 0 ? ` Aparte, a camareros: ${formatEur(waitersCents)}.` : '';
   if (owed) {
     const debt = owed.debtCents ?? 0;
-    const owing = debt > 0 ? ` Y te deben ${eurShort(debt)} por devoluciones: se descuenta de su próximo pago.` : '';
+    const owing = debt > 0 ? ` Y te deben ${formatEur(debt)} por devoluciones: se descuenta de su próximo pago.` : '';
     return {
       question,
       cents: owed.chicasCents,
@@ -152,7 +153,7 @@ export function moneyMapQuestions(m: MoneyMap, sections: readonly VenueSection[]
       text:
         live === null
           ? 'No se sabe cuánto saldo de clientes queda sin gastar en estas fechas.'
-          : `${eurShort(live)} son saldo de clientes sin gastar${current ? '' : ' al corte'}: siguen siendo suyos para sus próximas visitas (el saldo no se devuelve).`,
+          : `${formatEur(live)} son saldo de clientes sin gastar${current ? '' : ' al corte'}: siguen siendo suyos para sus próximas visitas (el saldo no se devuelve).`,
     },
     sold: { label: v.salesLabel, cents: m.salesCents, parts: v.sections.filter((s) => s.cents !== 0) },
   };

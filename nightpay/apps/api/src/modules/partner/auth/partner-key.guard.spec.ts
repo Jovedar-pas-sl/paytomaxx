@@ -165,6 +165,25 @@ describe('PartnerKeyGuard: paso 1, interruptor y congelación', () => {
     expect((await build({ freeze: 'money' }).run()).ok).toBe(true);
   });
 
+  it('una ruta solo de la demo en live, o en test sin las ayudas: el 404 not_found sin tocar Redis ni la base', async () => {
+    for (const [mode, helpers] of [['live', '1'], ['test', undefined], ['test', '0'], ['test', 'true']] as const) {
+      vi.stubEnv('PARTNER_API_MODE', mode);
+      if (helpers === undefined) delete process.env.PARTNER_TEST_HELPERS;
+      else vi.stubEnv('PARTNER_TEST_HELPERS', helpers);
+      for (const def of [PARTNER_ROUTES.createTestLiveCode, PARTNER_ROUTES.resetTestFixtures]) {
+        const s = build({ def });
+        expect(await codeOf(s.run()), `${mode} ${helpers} ${def.operationId}`).toBe('not_found');
+        expect(s.prisma.asSystem).not.toHaveBeenCalled();
+        expect(s.freeze.current).not.toHaveBeenCalled();
+      }
+    }
+    // En la demo (test con las ayudas) pasan como cualquier ruta de `any`.
+    vi.stubEnv('PARTNER_API_MODE', 'test');
+    vi.stubEnv('PARTNER_TEST_HELPERS', '1');
+    expect((await build({ def: PARTNER_ROUTES.resetTestFixtures }).run()).ok).toBe(true);
+    expect((await build({ def: PARTNER_ROUTES.createTestLiveCode }).run()).ok).toBe(true);
+  });
+
   it('las rutas sin clave (openapi.json) acaban aquí: sin cabecera, sin base', async () => {
     const s = build({ def: PARTNER_ROUTES.getOpenApi, headers: { authorization: '' } });
     expect((await s.run()).ok).toBe(true);

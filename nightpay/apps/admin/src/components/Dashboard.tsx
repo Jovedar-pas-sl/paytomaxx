@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
-import type { CobroRow } from '@nightpay/contracts';
-import { Button, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
+import type { CobroRow, PermissionSet } from '@nightpay/contracts';
+import { Button, Etiqueta, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
 import { TAB_TOURS } from '@/lib/tours';
 import { MyProfileButton, ProfileProvider } from './MyProfileButton';
 import {
@@ -19,6 +19,8 @@ import { isPartyEdition } from '@/lib/edition';
 import { fetchPartnerConnections } from '@/lib/endpoints/partner-connections';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
+import { parseNav } from '@/lib/nav-url';
+import { primerosPasosFormasKey } from '@/lib/primeros-pasos';
 import {
   resolveTab,
   sectionOf,
@@ -45,6 +47,7 @@ import { ReservationsPanel, type ReservationsView } from './reservations/Reserva
 import { ReportsPanel } from './ReportsPanel';
 import { ResumenPanel } from './ResumenPanel';
 import { SectionHint } from './SectionHint';
+import { SettingsNav } from './SettingsNav';
 import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
 import { PaymentMethodsPanel } from './settings/PaymentMethodsPanel';
@@ -82,13 +85,6 @@ interface Props {
 const SECTIONS_ID = 'np-panel';
 const SUBTABS_ID = 'np-sub';
 
-const ROLE_LABELS: Record<User['role'], string> = {
-  OWNER: 'Dueño',
-  MANAGER: 'Encargado',
-  WAITER: 'Camarero',
-  OPERATOR: 'Operadora',
-};
-
 /**
  * El panel: cinco secciones (Hoy, Chicas, Clientes, Informes, Ajustes)
  * arriba en el escritorio y abajo en el móvil, y dentro de cada una sus
@@ -121,6 +117,31 @@ export function Dashboard({ user, onLogout }: Props) {
   }, [tab]);
   const section = sections.find((s) => s.key === sectionOf(tab)) ?? sections[0];
   const isOwner = user.role === 'OWNER';
+  const party = isPartyEdition();
+  // Ajustes como lista (no en OxioParty): por debajo de 900, la lista o la pantalla de una fila.
+  const settingsList = !party && section?.key === 'ajustes';
+  const [settingsView, setSettingsView] = useState<'list' | 'page'>(() =>
+    typeof window !== 'undefined' && parseNav(window.location.search).hasTab ? 'page' : 'list',
+  );
+  const narrow = useNarrow();
+  // «Atrás» que sigue en Ajustes: a la lista (si no, enseñaría Carta).
+  useEffect(() => {
+    function onPopState(): void {
+      const req = parseNav(window.location.search);
+      if ((req.tab ? sectionOf(req.tab) : req.section) === 'ajustes') setSettingsView('list');
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+  // Primeros pasos: «Revisa cómo cobras» se marca al ver Formas de cobro (solo una marca en el navegador).
+  useEffect(() => {
+    if (tab !== 'methods' || !isOwner) return;
+    try {
+      window.localStorage.setItem(primerosPasosFormasKey(user.tenantId), '1');
+    } catch {
+      // Sin almacenamiento: el paso sigue sin marcar.
+    }
+  }, [tab, isOwner, user.tenantId]);
   const incidents = useIncidentsFeed(user.tenantId, venue.timezone);
   const approvals = useApprovalsFeed(user);
   const venueSections = useSectionsFeed(user.tenantId);
@@ -146,6 +167,7 @@ export function Dashboard({ user, onLogout }: Props) {
     const target = resolveTab(key);
     if (!target) return;
     setReservasView(null);
+    setSettingsView('page');
     navigate(target);
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 });
   }
@@ -156,6 +178,8 @@ export function Dashboard({ user, onLogout }: Props) {
     if (!next || !first) return;
     const last = lastInSection[key];
     goTo(last && next.tabs.some((t) => t.key === last) ? last : first.key);
+    // Ajustes empieza en la lista (desde 900 se ven las dos).
+    if (key === 'ajustes') setSettingsView('list');
   }
 
   function openPayment(paymentId: string): void {
@@ -179,10 +203,34 @@ export function Dashboard({ user, onLogout }: Props) {
     setReservasView('promoters');
   }
 
-  const party = isPartyEdition();
   // La sección que lleva Avisos y su globo: Hoy (en OxioParty, En directo).
   const avisosSection: SectionKey = party ? 'directo' : 'hoy';
   const hoyBadge = navBadge(avisosSection, avisos);
+
+  const activePanel = (
+    <ActivePanel
+      tab={tab}
+      tabs={tabs}
+      user={user}
+      onNavigate={goTo}
+      onOpenPayment={openPayment}
+      focusPayment={focusPayment}
+      onFocusPaymentDone={() => setFocusPayment(null)}
+      onOpenCobros={openCobros}
+      cobrosFilter={cobrosFilter}
+      onCobrosFilterDone={() => setCobrosFilter(null)}
+      onOpenCobro={openCobro}
+      cobroRow={cobroRow}
+      onCobroRowDone={() => setCobroRow(null)}
+      mapKnown={reports.known}
+      reservasView={reservasView}
+      onLogout={() => void logout()}
+      loggingOut={loggingOut}
+      posOn={posOn}
+      onPosChange={setPosOn}
+      canCloseNight={isOwner || reports.perms?.closeNight === true}
+    />
+  );
 
   return (
     <ProfileProvider>
@@ -201,26 +249,28 @@ export function Dashboard({ user, onLogout }: Props) {
                   {/* El local en grande: con varios locales, que nadie opere en el que no es. */}
                   {/* Hasta que llega el nombre, una silueta del mismo alto: nunca el slug («sala-aurora») antes que el nombre. */}
                   {venue.name || venueSettled ? (
-                    <h1 style={brandTitle}>{venue.name ?? user.venueSlug}</h1>
+                    <h1 className="np-brand-name" style={brandTitle}>
+                      {venue.name ?? venue.slug}
+                    </h1>
                   ) : (
-                    <h1 style={brandTitle} aria-busy="true">
+                    <h1 className="np-brand-name" style={brandTitle} aria-busy="true">
                       <Skel width="11rem" height="1.375rem" style={{ marginTop: '0.125rem' }} />
                       <span className="np-sr-only">Cargando el local</span>
                     </h1>
                   )}
+                  {user.isSuperAdmin ? (
+                    <Etiqueta tone="neutral" size="sm" className="np-brand-tag">
+                      Súper-admin
+                    </Etiqueta>
+                  ) : null}
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-                {user.isSuperAdmin ? <VenueSwitcher currentSlug={user.venueSlug} /> : null}
-                <div className="np-header-account" style={{ textAlign: 'right' }}>
-                  <span style={userEmail}>{user.email}</span>
-                  <span style={userMeta}>
-                    <code style={code}>{user.venueSlug}</code> · {ROLE_LABELS[user.role]}
-                    {user.isSuperAdmin ? ' · super-admin' : ''}
-                  </span>
-                </div>
-                {/* El «?» de la pestaña que se ve: su tutorial, en la barra de arriba. Las páginas son lentas en cargar: espera un poco más antes de salir solo. */}
-                {TAB_TOURS[tab] ? <ScreenHelp key={tab} {...TAB_TOURS[tab]} delayMs={1500} /> : null}
+              <div className="np-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                {user.isSuperAdmin ? <VenueSwitcher currentSlug={venue.slug} /> : null}
+                {/* El «?» de la pestaña que se ve: su tutorial, en la barra de arriba. Las páginas son lentas en cargar: espera un poco más antes de salir solo. En la lista de Ajustes (móvil), no sale. */}
+                {TAB_TOURS[tab] && !(settingsList && settingsView === 'list' && narrow) ? (
+                  <ScreenHelp key={tab} {...TAB_TOURS[tab]} delayMs={1500} />
+                ) : null}
                 {/* Mi foto: abre «Mi perfil» (también en el móvil, donde la cuenta y «Salir» se esconden). */}
                 <MyProfileButton user={user} onLogout={() => void logout()} />
                 {/* 36 px como «Salir»; en el móvil, 44 (panel-nav.css). */}
@@ -253,6 +303,19 @@ export function Dashboard({ user, onLogout }: Props) {
                 id={tabPanelId(SECTIONS_ID, section.key)}
                 aria-labelledby={tabId(SECTIONS_ID, section.key)}
               >
+                {settingsList ? (
+                  <SettingsNav
+                    tabs={section.tabs}
+                    active={tab}
+                    onChange={goTo}
+                    view={settingsView}
+                    onBack={() => setSettingsView('list')}
+                    pending={posKnown ? [] : ['terminals']}
+                  >
+                    {activePanel}
+                  </SettingsNav>
+                ) : (
+                  <>
                 <SectionTabs section={section} active={tab} onChange={goTo} avisosBadge={hoyBadge} pending={posKnown ? [] : ['terminals']} />
                 <SectionHint section={section} tabs={tabs} onOpenRrpp={openRrpp} />
                 <div
@@ -261,28 +324,10 @@ export function Dashboard({ user, onLogout }: Props) {
                     ? { role: 'tabpanel', id: tabPanelId(SUBTABS_ID, tab), 'aria-labelledby': tabId(SUBTABS_ID, tab) }
                     : {})}
                 >
-                  <ActivePanel
-                    tab={tab}
-                    tabs={tabs}
-                    user={user}
-                    onNavigate={goTo}
-                    onOpenPayment={openPayment}
-                    focusPayment={focusPayment}
-                    onFocusPaymentDone={() => setFocusPayment(null)}
-                    onOpenCobros={openCobros}
-                    cobrosFilter={cobrosFilter}
-                    onCobrosFilterDone={() => setCobrosFilter(null)}
-                    onOpenCobro={openCobro}
-                    cobroRow={cobroRow}
-                    onCobroRowDone={() => setCobroRow(null)}
-                    mapKnown={reports.known}
-                    reservasView={reservasView}
-                    onLogout={() => void logout()}
-                    loggingOut={loggingOut}
-                    posOn={posOn}
-                    onPosChange={setPosOn}
-                  />
+                  {activePanel}
                 </div>
+                  </>
+                )}
               </div>
             ) : null}
           </main>
@@ -367,6 +412,8 @@ interface ActivePanelProps {
   posOn: boolean;
   /** Formas de cobro guardadas: las pestañas se ponen al día sin recargar. */
   onPosChange: (posOn: boolean) => void;
+  /** El dueño, o el encargado con «cerrar la noche» (Permisos): «Cerrar noche» en Resumen. */
+  canCloseNight: boolean;
 }
 
 function ActivePanel(props: ActivePanelProps) {
@@ -377,6 +424,8 @@ function ActivePanel(props: ActivePanelProps) {
       return (
         <ResumenPanel
           isOwner={isOwner}
+          tenantId={user.tenantId}
+          canCloseNight={props.canCloseNight}
           showMoneyMap={tabs.some((t) => t.key === 'money')}
           mapKnown={props.mapKnown}
           tabs={tabs}
@@ -470,8 +519,8 @@ function ActivePanel(props: ActivePanelProps) {
  * Nombre y zona horaria del local activo (Ajustes del local). Mientras no
  * llegan, o si fallan, se enseña el slug y las horas van en hora de Madrid.
  */
-function useVenueInfo(user: User): [VenueInfo, boolean] {
-  const [info, setInfo] = useState<VenueInfo>({ name: null, slug: user.venueSlug, timezone: DEFAULT_TIMEZONE });
+function useVenueInfo({ tenantId, venueSlug }: User): [VenueInfo, boolean] {
+  const [info, setInfo] = useState<VenueInfo>({ name: null, slug: venueSlug, timezone: DEFAULT_TIMEZONE });
   /** Ya contestó (bien o mal): sin nombre, la cabecera enseña el slug. */
   const [settled, setSettled] = useState(false);
 
@@ -490,7 +539,7 @@ function useVenueInfo(user: User): [VenueInfo, boolean] {
     return () => {
       cancelled = true;
     };
-  }, [user.tenantId]);
+  }, [tenantId]);
 
   return [info, settled];
 }
@@ -499,12 +548,14 @@ interface ReportsAccess {
   can: boolean;
   /** Ya se sabe (o falló la pregunta). */
   known: boolean;
+  /** Los permisos del encargado, enteros (null: el dueño, o sin saberlos, o falló: nada de más). */
+  perms: PermissionSet | null;
 }
 
-const REPORTS_NO: ReportsAccess = { can: false, known: true };
-const REPORTS_ASKING: ReportsAccess = { can: false, known: false };
+const REPORTS_NO: ReportsAccess = { can: false, known: true, perms: null };
+const REPORTS_ASKING: ReportsAccess = { can: false, known: false, perms: null };
 
-/** El encargado ve los informes si el dueño le deja (Ajustes → Permisos). El dueño, siempre. */
+/** El encargado ve los informes si el dueño le deja (Ajustes → Permisos). El dueño, siempre. Se guardan todos sus permisos (cerrar la noche). */
 function useCanSeeReports(user: User): ReportsAccess {
   const [state, setState] = useState<ReportsAccess>(user.role === 'MANAGER' ? REPORTS_ASKING : REPORTS_NO);
   useEffect(() => {
@@ -516,7 +567,7 @@ function useCanSeeReports(user: User): ReportsAccess {
     let cancelled = false;
     fetchMyPermissions()
       .then((p) => {
-        if (!cancelled) setState({ can: p.reports, known: true });
+        if (!cancelled) setState({ can: p.reports, known: true, perms: p });
       })
       .catch(() => {
         // Sin respuesta, como siempre: el encargado no ve los informes.
@@ -586,6 +637,20 @@ function usePartnersOn(user: User): [boolean, boolean] {
   return [on, known];
 }
 
+/** Por debajo de 900 px (Ajustes va en lista o pantalla). matchMedia con addListener: el datáfono puede ser un Chrome 64. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(max-width: 899px)');
+    const update = () => setNarrow(mq.matches);
+    update();
+    mq.addListener(update);
+    return () => mq.removeListener(update);
+  }, []);
+  return narrow;
+}
+
 /** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */
 function useSuperAdminWithout2fa(user: User): boolean {
   const [missing, setMissing] = useState(false);
@@ -642,27 +707,4 @@ const brandTitle: CSSProperties = {
   color: 'var(--np-text)',
   // Por palabras («Luna / Valencia»), no a mitad de una.
   overflowWrap: 'break-word',
-};
-
-const userEmail: CSSProperties = {
-  display: 'block',
-  margin: 0,
-  fontSize: '0.875rem',
-  fontWeight: 400,
-  color: 'var(--np-text)',
-};
-
-const userMeta: CSSProperties = {
-  display: 'block',
-  margin: '0.25rem 0 0',
-  fontSize: '0.875rem',
-  color: 'var(--np-text-mute)',
-};
-
-const code: CSSProperties = {
-  fontFamily: 'var(--np-font-mono)',
-  background: 'var(--np-surface-2)',
-  padding: '0.1rem 0.4rem',
-  borderRadius: '4px',
-  fontSize: '0.875rem',
 };

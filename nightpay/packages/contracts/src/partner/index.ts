@@ -6,3 +6,4 @@ export * from './routes';
 export * from './openapi-contract';
 export * from './openapi';
 export * from './admin';
+export * from './demo';

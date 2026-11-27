@@ -273,7 +273,7 @@ export interface FreezeState {
   noteRequired: boolean;
 }
 
-/** ¿Se puede pulsar «Congelar el Z»? Mismas reglas que el API (nightCloseRefusal). */
+/** ¿Se puede pulsar «Cerrar la noche»? Mismas reglas que el API (nightCloseRefusal). */
 export function freezeState(
   steps: ReadonlyArray<NightCloseStep>,
   acks: ReadonlyArray<NightCloseStepKey>,
@@ -305,6 +305,19 @@ export function stepTab(link: NightCloseLink | null, tabs: ReadonlyArray<PanelTa
   if (!link) return null;
   const key: TabKey = link;
   return tabs.find((t) => t.key === key) ?? null;
+}
+
+/**
+ * ¿Se pinta abierto este paso? (entrega 10 A). El que llegó «Listo» en la
+ * primera carga, plegado; el que se pone «Listo» con la pantalla abierta, como
+ * estaba (así «Ver si cuadra» no esconde «Volver a contar» y el refresco no
+ * mueve nada) hasta que se toque su fila (`elegido`). Lo que no está listo,
+ * siempre abierto; el informe Z, también.
+ */
+export function pasoAbierto(p: { key: NightCloseStepKey; status: NightCloseStatus; listoAlCargar: boolean; elegido?: boolean }): boolean {
+  if (p.key === 'z' || p.status !== 'ok') return true;
+  if (p.elegido !== undefined) return p.elegido;
+  return !p.listoAlCargar;
 }
 
 /** Cuántos pasos están listos (para la barra de progreso): los ok y los avisos ya confirmados. */

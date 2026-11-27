@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { Button, ScreenHelp } from '@nightpay/ui';
+import { Button, Icon, ScreenHelp } from '@nightpay/ui';
 import { TOURS } from '@/lib/tours';
 import type { NightChicaPay, NightCloseCheck, NightCloseStep, NightCloseStepKey } from '@nightpay/contracts';
 import { NightCloseRefused, closeNight, countCash, fetchCloseCheck, type NightView, type PayoutMethod } from '@/lib/api';
@@ -22,6 +22,7 @@ import {
   firstCountOf,
   firstCountToSend,
   freezeState,
+  pasoAbierto,
   readyCount,
   stepTab,
   toggleAck,
@@ -49,15 +50,16 @@ interface Props {
   onNavigate: (key: TabKey) => void;
   /** Volver sin cerrar. */
   onClose: () => void;
-  /** La noche quedó cerrada (tras ver el Z congelado). */
+  /** La noche quedó cerrada (tras ver el informe Z ya fijo). */
   onClosed: () => void;
 }
 
 /**
  * Cerrar la noche en pasos (pantalla completa en el móvil): cobros sin
  * terminar, datáfonos, saldo por devolver, el arqueo de caja, pagar a las
- * chicas, incidencias y congelar el Z. «Congelar el Z» se habilita cuando
+ * chicas, incidencias y el informe Z. «Cerrar la noche» se habilita cuando
  * nada bloquea y los avisos están confirmados (mismas reglas que el API).
+ * Lo que llega «Listo» en la primera carga sale plegado (pasoAbierto).
  */
 export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, onClosed }: Props) {
   const tz = useVenueTimezone();
@@ -89,6 +91,10 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [closed, setClosed] = useState<NightView | null>(null);
+  /** Los pasos que llegaron «Listo» en la primera carga (salen plegados). */
+  const [firstReady, setFirstReady] = useState<ReadonlySet<NightCloseStepKey> | null>(null);
+  /** Las filas que se tocaron: abiertas (true) o plegadas (false). */
+  const [chosen, setChosen] = useState<Partial<Record<NightCloseStepKey, boolean>>>({});
 
   const refresh = usePolling(
     async (signal) => {
@@ -96,6 +102,16 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
         const next = await fetchCloseCheck();
         if (signal.aborted) return true;
         setLoadError(null);
+        // La primera carga, sin nada tecleado: lo que ya está listo sale plegado.
+        setFirstReady(
+          (prev) =>
+            prev ??
+            new Set(
+              closeSteps(next.steps, next.cash, { floatText: '', countedText: '' }, { countDone: false, floatApproved: false })
+                .filter((st) => st.status === 'ok')
+                .map((st) => st.key),
+            ),
+        );
         // generatedAt cambia en cada vuelta: si lo demás es igual, no se repinta.
         setCheck((prev) => (prev && sameValue({ ...prev, generatedAt: '' }, { ...next, generatedAt: '' }) ? prev : next));
         return true;
@@ -202,6 +218,8 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
               acked={acks.includes(step.key)}
               onAck={(on) => ackStep(step.key, on)}
               disabled={busy}
+              open={pasoAbierto({ key: step.key, status: step.status, listoAlCargar: firstReady?.has(step.key) ?? false, elegido: chosen[step.key] })}
+              onToggle={(open) => setChosen((prev) => ({ ...prev, [step.key]: open }))}
             >
               {step.key === 'efectivo' ? (
                 <>
@@ -267,13 +285,11 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
             <button
               type="button"
               className="np-modal-close"
-              aria-label={closed ? 'Volver a Noches' : 'Volver sin cerrar'}
+              aria-label={closed ? 'Volver' : 'Volver sin cerrar'}
               onClick={closed ? onClosed : onClose}
               disabled={busy}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-                <path d="M6 6l12 12M18 6 6 18" strokeLinecap="round" />
-              </svg>
+              <Icon name="close" size={20} />
             </button>
           </div>
           <h2 id={titleId} ref={headingRef} tabIndex={-1} className="np-close-title">
@@ -299,10 +315,10 @@ export function NightCloseScreen({ night, isOwner, tabs, onNavigate, onClose, on
               </p>
             ) : null}
             <Button size="lg" className="np-close-freeze" onClick={() => void freezeZ()} disabled={!freeze.canFreeze} loading={busy} data-tour="cierre-congelar">
-              Congelar el Z
+              Cerrar la noche
             </Button>
             <p className="np-close-hint" aria-live="polite">
-              {freeze.reason ?? 'Todo listo: al congelarlo, el Z y la caja de esta noche ya no cambian.'}
+              {freeze.reason ?? 'Todo listo. Al cerrar, el informe Z y la caja de esta noche quedan fijos.'}
             </p>
           </footer>
         ) : null}
@@ -339,6 +355,8 @@ function StepCard({
   acked,
   onAck,
   disabled,
+  open,
+  onToggle,
   children,
 }: {
   n: number;
@@ -348,9 +366,34 @@ function StepCard({
   acked: boolean;
   onAck: (on: boolean) => void;
   disabled: boolean;
+  /** pasoAbierto: plegado, un paso listo es una fila de 48 que se abre al tocarla. */
+  open: boolean;
+  onToggle: (open: boolean) => void;
   children?: ReactNode;
 }) {
   const ackId = useId();
+  const bodyId = useId();
+  // Se pliega lo que está listo (el informe Z, nunca).
+  const foldable = step.status === 'ok' && step.key !== 'z';
+  if (foldable && !open) {
+    return (
+      <li className="np-close-step" data-status={step.status} data-folded="">
+        <button type="button" className="np-close-fold" aria-expanded={false} onClick={() => onToggle(true)}>
+          <span className="np-close-mark" aria-hidden="true">
+            <Icon name="check" size={20} />
+          </span>
+          <span className="np-close-fold-title">
+            <span className="np-close-step-n">{n}</span>
+            {step.title}
+          </span>
+          <span className="np-close-badge" data-status={step.status}>
+            {STATUS_LABEL[step.status]}
+          </span>
+          <Icon name="chevron-right" size={20} className="np-close-fold-arrow" />
+        </button>
+      </li>
+    );
+  }
   // Efectivo y chicas enseñan lo suyo; el resto, la lista de lo que falta.
   const items = step.key === 'efectivo' || step.key === 'chicas' ? [] : step.items;
   return (
@@ -358,11 +401,20 @@ function StepCard({
       <span className="np-close-mark" aria-hidden="true">
         <StatusIcon status={step.status} />
       </span>
-      <div className="np-close-step-body">
+      <div className="np-close-step-body" id={bodyId}>
         <div className="np-close-step-top">
           <h3 className="np-close-step-title">
-            <span className="np-close-step-n">{n}</span>
-            {step.title}
+            {foldable ? (
+              <button type="button" className="np-close-step-toggle" aria-expanded={true} aria-controls={bodyId} onClick={() => onToggle(false)}>
+                <span className="np-close-step-n">{n}</span>
+                {step.title}
+              </button>
+            ) : (
+              <>
+                <span className="np-close-step-n">{n}</span>
+                {step.title}
+              </>
+            )}
           </h3>
           <span className="np-close-badge" data-status={step.status}>
             {STATUS_LABEL[step.status]}
@@ -410,7 +462,10 @@ function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void 
   return (
     <div className="np-close-done">
       <p className="np-close-done-lead">
-        Z congelado a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'} · {lines.cobrado} · {Z_NET_LABEL}:{' '}
+        Noche cerrada a las {night.closedAt ? formatDateTime(night.closedAt, tz, 'time') : '—'}. El informe Z queda fijo.
+      </p>
+      <p className="np-close-done-lead">
+        {lines.cobrado} · {Z_NET_LABEL}:{' '}
         <strong className="np-num">{formatEur(s.netCents)}</strong>.
       </p>
       <p className="np-close-done-lead">{lines.card}</p>
@@ -422,35 +477,14 @@ function ClosedResult({ night, onDone }: { night: NightView; onDone: () => void 
           Avisos hasta que se resuelva.
         </Notice>
       ) : null}
-      <Button onClick={onDone}>Volver a Noches</Button>
+      <Button onClick={onDone}>Volver</Button>
     </div>
   );
 }
 
-/** Tick, aviso o bloqueo (además del texto: no solo color). */
+/** Visto, aviso o bloqueo (además del texto: no solo color), los de Etiqueta. */
 function StatusIcon({ status }: { status: NightCloseStep['status'] }) {
-  const common = { width: 22, height: 22, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.4 } as const;
-  if (status === 'ok') {
-    return (
-      <svg {...common}>
-        <path d="M5 12.5l4.5 4.5L19 7.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  if (status === 'warn') {
-    return (
-      <svg {...common}>
-        <path d="M12 8v5M12 16.5h.01" strokeLinecap="round" />
-        <path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" strokeLinejoin="round" />
-      </svg>
-    );
-  }
-  return (
-    <svg {...common}>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M5.6 5.6l12.8 12.8" strokeLinecap="round" />
-    </svg>
-  );
+  return <Icon name={status === 'ok' ? 'check' : status === 'warn' ? 'alert' : 'error'} size={20} />;
 }
 
 /**

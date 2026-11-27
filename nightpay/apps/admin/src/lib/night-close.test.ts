@@ -19,6 +19,7 @@ import {
   firstCountOf,
   firstCountToSend,
   pendingHeading,
+  pasoAbierto,
   pendingTodo,
   readyCount,
   stepTab,
@@ -52,7 +53,7 @@ const STEPS: NightCloseStep[] = [
   step('efectivo', 'block', 'Efectivo'),
   step('chicas', 'ok', 'Pagar al personal'),
   step('incidencias', 'ok', 'Incidencias abiertas'),
-  step('z', 'ok', 'Congelar el Z'),
+  step('z', 'ok', 'Informe Z'),
 ];
 
 describe('efectivo tecleado', () => {
@@ -402,5 +403,27 @@ describe('cierre a ciegas de la encargada: el paso «Efectivo» lo dice el API',
     expect(blindCountInput({ floatText: '', countedText: '' })).toBeNull();
     // Cambiar el fondo apuntado no se decide aquí (el panel no lo sabe): lo dice el API.
     expect(floatChangeCode(HIDDEN, { floatText: '50', countedText: '140' }, { isOwner: false, code: '' })).toEqual({ needed: false });
+  });
+});
+
+describe('pasos listos plegados (entrega 10 A, idea 20)', () => {
+  it('un paso que llega «Listo» en la primera carga sale plegado', () => {
+    expect(pasoAbierto({ key: 'cobros', status: 'ok', listoAlCargar: true })).toBe(false);
+  });
+
+  it('uno que se pone «Listo» con la pantalla abierta sigue abierto (no esconde «Volver a contar»)', () => {
+    expect(pasoAbierto({ key: 'efectivo', status: 'ok', listoAlCargar: false })).toBe(true);
+  });
+
+  it('el informe Z, siempre abierto', () => {
+    expect(pasoAbierto({ key: 'z', status: 'ok', listoAlCargar: true })).toBe(true);
+    expect(pasoAbierto({ key: 'z', status: 'ok', listoAlCargar: true, elegido: false })).toBe(true);
+  });
+
+  it('tocar la fila manda; lo que no está listo nunca se pliega', () => {
+    expect(pasoAbierto({ key: 'cobros', status: 'ok', listoAlCargar: true, elegido: true })).toBe(true);
+    expect(pasoAbierto({ key: 'efectivo', status: 'ok', listoAlCargar: false, elegido: false })).toBe(false);
+    expect(pasoAbierto({ key: 'saldo', status: 'warn', listoAlCargar: true, elegido: false })).toBe(true);
+    expect(pasoAbierto({ key: 'efectivo', status: 'block', listoAlCargar: true })).toBe(true);
   });
 });

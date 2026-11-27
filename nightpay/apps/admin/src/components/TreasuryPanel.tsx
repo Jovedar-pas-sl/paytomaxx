@@ -19,6 +19,7 @@ import type { TabKey } from '@/lib/roles';
 import { Notice } from './Notice';
 import { PayoutBatchList } from './PayoutBatchList';
 import { PAYOUT_METHOD_LABELS } from './PayoutMethodForm';
+import { Skel } from './Skeleton';
 
 interface Props {
   isOwner: boolean;
@@ -71,16 +72,20 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
     setReconcileResult(null);
     try {
       const result = await reconcilePending();
-      setReconcileResult({ ok: true, text: `Reconciliación: ${result.matched}/${result.checked} verificados.` });
+      setReconcileResult({ ok: true, text: `Comprobados ${result.matched} de ${result.checked} pagos.` });
       reload();
     } catch (err) {
-      setReconcileResult({ ok: false, text: `No se pudo reconciliar: ${(err as Error).message}` });
+      setReconcileResult({ ok: false, text: `No se pudo comprobar: ${(err as Error).message}` });
     } finally {
       setReconciling(false);
     }
   }
 
   const liveRate = rate && rate !== 'unavailable' ? rate : null;
+  const methods = stats ? Object.keys(stats.byMethod) : [];
+  // Las cifras de USDT, solo si alguien cobra en cripto; «Comprobar…», solo con USDT o USDC (lo que mira la red).
+  const crypto = methods.some(isCryptoMethod);
+  const onChain = methods.some((m) => m.startsWith('USDT_') || m.startsWith('USDC_'));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -93,12 +98,18 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
       ) : null}
 
       {stats === null ? (
-        error ? null : <p style={loadingText}>Cargando treasury…</p>
+        error ? null : (
+          <div role="status" aria-busy="true" style={metricsGrid}>
+            <Skel height="7rem" />
+            <Skel height="7rem" />
+            <span className="np-sr-only">Cargando los pagos a compañeras…</span>
+          </div>
+        )
       ) : (
         <>
           <section style={metricsGrid}>
             <MetricTile
-              title="Saldo pendiente a compañeras"
+              title="Por pagar a compañeras"
               value={formatEur(stats.pendingPayoutsCents)}
               subtitle={pendingSubtitle(stats)}
               highlight
@@ -108,6 +119,8 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
               value={String(stats.payoutsThisMonthCount)}
               subtitle={formatEur(stats.payoutsThisMonthCents)}
             />
+            {crypto ? (
+              <>
             <MetricTile
               title={liveRate?.degraded ? 'EUR → USDT (aproximada)' : 'EUR → USDT (Binance)'}
               value={liveRate ? formatDecimal(liveRate.rate, 4) : '—'}
@@ -126,18 +139,19 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
               title="USDT necesarios (pendiente)"
               value={liveRate ? formatDecimal((stats.pendingPayoutsCents / 100) * liveRate.rate, 2) : '—'}
               unit={liveRate ? 'USDT' : undefined}
-              subtitle={liveRate ? 'Para liquidar todos los pendientes' : 'Sin tasa no se calcula'}
+              subtitle={liveRate ? 'Para pagar todo lo pendiente' : 'Sin tasa no se calcula'}
             />
+              </>
+            ) : null}
           </section>
 
-          {isOwner ? (
+          {isOwner && onChain ? (
             <Card style={{ padding: '1.25rem' }}>
               <div style={reconcileRow}>
                 <div>
-                  <h3 style={sectionTitle}>Reconciliación on-chain</h3>
+                  <h3 style={sectionTitle}>Comprobar pagos en criptomoneda</h3>
                   <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
-                    Recorre los pagos sin verificar con hash on-chain y reintenta contra Tronscan / BscScan /
-                    Polygonscan / Solscan.
+                    Mira en la red de cada criptomoneda si han llegado los pagos que aún no están comprobados.
                   </p>
                   {reconcileResult ? (
                     <p
@@ -153,14 +167,14 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
                   ) : null}
                 </div>
                 <Button onClick={handleReconcile} loading={reconciling}>
-                  Reconciliar ahora
+                  Comprobar ahora
                 </Button>
               </div>
             </Card>
           ) : null}
 
           <Card style={{ padding: '1.25rem' }}>
-            <h3 style={sectionTitle}>Payouts por método</h3>
+            <h3 style={sectionTitle}>Pagos por forma de pago</h3>
             <div style={splitGrid}>
               {Object.entries(stats.byMethod).map(([method, count]) => (
                 <SplitTile
@@ -174,17 +188,16 @@ export function TreasuryPanel({ isOwner, onNavigate }: Props) {
                 />
               ))}
               {Object.keys(stats.byMethod).length === 0 ? (
-                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.875rem', margin: 0 }}>Sin payouts todavía.</p>
+                <p style={{ color: 'var(--np-text-dim)', fontSize: '0.875rem', margin: 0 }}>Aún no has pagado a nadie.</p>
               ) : null}
             </div>
           </Card>
 
           <Card style={{ padding: '1.25rem' }}>
-            <h3 style={sectionTitle}>Estado de reconciliación</h3>
+            <h3 style={sectionTitle}>Pagos comprobados</h3>
             {Object.keys(stats.byReconciliationStatus).length === 0 ? (
               <p style={{ color: 'var(--np-text-mute)', fontSize: '1rem', margin: 0 }}>
-                Todavía no hay pagos a compañeras que reconciliar. Cuando pagues a una, aquí verás cuántos pagos están
-                verificados, cuáles esperan y cuáles no cuadran.
+                Aún no has pagado a ninguna compañera. Cuando le pagues, aquí verás cuántos pagos están comprobados, cuáles esperan y cuáles no cuadran.
               </p>
             ) : (
               <div style={splitGrid}>
@@ -207,6 +220,17 @@ function pendingSubtitle(stats: TreasuryStats): string {
   if (stats.bankHeldPayoutsCents) parts.push(`${formatEur(stats.bankHeldPayoutsCents)} pendientes de cuadrar con el banco`);
   if (stats.operatorDebtCents) parts.push(`deuda por devoluciones ${formatEur(stats.operatorDebtCents)}`);
   return parts.join(' · ');
+}
+
+/** Las formas de pago en cripto (las que necesitan la tasa EUR → USDT). */
+function isCryptoMethod(method: string): boolean {
+  return (
+    method.startsWith('USDT_') ||
+    method.startsWith('USDC_') ||
+    method === 'BINANCE_PAY_ID' ||
+    method === 'OKX_INTERNAL' ||
+    method === 'BYBIT_INTERNAL'
+  );
 }
 
 function reconciliationLabel(status: string): string {
@@ -339,11 +363,4 @@ const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: '1rem',
   fontWeight: 600,
-};
-
-const loadingText: CSSProperties = {
-  textAlign: 'center',
-  color: 'var(--np-text-dim)',
-  padding: '3rem 1rem',
-  margin: 0,
 };
