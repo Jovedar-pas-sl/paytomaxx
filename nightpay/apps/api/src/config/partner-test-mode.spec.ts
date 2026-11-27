@@ -1,3 +1,5 @@
+import { spawnSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { InvalidEnvError, parseEnv } from './env';
 import { PARTNER_TEST_MODE_MESSAGES, testHelpersOn } from './partner-test-mode';
@@ -23,6 +25,8 @@ const PROD: Record<string, string> = {
   NEXT_PUBLIC_API_URL: 'https://api.paytomaxx.com',
   CORS_ORIGINS: 'https://admin.paytomaxx.com,https://operator.paytomaxx.com',
 };
+
+const PROD_ENV = PROD;
 
 /** La demo limpia (fase H del despliegue). */
 const DEMO: Record<string, string> = {
@@ -87,6 +91,8 @@ describe('freno de la demo: la demo limpia', () => {
 describe('freno de la demo: las ayudas solo con la API en test', () => {
   it('con PARTNER_TEST_HELPERS=1 en live, apagada o sin modo, en cualquier NODE_ENV: no arranca', () => {
     const msg = PARTNER_TEST_MODE_MESSAGES.helpersOutsideDemo;
+    // Base y Redis locales: aquí solo se mira el modo (los hosts, en su bloque).
+    const PROD = { ...PROD_ENV, DATABASE_URL: 'postgresql://u:p@localhost:5432/db', REDIS_URL: 'redis://localhost:6379' };
     expectOnly({ ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'live', ORIGIN_AUTH_SECRET: 'x'.repeat(40), PARTNER_TEST_HELPERS: '1' }, 'PARTNER_TEST_HELPERS', msg);
     expectOnly({ ...PROD, PARTNER_TEST_HELPERS: '1' }, 'PARTNER_TEST_HELPERS', msg);
     for (const NODE_ENV of ['development', 'test']) {
@@ -162,4 +168,49 @@ describe('freno de la demo: en producción, ni la dirección ni la base ni el Re
   it('en development con las ayudas, la base y la dirección locales valen (solo el dinero real se frena)', () => {
     expect(issues({ ...DEMO, NODE_ENV: 'development', DATABASE_URL: 'postgresql://u:p@localhost:5432/db', REDIS_URL: 'redis://localhost:6379', NEXT_PUBLIC_API_URL: 'http://localhost:4100' })).toBeNull();
   });
+});
+
+describe('freno de la demo: con las ayudas, en cualquier NODE_ENV, ni túnel a producción ni sus secretos', () => {
+  const DEV = { ...DEMO, NODE_ENV: 'development', NEXT_PUBLIC_API_URL: 'http://localhost:4100' };
+
+  it.each(['DATABASE_URL', 'REDIS_URL', 'WALLET_EVENTS_DATABASE_URL'])('%s por un túnel (host que no es local ni de la demo): no arranca', (name) => {
+    const value = name === 'REDIS_URL' ? 'redis://10.0.0.7:6379' : 'postgresql://u:clave-real@tunel.interno:5432/db';
+    expectOnly({ ...DEV, [name]: value }, name, PARTNER_TEST_MODE_MESSAGES.helperStores);
+    expectOnly({ ...DEMO, NODE_ENV: 'test', [name]: value }, name, PARTNER_TEST_MODE_MESSAGES.helperStores);
+  });
+
+  it('localhost, 127.0.0.1 y un host con «demo» valen', () => {
+    expect(issues({ ...DEV, DATABASE_URL: 'postgresql://u:p@127.0.0.1:5432/db', REDIS_URL: 'redis://localhost:6379' })).toBeNull();
+    expect(issues({ ...DEV, DATABASE_URL: 'postgresql://u:p@nightpay-demo-postgres:5432/db', REDIS_URL: 'redis://nightpay-demo-redis:6379' })).toBeNull();
+  });
+
+  it('sin las ayudas, el entorno local de siempre no cambia', () => {
+    expect(issues({ ...PROD, NODE_ENV: 'development', DATABASE_URL: 'postgresql://u:p@tunel.interno:5432/db', TELEGRAM_BOT_TOKEN: '123456:ABCDEF' })).toBeNull();
+  });
+
+  it.each([
+    ['TELEGRAM_BOT_TOKEN', '123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-ra'],
+    ['REDSYS_SECRET_KEY', 'sq7HjrUOBfKmC576ILgskD5srU870gJ7'],
+  ])('con %s puesto: no arranca (ni en producción ni en development)', (name, value) => {
+    expectOnly({ ...DEV, [name]: value }, name, PARTNER_TEST_MODE_MESSAGES.secret(name));
+    expectOnly({ ...DEMO, [name]: value }, name, PARTNER_TEST_MODE_MESSAGES.secret(name));
+  });
+});
+
+describe('la semilla de la demo pasa por el mismo freno', () => {
+  it('con la base por un túnel: sale con 1 antes de abrir la base', () => {
+    const env = {
+      ...DEMO,
+      NODE_ENV: 'development',
+      NEXT_PUBLIC_API_URL: 'http://localhost:4100',
+      DATABASE_URL: 'postgresql://u:clave-real@tunel.interno:5432/db',
+      PATH: process.env.PATH ?? '',
+    };
+    const api = resolve(__dirname, '../..');
+    const out = spawnSync(resolve(api, 'node_modules/.bin/tsx'), ['scripts/partner-demo-seed.ts'], { cwd: api, env, encoding: 'utf8', timeout: 60_000 });
+    expect(out.status).toBe(1);
+    expect(out.stderr).toContain('entorno inválido (DATABASE_URL)');
+    expect(out.stderr).toContain(PARTNER_TEST_MODE_MESSAGES.helperStores);
+    expect(out.stderr + out.stdout).not.toContain('clave-real');
+  }, 60_000);
 });
