@@ -97,7 +97,14 @@ export interface MoneyMapInput {
   /** Saldo devuelto al cliente en el periodo (hechas). */
   walletPayouts: { cashCents: number; cashCount: number; cardCents: number };
   payouts: readonly MoneyMapPayoutGroup[];
-  cashBox: { openingFloatCents: number | null; inCents: number; outCents: number; expectedCents: number };
+  cashBox: {
+    openingFloatCents: number | null;
+    inCents: number;
+    outCents: number;
+    expectedCents: number;
+    /** El efectivo de los cajeros de otras plataformas (fuera de la caja; ya está en topUps.cashCents). Sin él: 0. */
+    partnerCashCents?: number;
+  };
   /** Tasa del banco (BANK_CARD_FEE_BPS); null = no se sabe. */
   bankFeeBps: number | null;
   liveSaldoCents: number | null;
@@ -236,7 +243,10 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
   // El dinero entra entero (también la comisión del servicio): al banco, la de tarjeta.
   const bbvaCents = cardRailCents + i.topUps.cardCents + feeCardCents - i.cardRefunds.cents;
   const cashBoxCents = i.cashBox.expectedCents;
-  const totalCents = bbvaCents + cashBoxCents + bitcoinWalletCents;
+  // En los cajeros de otras plataformas: una sola vez (no está en cashBoxCents). Cuadra porque
+  // topUps.cashCents, y con él el saldo de los clientes (owners.saldoCents), ya lo incluyen.
+  const partnerCashCents = i.cashBox.partnerCashCents ?? 0;
+  const totalCents = bbvaCents + cashBoxCents + partnerCashCents + bitcoinWalletCents;
   const staffCents = i.staff.chicas.unpaidCents + i.staff.camareros.unpaidCents;
   const topUpsCents = i.topUps.cardCents + i.topUps.cashCents + bitcoinTopUpCents;
   const saldoLeftCents = topUpsCents - saldoCents - i.walletPayouts.cashCents - i.walletPayouts.cardCents;
@@ -282,6 +292,7 @@ export function buildMoneyMap(i: MoneyMapInput): MoneyMap {
       ...(hasBitcoin ? { bitcoinCents: bitcoinWalletCents } : {}),
       cashBoxCents,
       cashBox: { openingFloatCents: i.cashBox.openingFloatCents, inCents: i.cashBox.inCents, outCents: i.cashBox.outCents },
+      ...(partnerCashCents !== 0 ? { partnerCashCents } : {}),
       totalCents,
       owners: {
         venueCents: totalCents - staffCents - saldoLeftCents - oxioPayCents - paidOutCents - commissionsCents,

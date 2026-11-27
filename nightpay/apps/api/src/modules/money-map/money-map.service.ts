@@ -57,7 +57,7 @@ export interface CurrentWindow extends TimeWindow {
 }
 
 /** Lo que el mapa lee de la caja de la noche (NightCash o el bloque «Caja» del Z). */
-export type CashBoxLike = Pick<NightCash, 'openingFloatCents' | 'cashInCents' | 'cashOutCents' | 'expectedCents'>;
+export type CashBoxLike = Pick<NightCash, 'openingFloatCents' | 'cashInCents' | 'cashOutCents' | 'expectedCents' | 'partnerCash'>;
 
 type Num = number | bigint | null;
 const n = (v: Num | undefined): number => Number(v ?? 0);
@@ -245,6 +245,8 @@ export class MoneyMapService {
         inCents: cash.cashInCents,
         outCents: cash.cashOutCents,
         expectedCents: cash.expectedCents,
+        // «Caja · {socio}» de la caja (la del Z, si la hay): fuera del cajón, una sola vez en el total.
+        partnerCashCents: (cash.partnerCash ?? []).reduce((a, l) => a + l.cents, 0),
       },
       bankFeeBps: this.bankFeeBps,
       liveSaldoCents: live?.saldoCents ?? null,
