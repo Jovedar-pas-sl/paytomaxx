@@ -387,11 +387,30 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     const first = await sys((tx) => tx.refund.findFirstOrThrow({ where: { paymentId: direct } }));
     expect(first).toMatchObject({ status: 'SUCCEEDED', amountCents: 1100, serviceFeeCents: 95 });
     expect(await earningsOf(direct)).toMatchObject([{ reversedCents: 910 }]);
+    // El justificante lo dice: «Devuelto: 11,00 €» (antes de devolver, sin esa línea).
+    const directToken = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: direct }, select: { qrToken: true } }))).qrToken;
+    expect(await inVenue(undefined, () => payments.getReceipt(directToken))).toMatchObject({ refundedCents: 1100 });
+    const posToken = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: posPay }, select: { qrToken: true } }))).qrToken;
+    expect(await inVenue(undefined, () => payments.getReceipt(posToken))).not.toHaveProperty('refundedCents');
     // El datáfono, devuelto entero: toda su comisión.
     await inVenue(L.V, () => refunds.refund({ paymentId: posPay, amountCents: 3630, reason: 'Todo', idempotencyKey: randomUUID() }, ownerActor(L)));
+    expect(await inVenue(undefined, () => payments.getReceipt(posToken))).toMatchObject({ amountCents: 3300, serviceFeeCents: 330, refundedCents: 3630 });
     expect(await sys((tx) => tx.refund.findFirstOrThrow({ where: { paymentId: posPay } }))).toMatchObject({ serviceFeeCents: 330 });
     expect(await paymentOf(posPay)).toMatchObject({ status: 'REFUNDED', availableAmountCents: 0 });
     expect(await earningsOf(posPay)).toMatchObject([{ reversedCents: 2970 }]);
+  });
+
+  it('justificante por correo: seis envíos a la vez, solo tres apartados (tope de 3 con el cobro bloqueado); quitar uno deja otro', async () => {
+    const tries = await Promise.all(Array.from({ length: 6 }, () => inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'es'))));
+    const kept = tries.filter((id): id is bigint => id !== null);
+    expect(kept).toHaveLength(3);
+    const count = () => sys((tx) => tx.paymentEvent.count({ where: { paymentId: direct, eventType: 'receipt.emailed' } }));
+    expect(await count()).toBe(3);
+    // Resend no lo aceptó: el apunte fuera, y queda sitio para otro.
+    await inVenue(undefined, () => payments.releaseReceiptEmail(kept[0]!));
+    expect(await count()).toBe(2);
+    expect(await inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'en'))).not.toBeNull();
+    expect(await inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'en'))).toBeNull();
   });
 
   it('«Terminar devolución» pedida antes: solo el saldo (a la tarjeta lo que entró con tarjeta, en efectivo lo de efectivo); la comisión se queda', async () => {

@@ -244,6 +244,7 @@ const pay: PayText = {
     serviceFee: 'Taxa de serviço',
     tip: 'Gorjeta',
     total: 'Total cobrado',
+    refunded: 'Devolvido',
     method: 'Método',
     wallet: 'Apple Pay ou Google Pay',
     card: 'Cartão',

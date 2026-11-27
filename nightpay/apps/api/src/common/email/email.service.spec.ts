@@ -85,3 +85,24 @@ describe('EmailService: tiempo máximo', () => {
     timeout.mockRestore();
   });
 });
+
+describe('EmailService: el remitente (EMAIL_FROM)', () => {
+  const make = (env: Record<string, string | undefined>) => new EmailService({ get: (k: string) => env[k] } as never);
+
+  it('lo que ve el cliente, solo con EMAIL_FROM; las invitaciones, con Resend como siempre', () => {
+    const noFrom = make({ RESEND_API_KEY: 're_x' });
+    expect(noFrom.isEnabled()).toBe(true);
+    expect(noFrom.hasOwnSender()).toBe(false);
+    expect(make({ RESEND_API_KEY: 're_x', EMAIL_FROM: '  ' }).hasOwnSender()).toBe(false);
+    expect(make({ RESEND_API_KEY: 're_x', EMAIL_FROM: 'Sala Luna <hola@salaluna.es>' }).hasOwnSender()).toBe(true);
+    expect(make({ EMAIL_FROM: 'Sala Luna <hola@salaluna.es>' }).hasOwnSender()).toBe(false);
+  });
+
+  it('con EMAIL_FROM, Resend recibe ese remitente', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await make({ RESEND_API_KEY: 're_x', EMAIL_FROM: 'Sala Luna <hola@salaluna.es>' }).send({ to: TO, subject: 's', html: 'h' });
+    const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body) as { from: string };
+    expect(body.from).toBe('Sala Luna <hola@salaluna.es>');
+  });
+});

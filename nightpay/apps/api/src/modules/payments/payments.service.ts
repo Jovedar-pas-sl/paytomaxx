@@ -61,7 +61,7 @@ import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf, 
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
 import { DISPLAY_TIP_EVENT } from '../customer-display/display-tip-event';
-import { RECEIPT_EMAILED_EVENT } from './receipt-email';
+import { RECEIPT_EMAIL_MAX, RECEIPT_EMAILED_EVENT } from './receipt-email';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -1681,6 +1681,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         orderBy: { createdAt: 'asc' },
         select: { providerTxId: true, payMethod: true, claimHash: true },
       });
+      // Lo devuelto (las devoluciones hechas), nunca más de lo cobrado: «Devuelto: X €».
+      const refunds = await tx.refund.aggregate({ where: { paymentId: payment.id, status: 'SUCCEEDED' }, _sum: { amountCents: true } });
+      const chargedCents = payment.amountCents + payment.serviceFeeCents + payment.tipCents;
+      const refundedCents = Math.min(Math.max(refunds._sum.amountCents ?? 0, 0), chargedCents);
       return {
         paymentId: payment.id,
         amountCents: payment.amountCents,
@@ -1697,24 +1701,28 @@ export class PaymentsService implements OnApplicationBootstrap {
         concept: payment.serviceName ?? null,
         cardLast4: payment.cardLast4 ?? null,
         approvedClaimHash: charged?.claimHash ?? null,
+        ...(refundedCents > 0 ? { refundedCents } : {}),
       };
     });
   }
 
   /**
-   * Cuántas veces se ha enviado ya el justificante de este cobro por correo
-   * (los apuntes `receipt.emailed`: solo los que Resend aceptó). Tope: 3.
+   * Aparta un envío del justificante por correo ANTES de enviarlo: con el cobro
+   * bloqueado (FOR UPDATE), cuenta los apuntes `receipt.emailed` y, si quedan
+   * (tope: 3), deja el suyo (sin la dirección: solo el idioma). Dos envíos a la
+   * vez esperan uno al otro: nunca pasan del tope. Devuelve el apunte, o null
+   * si ya no quedan. Si Resend no lo acepta, releaseReceiptEmail lo quita.
    */
-  async receiptEmailsSent(paymentId: string): Promise<number> {
-    return this.prisma.asSystem((tx) => tx.paymentEvent.count({ where: { paymentId, eventType: RECEIPT_EMAILED_EVENT } }));
-  }
-
-  /** Apunta un justificante enviado por correo (sin la dirección: solo el idioma). */
-  async recordReceiptEmailed(paymentId: string, lang: string): Promise<void> {
-    await this.prisma.asSystem(async (tx) => {
-      const p = await tx.payment.findUnique({ where: { id: paymentId }, select: { tenantId: true } });
-      if (!p) return;
-      await tx.paymentEvent.create({
+  async reserveReceiptEmail(paymentId: string, lang: string): Promise<bigint | null> {
+    return this.prisma.asSystem(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ tenantId: string }>>`
+        SELECT "tenantId"::text AS "tenantId" FROM payments WHERE id = ${paymentId}::uuid FOR UPDATE
+      `;
+      const p = locked[0];
+      if (!p) return null;
+      const sent = await tx.paymentEvent.count({ where: { paymentId, eventType: RECEIPT_EMAILED_EVENT } });
+      if (sent >= RECEIPT_EMAIL_MAX) return null;
+      const event = await tx.paymentEvent.create({
         data: {
           paymentId,
           tenantId: p.tenantId,
@@ -1722,8 +1730,17 @@ export class PaymentsService implements OnApplicationBootstrap {
           payload: { lang },
           traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
         },
+        select: { id: true },
       });
+      return event.id;
     });
+  }
+
+  /** Resend no aceptó el correo: el apunte apartado fuera (no cuenta para el tope). */
+  async releaseReceiptEmail(eventId: bigint): Promise<void> {
+    await this.prisma.asSystem((tx) =>
+      tx.paymentEvent.deleteMany({ where: { id: eventId, eventType: RECEIPT_EMAILED_EVENT } }),
+    );
   }
 
   private async checkoutOf(paymentId: string): Promise<PayRedirect> {

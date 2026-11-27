@@ -49,10 +49,11 @@ function makeController(opts: {
   /** Reservados: el enlace de la reserva del pago. */
   manageToken?: string | null;
   /** El correo (Resend): configurado o no, y lo que contesta. */
-  email?: { enabled?: boolean; send?: () => Promise<unknown> };
+  email?: { enabled?: boolean; sender?: boolean; send?: () => Promise<unknown> };
   /** Justificantes ya enviados por correo de este cobro. */
   emailsSent?: number;
 }) {
+  let emailsSent = opts.emailsSent ?? 0;
   const payments = {
     getResultView: vi.fn().mockResolvedValue(opts.view ?? null),
     getPayPage: vi.fn().mockResolvedValue(opts.page),
@@ -63,11 +64,19 @@ function makeController(opts: {
     getReceipt: vi.fn().mockResolvedValue(opts.receipt ?? null),
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
     reservationManageToken: vi.fn().mockResolvedValue(opts.manageToken ?? null),
-    receiptEmailsSent: vi.fn().mockResolvedValue(opts.emailsSent ?? 0),
-    recordReceiptEmailed: vi.fn().mockResolvedValue(undefined),
+    // El tope de 3 (apartado antes de enviar, con el cobro bloqueado): aquí, un contador.
+    reserveReceiptEmail: vi.fn(async () => {
+      if (emailsSent >= 3) return null;
+      emailsSent += 1;
+      return BigInt(emailsSent);
+    }),
+    releaseReceiptEmail: vi.fn(async () => {
+      emailsSent -= 1;
+    }),
   };
   const email = {
     isEnabled: vi.fn(() => opts.email?.enabled ?? false),
+    hasOwnSender: vi.fn(() => (opts.email?.enabled ?? false) && opts.email?.sender !== false),
     send: vi.fn(opts.email?.send ?? (async () => ({ ok: true, delivered: true }))),
   };
   const settings: Record<string, string | undefined> = {
@@ -1161,6 +1170,17 @@ describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', (
     expect((await page({ cookie: `${walletClaimCookieName('', 'qr-token-1')}=${'o'.repeat(43)}` })).html).not.toContain('id="mail"');
   });
 
+  it('con Resend pero sin EMAIL_FROM (saldría «noreply@paytomaxx.com»): «Enviármelo por correo» no sale y el POST no envía nada', async () => {
+    const { controller, email } = makeController({ receipt: RECEIPT, email: { enabled: true, sender: false } });
+    const { reply, sent } = fakeReply(COOKIE);
+    await controller.receipt('qr-token-1', 'es', COOKIE, reply, undefined);
+    expect(sent.body).not.toContain('id="mail"');
+    const posted = fakeReply(COOKIE);
+    await controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, 'api.oxio.es', 'https://api.oxio.es', undefined, posted.reply);
+    expect(posted.sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
+    expect(email.send).not.toHaveBeenCalled();
+  });
+
   it('?correo=enviado|error|tope lo dice (role=status); mal, bajo el campo y abierto; recargar no reenvía nada', async () => {
     const cases = {
       enviado: 'Enviado. Mira tu correo.',
@@ -1173,7 +1193,7 @@ describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', (
       await controller.receipt('qr-token-1', 'es', COOKIE, reply, correo);
       expect(nb(sent.body!)).toContain(`<p class="mailmsg noprint" role="status">${text}</p>`);
       expect(email.send).not.toHaveBeenCalled();
-      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+      expect(payments.reserveReceiptEmail).not.toHaveBeenCalled();
     }
     const { html } = await page({ cookie: COOKIE, correo: 'mal' });
     expect(html).toContain('<details class="mail noprint" id="mail" open>');
@@ -1181,6 +1201,22 @@ describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', (
     expect(html).toContain('<p class="err" id="mailErr" role="alert">Escribe bien tu correo.</p>');
     // Cualquier otra cosa, nada.
     expect((await page({ cookie: COOKIE, correo: '<b>' })).html).not.toContain('role="status"');
+  });
+
+  it('devuelto (parcial o total): «Devuelto» con lo devuelto tras el total, en los cuatro idiomas; sin devolución, nada', async () => {
+    expect((await page()).html).not.toMatch(/Devuelto|Refunded/);
+    for (const [lang, label, amount] of [
+      ['es', 'Devuelto', '11,00 €'],
+      ['en', 'Refunded', '€11.00'],
+      ['fr', 'Remboursé', '11,00 €'],
+      ['pt', 'Devolvido', '11,00 €'],
+    ] as const) {
+      const { controller } = makeController({ receipt: { ...RECEIPT, refundedCents: 1100 }, email: { enabled: true } });
+      const { reply, sent } = fakeReply();
+      await controller.receipt('qr-token-1', lang, undefined, reply, undefined);
+      const html = nb(sent.body!);
+      expect(html).toMatch(new RegExp(`<div class="tot"><dt>[^<]+</dt><dd>[^<]+</dd></div><div><dt>${label}</dt><dd>${amount.replace('.', '\\.')}</dd></div>`));
+    }
   });
 
   it('en los cuatro idiomas', async () => {
@@ -1252,7 +1288,8 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
     const mail = (email.send.mock.calls[0] as unknown as [{ to: string; subject: string; text: string; html: string }])[0];
     expect(mail.to).toBe('maria@gmail.com');
     expect(mail.subject.replace(/[\u00a0\u202f]/g, ' ')).toBe('Tu justificante de 35,00 €');
-    expect(payments.recordReceiptEmailed).toHaveBeenCalledWith(PAYMENT_ID, 'es');
+    expect(payments.reserveReceiptEmail).toHaveBeenCalledWith(PAYMENT_ID, 'es');
+    expect(payments.releaseReceiptEmail).not.toHaveBeenCalled();
   });
 
   it('el correo: fecha, local, importes, método SIN dígitos y código; sin lo pedido, sin enlace ni imágenes, escapado y con «Si no lo has pedido tú…»', async () => {
@@ -1274,6 +1311,15 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
     expect(mail.text).toContain('Pagado a: Sala <Aurora>');
     expect(mail.html).toContain('Sala &lt;Aurora&gt;');
     expect(mail.html).not.toContain('Sala <Aurora>');
+  });
+
+  it('el correo de un cobro devuelto lo dice: «Devuelto: 35,00 €» tras el total (texto y HTML)', async () => {
+    const { email } = await post({ receipt: { ...RECEIPT, refundedCents: 3500 } });
+    const mail = (email.send.mock.calls[0] as unknown as [{ text: string; html: string }])[0];
+    expect(mail.text.replace(/[\u00a0\u202f]/g, ' ')).toContain('Total cobrado: 35,00 €\nDevuelto: 35,00 €\n');
+    expect(mail.html.replace(/[\u00a0\u202f]/g, ' ')).toMatch(/>Devuelto<\/td><td[^>]*>35,00 €<\/td>/);
+    const plain = await post({});
+    expect((plain.email.send.mock.calls[0] as unknown as [{ text: string }])[0].text).not.toContain('Devuelto');
   });
 
   it('en el idioma de la página', async () => {
@@ -1299,7 +1345,7 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
       expect(sent.status).toBe(403);
       expect(sent.body).toContain('No se ha enviado');
       expect(email.send).not.toHaveBeenCalled();
-      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+      expect(payments.reserveReceiptEmail).not.toHaveBeenCalled();
     }
     // Sin Origin (o «null») pero el navegador dice que es de la misma web: sí.
     expect((await post({ origin: undefined, fetchSite: 'same-origin' })).sent.headers.Location).toContain('correo=enviado');
@@ -1332,7 +1378,9 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
       const { sent, payments } = await post({ send });
       expect(sent.status).toBe(303);
       expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
-      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+      // Apartado antes de enviar y quitado al fallar: no cuenta.
+      expect(payments.reserveReceiptEmail).toHaveBeenCalledTimes(1);
+      expect(payments.releaseReceiptEmail).toHaveBeenCalledWith(1n);
     }
     // El correo no configurado: no se envía nada.
     const off = await post({ enabled: false });
@@ -1340,12 +1388,28 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
     expect(off.email.send).not.toHaveBeenCalled();
   });
 
-  it('si el apunte falla tras enviarlo, «enviado» igualmente (el correo ya salió)', async () => {
+  it('el envío se aparta ANTES de enviar (dos a la vez no pasan del tope); si la base falla al apartarlo, ni se envía', async () => {
     const made = makeController({ receipt: RECEIPT, email: { enabled: true } });
-    made.payments.recordReceiptEmailed.mockRejectedValueOnce(new Error('base caída'));
-    const { reply, sent } = fakeReply(COOKIE);
-    await made.controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, HOST, `https://${HOST}`, undefined, reply);
-    expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=enviado');
+    const order: string[] = [];
+    made.payments.reserveReceiptEmail.mockImplementationOnce(async () => {
+      order.push('reserve');
+      return 7n;
+    });
+    made.email.send.mockImplementationOnce(async () => {
+      order.push('send');
+      return { ok: true, delivered: true };
+    });
+    const first = fakeReply(COOKIE);
+    await made.controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, HOST, `https://${HOST}`, undefined, first.reply);
+    expect(order).toEqual(['reserve', 'send']);
+    expect(first.sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=enviado');
+
+    made.payments.reserveReceiptEmail.mockRejectedValueOnce(new Error('base caída'));
+    const second = fakeReply(COOKIE);
+    await made.controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, HOST, `https://${HOST}`, undefined, second.reply);
+    expect(second.sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
+    expect(made.email.send).toHaveBeenCalledTimes(1);
+    expect(made.payments.releaseReceiptEmail).not.toHaveBeenCalled();
   });
 });
 

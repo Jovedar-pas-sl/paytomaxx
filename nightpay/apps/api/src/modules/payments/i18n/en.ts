@@ -238,6 +238,7 @@ const pay: PayText = {
     serviceFee: 'Service fee',
     tip: 'Tip',
     total: 'Total charged',
+    refunded: 'Refunded',
     method: 'Method',
     wallet: 'Apple Pay or Google Pay',
     card: 'Card',

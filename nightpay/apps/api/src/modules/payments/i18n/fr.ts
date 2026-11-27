@@ -249,6 +249,7 @@ const pay: PayText = {
     serviceFee: 'Frais de service',
     tip: 'Pourboire',
     total: 'Total débité',
+    refunded: 'Remboursé',
     method: 'Moyen de paiement',
     wallet: 'Apple Pay ou Google Pay',
     card: 'Carte',

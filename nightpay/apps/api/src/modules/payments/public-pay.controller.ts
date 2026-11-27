@@ -80,7 +80,7 @@ const PAY_STATUS_BY_TOKEN = {
 const PAY_STATUS_BY_ORDER = { ...PAY_STATUS_BY_TOKEN, perKey: { query: 'op', max: 120 } } as const;
 import { checkedPin } from '../wallets/client-pin';
 import { EmailService } from '../../common/email/email.service';
-import { RECEIPT_EMAIL_MAX, receiptEmail } from './receipt-email';
+import { receiptEmail } from './receipt-email';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
 const CheckoutFormSchema = z.object({
@@ -358,26 +358,30 @@ export class PublicPayController {
       back('mal');
       return;
     }
+    // El envío se aparta antes de enviar (con el cobro bloqueado): dos a la vez no pasan del tope de 3.
+    let reserved: bigint | null = null;
     try {
-      if ((await this.payments.receiptEmailsSent(receipt.paymentId)) >= RECEIPT_EMAIL_MAX) {
+      reserved = await this.payments.reserveReceiptEmail(receipt.paymentId, lang);
+      if (reserved === null) {
         back('tope');
         return;
       }
       const mail = receiptEmail(receipt, lang);
       const sent = await this.email!.send({ to: parsed.data.email, ...mail });
-      if (!sent.delivered) {
-        back('error');
+      if (sent.delivered) {
+        back('enviado');
         return;
       }
-      // Solo cuenta lo que Resend aceptó. Si el apunte falla, el correo ya salió: «Enviado» igual.
-      await this.payments.recordReceiptEmailed(receipt.paymentId, lang).catch((err: unknown) => {
-        this.logger.warn(`/pay/${token.slice(0, 4)}…: justificante enviado sin apuntar: ${(err as Error).message}`);
-      });
-      back('enviado');
     } catch (err) {
       this.logger.warn(`/pay/${token.slice(0, 4)}…: justificante por correo sin enviar: ${(err as Error).message}`);
-      back('error');
     }
+    // Solo cuenta lo que Resend aceptó: si no, el apunte apartado fuera.
+    if (reserved !== null) {
+      await this.payments.releaseReceiptEmail(reserved).catch((err: unknown) => {
+        this.logger.warn(`/pay/${token.slice(0, 4)}…: apunte del justificante sin quitar: ${(err as Error).message}`);
+      });
+    }
+    back('error');
   }
 
   @Public()
@@ -806,10 +810,10 @@ export class PublicPayController {
     return !(raw === false || raw === 'false' || raw === '0');
   }
 
-  /** El correo (Resend) configurado: sin él, «Enviármelo por correo» ni sale. */
+  /** El correo (Resend y su remitente, EMAIL_FROM) configurado: sin él, «Enviármelo por correo» ni sale. */
   private emailEnabled(): boolean {
     try {
-      return this.email?.isEnabled() === true;
+      return this.email?.hasOwnSender() === true;
     } catch {
       return false;
     }

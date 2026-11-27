@@ -219,6 +219,8 @@ export interface PayReceiptView {
   cardLast4?: string | null;
   /** Huella del navegador del intento aprobado (quién pagó): la cookie de este navegador tiene que dar esta. */
   approvedClaimHash?: string | null;
+  /** Lo devuelto (devoluciones hechas, total o parcial; 0 sin devolución): «Devuelto: X €». */
+  refundedCents?: number;
 }
 
 export const PAID_STATES: ReadonlySet<PaymentMachineState> = new Set<PaymentMachineState>([

@@ -37,6 +37,8 @@ export interface ScreenPayment {
   tipCents: number;
   /** A quién va la propina (operator, venue, shared, beneficiary; null: la de quien cobra). */
   tipGoesTo: string | null;
+  /** La pasarela que lo cobrará (la del cobro o la activa del local). La propina, solo con Redsys (como allowTip en /pay). */
+  gateway: string | null;
 }
 
 /** El cobro del saldo (la ficha, su PIN o el QR del saldo suelto). */
@@ -135,12 +137,14 @@ function qrOf(input: ScreenInput, openCard: boolean, openCharge: boolean, tipCen
 
 /**
  * La propina que se ofrece (la lógica de siempre: sugeridas del local para
- * este importe, tope = el importe y 500 €). Nunca en una recarga ni con
- * datáfono. La elegida solo si sigue siendo una de las que se ofrecen.
+ * este importe, tope = el importe y 500 €). Nunca en una recarga, con
+ * datáfono ni con una pasarela que no cobra propinas. La elegida solo si sigue siendo una de las que se ofrecen.
  */
 export function screenTipOf(input: ScreenInput, amountCents: number): CustomerScreenTip | null {
   const p = input.payment;
   if (!input.tip.on || p?.walletId || p?.captureMethod === 'POS_EXTERNAL') return null;
+  // Como allowTip en /pay: la propina con tarjeta solo la cobra Redsys (con Yavin u otra, /pay no la cobra).
+  if (p && p.gateway !== 'REDSYS') return null;
   const presets = tipPresetsFor(amountCents, input.tip.presets);
   const maxCents = maxTipCents(amountCents);
   const chosen = input.tip.chosenCents;
