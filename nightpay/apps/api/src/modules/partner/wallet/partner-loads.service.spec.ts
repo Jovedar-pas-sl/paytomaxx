@@ -23,6 +23,15 @@ const sql = vi.hoisted(() => ({
   partnerStatementSql: vi.fn(),
 }));
 vi.mock('./partner-loads.sql', () => sql);
+vi.mock('../../wallets/wallet-activation', () => ({ reopenData: vi.fn(async () => ({})) }));
+vi.mock('../../wallets/wallet-cash-limits', async (orig) => ({
+  ...(await orig<typeof import('../../wallets/wallet-cash-limits')>()),
+  walletCash: vi.fn(async () => ({ inWindowCents: 0, inWindowPaidCents: 0 })),
+}));
+vi.mock('../../wallets/wallet-merge-chain', async (orig) => ({
+  ...(await orig<typeof import('../../wallets/wallet-merge-chain')>()),
+  mergedWalletIds: vi.fn(async (_tx: unknown, id: string) => [id]),
+}));
 
 const KEY = 'ATM0042-20261205-000731-K7QM';
 const BODY: WalletLoadRequestBody = {
@@ -67,7 +76,7 @@ beforeEach(() => {
     { asSystem, withTenant: vi.fn() } as never,
     refs as never,
     { loadsPerWallet: vi.fn() } as never,
-    { loaded: vi.fn(), refused: vi.fn(), apiVoided: vi.fn() } as never,
+    { loaded: vi.fn(async () => undefined), refused: vi.fn(async () => undefined), apiVoided: vi.fn(async () => undefined) } as never,
     { log: vi.fn(), logInTx: vi.fn() } as never,
     { loadVoided: vi.fn() } as never,
     { assertForUser: vi.fn(), isEnabled: vi.fn() } as never,
@@ -161,5 +170,65 @@ describe('crear una carga', () => {
     expect(isLoadBusy(pgError('23505'))).toBe(false);
     expect(isLoadBusy(new Error('cualquier cosa'))).toBe(false);
     expect(isLoadBusy(pgError('55P03'))).toBe(true);
+  });
+});
+
+describe('la hora de una carga', () => {
+  it('es la de escribir, no la de mirar los topes: un cierre entre medias la deja en el Z siguiente', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const checked = new Date('2026-12-05T22:41:07.000Z');
+    const written = new Date('2026-12-05T22:41:09.500Z');
+    vi.setSystemTime(checked);
+    try {
+      sql.loadByKey.mockResolvedValue(null);
+      // Mirar los topes tarda: el reloj pasa (y un cierre de noche podría cortar justo aquí).
+      sql.loadWindowTotals.mockImplementation(async () => {
+        vi.setSystemTime(written);
+        return { wallet24h: 0, wallet24hAllPartners: 0, wallet30dPartner: 0, connectionNight: 0 };
+      });
+      const WALLET = '33333333-3333-4333-8333-333333333333';
+      refs.resolveLocked.mockResolvedValue({ wallet: { id: WALLET, balanceCents: 5000, status: 'ACTIVE' }, refKind: 'ficha_nfc' });
+      const rows: Record<string, Date> = {};
+      Object.assign(tx, {
+        venue: { findUnique: vi.fn(async () => ({ pausedAt: null, business: { status: 'ACTIVE' }, paymentMethods: null })) },
+        partnerConnection: {
+          findFirst: vi.fn(async () => ({
+            status: 'ACTIVE',
+            keyHash: auth.keyHash,
+            prevKeyHash: null,
+            prevKeyExpiresAt: null,
+            keyExpiresAt: null,
+            keySuspendedAt: null,
+            businessId: 'b',
+            scopes: ['wallet:load'],
+            pausedScopes: [],
+            collectionModel: 'VENUE_COLLECTS',
+            loadPerOpMaxCents: 30000,
+            loadWalletDayMaxCents: 60000,
+            loadNightMaxCents: 500000,
+            partner: { id: 'p', name: 'Cajeros', status: 'ACTIVE', allowedScopes: ['wallet:load'] },
+            venue: { deletedAt: null, businessId: 'b', business: { taxId: 'B00000000' } },
+          })),
+        },
+        clientWallet: { update: vi.fn(async () => ({})) },
+        walletCashTopUp: {
+          create: vi.fn(async ({ data }: { data: { createdAt: Date } }) => {
+            rows.cash = data.createdAt;
+            return { id: 'cash-1' };
+          }),
+        },
+        partnerWalletOperation: {
+          create: vi.fn(async ({ data }: { data: { createdAt: Date } }) => {
+            rows.load = data.createdAt;
+            return {};
+          }),
+        },
+      });
+      const out = await service.create(auth, { 'idempotency-key': KEY }, BODY, written.getTime());
+      expect(rows).toEqual({ cash: written, load: written });
+      expect(out.body.created_at).toBe(written.toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

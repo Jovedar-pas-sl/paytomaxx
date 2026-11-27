@@ -216,15 +216,16 @@ export class PartnerLoadsService {
             loadLimitDetail(hit.limit, caps.perOperationCents),
           );
         }
-        // 9. El saldo, la fila de caja, la LOAD y su registro, con el mismo `now`.
-        const loaded = await this.credit(tx, auth, { wallet, body, description, refKind, key, hash, now });
+        // 9. El saldo, la fila de caja, la LOAD y su registro, con la misma hora: la de escribir, no la de
+        // los topes (un cierre de noche que lee entre medias la deja en el Z siguiente, nunca en ninguno).
+        const loaded = await this.credit(tx, auth, { wallet, body, description, refKind, key, hash });
         return {
           kind: 'created',
-          body: loaded,
+          body: loaded.body,
           walletId: wallet.id,
           nightTotalCents: totals.connectionNight + body.amount,
           nightCapCents: caps.nightCents,
-          now,
+          now: loaded.at,
         };
       });
     } catch (err) {
@@ -254,12 +255,14 @@ export class PartnerLoadsService {
   private async credit(
     tx: TransactionalClient,
     auth: PartnerAuth,
-    a: { wallet: LockedWallet; body: WalletLoadRequestBody; description: string; refKind: string; key: string; hash: string; now: Date },
-  ): Promise<WalletLoadBody> {
+    a: { wallet: LockedWallet; body: WalletLoadRequestBody; description: string; refKind: string; key: string; hash: string },
+  ): Promise<{ body: WalletLoadBody; at: Date }> {
     const conn = auth.connection;
     const opId = randomUUID();
     const amount = a.body.amount;
     const reopen = await reopenData(tx, a.wallet);
+    // La hora de la carga, lo más tarde posible: justo antes de escribir.
+    const now = new Date();
     await tx.clientWallet.update({
       where: { id: a.wallet.id },
       // Una carga: el cliente se queda (un «Me voy» pendiente ya no vale).
@@ -274,7 +277,7 @@ export class PartnerLoadsService {
         partnerConnectionId: conn.id,
         idempotencyKey: `partner:${opId}`,
         createdWallet: false,
-        createdAt: a.now,
+        createdAt: now,
       },
       select: { id: true },
     });
@@ -288,8 +291,8 @@ export class PartnerLoadsService {
       reference: a.body.reference ?? null,
       funding: a.body.funding,
       device: a.body.device ?? null,
-      created_at: a.now.toISOString(),
-      void_until: voidUntil(a.now).toISOString(),
+      created_at: now.toISOString(),
+      void_until: voidUntil(now).toISOString(),
       ...(auth.effectiveScopes.includes('wallet:balance') ? { balance_after: balanceAfter } : {}),
       terms: { url: this.termsUrl, version: LEGAL_UPDATED, ...PARTNER_TERMS },
       livemode: conn.keyMode === 'live',
@@ -313,7 +316,7 @@ export class PartnerLoadsService {
         idempotencyKey: a.key,
         requestHash: a.hash,
         response: response as unknown as Prisma.InputJsonValue,
-        createdAt: a.now,
+        createdAt: now,
       },
     });
     await this.audit.logInTx(tx, {
@@ -334,7 +337,7 @@ export class PartnerLoadsService {
         refKind: a.refKind,
       },
     });
-    return response;
+    return { body: response, at: now };
   }
 
   // ─── A5. Leer, listar y el resumen ──────────────────────────────────────
