@@ -100,8 +100,10 @@ describe('cableado de la API de socios', () => {
     expect(entries.filter(([, d]) => d.money).map(([n]) => n).sort()).toEqual(['createWalletLoad', 'voidWalletLoad']);
   });
 
-  it('solo voidLoad resta saldo: cualquier otro cambio de client_wallets en modules/partner solo suma (increment)', () => {
-    const writes: Array<{ file: string; fn: string; adds: boolean }> = [];
+  // PR 8 A: las fichas de la demo ponen el saldo de partida a un saldo recién creado (insertEmptyWallet) en
+  // resetDemoFixtures y seedPartnerDemo; nunca un decrement, que solo usa voidLoad.
+  it('solo voidLoad resta saldo: cualquier otro cambio de client_wallets en modules/partner suma (increment) o es el de partida de una ficha de la demo, sin decrement', () => {
+    const writes: Array<{ file: string; fn: string; adds: boolean; text: string }> = [];
     for (const file of tsFiles(PARTNER_DIR, '.ts')) {
       const sf = ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.ES2022, true);
       const visit = (node: ts.Node, fn: string): void => {
@@ -111,13 +113,43 @@ describe('cableado de la API de socios', () => {
         const isWalletUpdate =
           (ts.isCallExpression(node) && /clientWallet\.(update|updateMany|upsert)$/.test(node.expression.getText(sf))) ||
           (ts.isTaggedTemplateExpression(node) && /UPDATE\s+client_wallets/i.test(node.template.getText(sf)));
-        if (isWalletUpdate) writes.push({ file: file.slice(PARTNER_DIR.length + 1), fn: name, adds: /balanceCents:\s*\{\s*increment:/.test(text) });
+        if (isWalletUpdate) writes.push({ file: file.slice(PARTNER_DIR.length + 1), fn: name, adds: /balanceCents:\s*\{\s*increment:/.test(text), text });
         ts.forEachChild(node, (child) => visit(child, name));
       };
       visit(sf, '');
     }
     expect(writes.length).toBeGreaterThanOrEqual(2);
-    expect(writes.filter((w) => !w.adds).map((w) => `${w.file}:${w.fn}`)).toEqual(['wallet/partner-loads.service.ts:voidLoad']);
+    const nonAdds = writes.filter((w) => !w.adds);
+    expect(nonAdds.map((w) => `${w.file}:${w.fn}`)).toEqual([
+      'test-helpers/partner-demo-fixtures.ts:resetDemoFixtures',
+      'test-helpers/partner-demo-fixtures.ts:seedPartnerDemo',
+      'wallet/partner-loads.service.ts:voidLoad',
+    ]);
+    expect(nonAdds.filter((w) => w.file.startsWith('test-helpers/') && /decrement/.test(w.text)).map((w) => w.fn)).toEqual([]);
+    const demo = readFileSync(join(PARTNER_DIR, 'test-helpers/partner-demo-fixtures.ts'), 'utf8');
+    expect(demo).not.toMatch(/\bdecrement\b|\.delete(Many)?\(|DELETE\s+FROM/i);
+  });
+
+  it('las ayudas de la demo: su módulo solo en su fichero (lo esparcen app.module.ts y test/support/socios.ts) y su controlador, por @PartnerRoute', () => {
+    const SRC = join(MODULES_DIR, '..');
+    const API = join(SRC, '..');
+    const files = [...tsFiles(SRC, '.ts'), join(API, 'test/support/socios.ts')];
+    const named = (re: RegExp) => files.filter((f) => re.test(readFileSync(f, 'utf8'))).map((f) => f.slice(API.length + 1)).sort();
+    expect(named(/\bPartnerTestHelpersModule\b/)).toEqual(['src/modules/partner/test-helpers/partner-test-helpers.module.ts']);
+    expect(named(/\bpartnerTestHelpersImports\b/)).toEqual([
+      'src/app.module.ts',
+      'src/modules/partner/test-helpers/partner-test-helpers.module.ts',
+      'test/support/socios.ts',
+    ]);
+    expect(named(/\bPartnerTestHelpersController\b/)).toEqual([
+      'src/modules/partner/test-helpers/partner-test-helpers.controller.ts',
+      'src/modules/partner/test-helpers/partner-test-helpers.module.ts',
+    ]);
+    const helpers = all.filter((r) => r.label.startsWith('PartnerTestHelpersController.'));
+    expect(helpers.map((r) => r.partnerRoute).sort()).toEqual(['createTestLiveCode', 'resetTestFixtures']);
+    expect(helpers.every((r) => r.basePath === 'partner' && r.http.length === 0)).toBe(true);
+    const demoOnly = Object.entries(PARTNER_ROUTES).filter(([, d]) => 'demoOnly' in d && d.demoOnly).map(([n]) => n).sort();
+    expect(demoOnly).toEqual(['createTestLiveCode', 'resetTestFixtures']);
   });
 
   it('modules/partner nunca usa acrossVenues (una clave es de un local)', () => {
