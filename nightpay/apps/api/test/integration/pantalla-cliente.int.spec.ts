@@ -522,3 +522,101 @@ describe('mensaje del reposo (Postgres)', () => {
     expect(await run(() => svc.message(encargado))).toMatchObject({ line1: 'ñ'.repeat(120) });
   });
 });
+
+describe('cobro del encargado a nombre de una compañera: la propina, con la regla de Sala (Postgres)', () => {
+  /** Local con la fila Sala con o sin propinas; el encargado con su tablet y un cobro del saldo «Servicio de Nerea» de 33 €. */
+  async function servedCharge(salaTips: boolean) {
+    const tag = `${salaTips ? 'si' : 'no'}-${randomUUID().slice(0, 6)}`;
+    const ids = await run(() =>
+      prisma.asSystem(async (tx) => {
+        const venue = await tx.venue.create({
+          data: {
+            name: 'Sala Sol',
+            slug: `pantalla-sala-${tag}`,
+            walletGroup: `gps-${tag}`,
+            paymentMethods: { wallet: true, nfc: true, tips: true },
+            ...(salaTips ? {} : { postRules: { SALA: { tips: false } } }),
+          },
+        });
+        const mk = (who: string, role: string) =>
+          tx.user.create({ data: { tenantId: venue.id, email: `pantalla-${who}-${tag}@x.es`, passwordHash: 'x', role, displayName: who } });
+        const encargado = await mk('encargado', 'MANAGER');
+        const nerea = await mk('Nerea', 'OPERATOR');
+        const charge = await tx.walletChargeRequest.create({
+          data: {
+            tenantId: venue.id,
+            requestedByUserId: encargado.id,
+            amountCents: 3300,
+            category: 'CHICA_SERVICE',
+            expiresAt: new Date(Date.now() + 15 * 60_000),
+            payToken: `pcs-${tag}`,
+          },
+        });
+        await tx.paymentLine.create({
+          data: {
+            tenantId: venue.id,
+            walletChargeId: charge.id,
+            category: 'CHICA_SERVICE',
+            label: 'Servicio',
+            unitCents: 3300,
+            amountCents: 3300,
+            serviceOperatorId: nerea.id,
+          },
+        });
+        return { tenantId: venue.id, userId: encargado.id, chargeId: charge.id, walletGroup: venue.walletGroup! };
+      }),
+    );
+    const owner: DisplayOwner = { userId: ids.userId, tenantId: ids.tenantId };
+    const token = (await run(async () => svc.pair((await svc.createCode(owner)).code))).token;
+    await run(() => svc.show(owner, { chargeId: ids.chargeId }));
+    const session = async () => (await run(() => findActiveDisplay(prisma, token)))!;
+    return { ...ids, owner, session };
+  }
+
+  it('Sala sin propinas: la tablet no ofrece propina y no acepta «+5 €» (el cobro sigue en 33 €)', async () => {
+    const c = await servedCharge(false);
+    const view = await run(async () => svc.screen(await c.session()));
+    expect(view).toMatchObject({ state: 'waiting', amountCents: 3300, totalCents: 3300, tip: null });
+    if (view.state !== 'waiting') throw new Error('esperaba el cobro');
+    await expect(run(async () => svc.setTip(await c.session(), { key: view.key, tipCents: 500 }))).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    const row = await run(() => prisma.asSystem((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.chargeId } })));
+    expect(row.tipCents ?? 0).toBe(0);
+    // «Sin propina» sí vale.
+    expect(await run(async () => svc.setTip(await c.session(), { key: view.key, tipCents: 0 }))).toMatchObject({ totalCents: 3300 });
+  });
+
+  it('Sala con propinas: la tablet la ofrece (de ella) aunque el encargado cobre', async () => {
+    const c = await servedCharge(true);
+    const view = await run(async () => svc.screen(await c.session()));
+    expect(view).toMatchObject({ state: 'waiting', tip: { toStaff: true } });
+    if (view.state !== 'waiting') throw new Error('esperaba el cobro');
+    expect(await run(async () => svc.setTip(await c.session(), { key: view.key, tipCents: 500 }))).toMatchObject({ totalCents: 3800 });
+  });
+
+  it('el PIN sin propina manda 0: aunque el cobro guardara una propina, se cobran los 33 € que se ven', async () => {
+    const c = await servedCharge(false);
+    // Una propina guardada (de antes del arreglo): el PIN no la enseña y no se cobra.
+    await run(() => prisma.asSystem((tx) => tx.walletChargeRequest.update({ where: { id: c.chargeId }, data: { tipCents: 500 } })));
+    const card = randomBytes(16).toString('base64url');
+    const uid = randomBytes(7).toString('hex').toUpperCase();
+    const walletId = await run(() =>
+      prisma.asSystem(async (tx) => {
+        const w = await tx.clientWallet.create({
+          data: { tenantId: c.tenantId, balanceCents: 10000, qrToken: `pcs-w-${randomUUID()}`, shortCode: randomBytes(4).toString('hex').toUpperCase(), walletGroup: c.walletGroup },
+        });
+        await tx.walletCard.create({ data: { token: card, uid, walletId: w.id, status: 'ISSUED', venueId: c.tenantId } });
+        return w.id;
+      }),
+    );
+    await run(() => charges.setPinFromPayer(walletId, '4827'));
+    await run(() =>
+      charges.payQrChargeWithPin({ userId: c.userId, role: 'MANAGER', tenantId: c.tenantId } as never, c.chargeId, { card, uid, pin: '4827', tipCents: 0 }),
+    );
+    const row = await run(() => prisma.asSystem((tx) => tx.walletChargeRequest.findUniqueOrThrow({ where: { id: c.chargeId } })));
+    expect(row).toMatchObject({ status: 'ACCEPTED', tipCents: 0 });
+    const w = await run(() => prisma.asSystem((tx) => tx.clientWallet.findUniqueOrThrow({ where: { id: walletId } })));
+    expect(w.balanceCents).toBe(10000 - 3300);
+  });
+});

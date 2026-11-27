@@ -1,5 +1,16 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { pinTipButtons, pinTipCents, pinTipInitial, pinTipOptions, pinTipSetup, screenTipNotice, tipDestination, withScreenTip } from './pin-tip';
+import {
+  pinTipButtons,
+  pinTipCents,
+  pinTipInitial,
+  pinTipOptions,
+  pinTipSetup,
+  pinTipToSend,
+  screenTipNotice,
+  tipDestination,
+  withScreenTip,
+} from './pin-tip';
 
 // B1: la propina la elige el cliente en la pantalla del PIN (en el móvil del
 // personal), sin nada marcado; con la ficha sin PIN no hay propina.
@@ -107,5 +118,20 @@ describe('a quién va la propina y el aviso de la pantalla, en los dos idiomas',
       en: 'You chose a €2 tip on the screen. You can change or remove it.',
     });
     expect(screenTipNotice(250).en).toBe('You chose a €2.50 tip on the screen. You can change or remove it.');
+  });
+});
+
+describe('la propina que se manda con el PIN: lo cobrado, lo que ve el cliente', () => {
+  it('sin propina en la pantalla del PIN (Sala sin propinas): 0, nunca null (no se cobra la guardada)', () => {
+    expect(pinTipToSend(null, 0)).toBe(0);
+    expect(pinTipToSend(null, 500)).toBe(0);
+    expect(pinTipToSend(pinTipSetup({ totalCents: 3300, ...methods }), 500)).toBe(500);
+    expect(pinTipToSend(pinTipSetup({ totalCents: 3300, ...methods }), 0)).toBe(0);
+  });
+
+  it('la pantalla del PIN manda esa propina (no null cuando no la ofrece)', () => {
+    const src = readFileSync(new URL('../components/cobrar/PinScreen.tsx', import.meta.url), 'utf8');
+    expect(src).toContain('onPin(value, pinTipToSend(tipSetup, tipCents))');
+    expect(src).not.toMatch(/onPin\(value, [^)]*: null\)/);
   });
 });

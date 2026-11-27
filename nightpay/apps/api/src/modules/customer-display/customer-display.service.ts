@@ -5,6 +5,7 @@ import {
   CUSTOMER_DISPLAY_CODE_TTL_MS,
   nightSettingsOf,
   paymentMethodsOf,
+  postRulesOf,
   type CustomerDisplayCode,
   type CustomerDisplayCurrentDto,
   type CustomerDisplayFichaDto,
@@ -265,16 +266,11 @@ export class CustomerDisplayService {
 
   /** Lo que enseña la tablet ahora. */
   async screen(display: DisplaySession, now = new Date()): Promise<CustomerScreenView> {
-    const { venue, payment, charge, tipsRight } = await this.prisma.asSystem(async (tx) => ({
+    const { venue, payment, charge } = await this.prisma.asSystem(async (tx) => ({
       venue: await tx.venue.findUniqueOrThrow({
         where: { id: display.tenantId },
-        select: { name: true, paymentMethods: true, nightSettings: true, displayLine1: true, displayLine2: true },
+        select: { name: true, paymentMethods: true, nightSettings: true, postRules: true, displayLine1: true, displayLine2: true },
       }),
-      // Propinas en el puesto de quien cobra (como en /s y en el PIN): solo con un cobro delante.
-      tipsRight:
-        display.paymentId || display.chargeId
-          ? (await chargeRightsFor(tx, display.tenantId, { userId: display.userId, role: display.role })).tips
-          : false,
       payment: display.paymentId
         ? await tx.payment.findFirst({
             where: { id: display.paymentId, tenantId: display.tenantId, createdByUserId: display.userId },
@@ -302,13 +298,21 @@ export class CustomerDisplayService {
     }));
     const methods = paymentMethodsOf(venue.paymentMethods);
     const night = nightSettingsOf(venue.nightSettings);
-    const tipsOn = methods.tips && tipsRight;
     // Cobrado por el encargado a nombre de una compañera (#68): la propina es de ella, como en /pay.
     const served =
-      tipsOn && display.role !== 'OPERATOR' && !payment?.walletId && (payment || charge)
+      methods.tips && display.role !== 'OPERATOR' && !payment?.walletId && (payment || charge)
         ? (await this.prisma.asSystem((tx) => servedOperators(tx, { paymentIds: [payment?.id ?? null], walletChargeIds: [charge?.id ?? null] })))
             .size > 0
         : false;
+    // Propinas en el puesto (como en /pay, /s y el PIN), solo con un cobro delante: a nombre
+    // de una compañera, la fila Sala; si no, el de quien cobra.
+    const tipsRight =
+      methods.tips && (payment || charge)
+        ? served
+          ? postRulesOf(venue.postRules).SALA.tips
+          : (await this.prisma.asSystem((tx) => chargeRightsFor(tx, display.tenantId, { userId: display.userId, role: display.role }))).tips
+        : false;
+    const tipsOn = methods.tips && tipsRight;
     return screenViewOf({
       venueName: venue.name,
       fichas: methods.wallet && methods.nfc,

@@ -66,6 +66,15 @@ export function pinTipCents(choice: PinTipChoice, setup: PinTipSetup): { cents: 
 }
 
 /**
+ * La propina que se manda con el PIN: la elegida o, si la pantalla no ofrece
+ * propina, 0 (nunca null: el API cobraría la que el cobro traía guardada, y la
+ * pantalla del PIN no la enseña). Lo cobrado = lo que ve el cliente.
+ */
+export function pinTipToSend(setup: PinTipSetup | null, chosenCents: number): number {
+  return setup ? chosenCents : 0;
+}
+
+/**
  * La propina que el cliente ya eligió en la «Pantalla del cliente» de la barra
  * (va en el cobro del saldo): sale marcada en la pantalla del PIN y se puede
  * quitar, como la de un cobro de antes. Sin ella (o fuera del tope), lo de siempre.

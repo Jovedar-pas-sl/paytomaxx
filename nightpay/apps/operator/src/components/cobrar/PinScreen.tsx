@@ -5,7 +5,7 @@ import { FormError, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
-import { pinTipCents, pinTipInitial, pinTipOptions, screenTipNotice, tipDestination, type PinTipChoice, type PinTipSetup } from '@/lib/pin-tip';
+import { pinTipCents, pinTipInitial, pinTipOptions, pinTipToSend, screenTipNotice, tipDestination, type PinTipChoice, type PinTipSetup } from '@/lib/pin-tip';
 import { useVenueNight } from '@/lib/venue-methods';
 import { Chip } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -34,8 +34,8 @@ interface Props {
   presetFromScreen?: boolean;
   /** Por qué pide el PIN (si no es el tope de siempre): «Ya lleva el tope sin PIN de esta noche…». */
   reason?: string | null;
-  /** Con la propina que eligió (null: sin propinas). Devuelve un mensaje si no ha valido (PIN malo…) o null si ya está. */
-  onPin: (pin: string, tipCents: number | null) => Promise<string | null>;
+  /** Con la propina que eligió (0: sin propina o sin propinas, nunca null). Devuelve un mensaje si no ha valido (PIN malo…) o null si ya está. */
+  onPin: (pin: string, tipCents: number) => Promise<string | null>;
   onCancel: () => void;
 }
 
@@ -90,7 +90,7 @@ export function PinScreen({
   async function complete(value: string) {
     setBusy(true);
     try {
-      const problem = await onPin(value, tipSetup ? tipCents : null);
+      const problem = await onPin(value, pinTipToSend(tipSetup, tipCents));
       setPin('');
       setError(problem);
       if (problem) failPin();
