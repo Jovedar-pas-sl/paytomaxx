@@ -20,10 +20,15 @@ const ATTEMPT = '33333333-3333-4333-8333-333333333333';
 const FAKE_KEY = 'clave-inventada-de-prueba';
 const API = 'http://yavin.simulado';
 
-function makeAdapter(opts: { attemptCents?: number | null; credential?: boolean } = {}) {
+function makeAdapter(opts: { attemptCents?: number | null; credential?: boolean; previousKey?: string } = {}) {
   const sealed = sealYavinKey(KEK, TENANT, FAKE_KEY);
+  // La activa primero y, si la hay, la anterior (inactiva).
+  const all = [sealed, ...(opts.previousKey ? [sealYavinKey(KEK, TENANT, opts.previousKey)] : [])];
   const tx = {
-    gatewayCredential: { findFirst: vi.fn(async () => (opts.credential === false ? null : sealed)) },
+    gatewayCredential: {
+      findFirst: vi.fn(async () => (opts.credential === false ? null : sealed)),
+      findMany: vi.fn(async () => (opts.credential === false ? [] : all)),
+    },
     payment: { findUnique: vi.fn(async () => ({ tenantId: TENANT })) },
     paymentAttempt: {
       findUnique: vi.fn(async () => (opts.attemptCents === null ? null : { amountCents: opts.attemptCents ?? 2500 })),
@@ -217,6 +222,19 @@ describe('YavinAdapter.cancelLink: anular', () => {
   it('error de red: lanza (el cobro se cancela igual; lo registra el gancho)', async () => {
     fetchSpy.mockRejectedValueOnce(new Error('ECONNRESET'));
     await expect(makeAdapter().cancelLink(TENANT, 'cart-1')).rejects.toThrow(/sin respuesta/);
+  });
+
+  it('enlace abierto con la clave anterior: la activa da 401 y se reintenta con la inactiva', async () => {
+    fetchSpy.mockResolvedValueOnce(reply(401, { detail: 'Invalid secret' })).mockResolvedValueOnce(reply(200, {}));
+    await makeAdapter({ previousKey: 'clave-anterior-inventada' }).cancelLink(TENANT, 'cart-1');
+    const secrets = fetchSpy.mock.calls.map((c) => ((c[1] as RequestInit).headers as Record<string, string>)['Yavin-Secret']);
+    expect(secrets).toEqual([FAKE_KEY, 'clave-anterior-inventada']);
+  });
+
+  it('sin clave anterior, el 401 se queda como error (no se reintenta)', async () => {
+    fetchSpy.mockResolvedValueOnce(reply(401, { detail: 'Invalid secret' }));
+    await expect(makeAdapter().cancelLink(TENANT, 'cart-1')).rejects.toThrow(/401/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 

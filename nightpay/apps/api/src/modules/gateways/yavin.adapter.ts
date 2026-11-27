@@ -224,7 +224,7 @@ export class YavinAdapter implements GatewayAdapter {
       throw new Error(`Yavin no acepta cobros de menos de ${YAVIN_MIN_CENTS / 100} €: este es de ${input.amountCents} céntimos`);
     }
     if (!input.attemptId) throw new Error('Yavin: falta el id del intento');
-    const apiKey = await this.apiKeyOf(input.tenantId, 'new');
+    const apiKey = await this.activeKey(input.tenantId);
     const notice = newNoticeToken();
     const apiBase = this.publicApiBase();
     const lang = input.language && input.language !== 'es' ? `&lang=${input.language}` : '';
@@ -265,15 +265,15 @@ export class YavinAdapter implements GatewayAdapter {
 
   /** El carrito tal como lo tiene Yavin (fuente de verdad). Nunca lanza. */
   async cartOf(tenantId: string, cartId: string): Promise<CartLookup> {
-    let apiKey: string;
+    let keys: string[];
     try {
-      apiKey = await this.apiKeyOf(tenantId, 'existing');
+      keys = await this.existingKeys(tenantId);
     } catch (err) {
       return { ok: false, reason: `yavin-sin-credencial: ${(err as Error).message}`.slice(0, 200) };
     }
     try {
       // shortcut: el carrito se pide como { cart_id } (sin confirmar).
-      const res = await this.post('/api/v5/ecommerce/get_cart_information/', apiKey, { cart_id: cartId });
+      const { res } = await this.postWithKeys(keys, '/api/v5/ecommerce/get_cart_information/', { cart_id: cartId });
       if (!res.ok) return { ok: false, reason: `yavin-http-${res.status}` };
       const parsed = CartSchema.safeParse(await res.json().catch(() => null));
       if (!parsed.success) return { ok: false, reason: 'yavin-respuesta-rara' };
@@ -321,9 +321,9 @@ export class YavinAdapter implements GatewayAdapter {
 
   /** Anula el enlace en Yavin (al cancelar el cobro): ya no se puede pagar. */
   async cancelLink(tenantId: string, cartId: string): Promise<void> {
-    const apiKey = await this.apiKeyOf(tenantId, 'existing');
+    const keys = await this.existingKeys(tenantId);
     // shortcut: cancel_link recibe { cart_id } (sin confirmar).
-    const res = await gatewayFetch(() => this.post('/api/v5/ecommerce/cancel_link/', apiKey, { cart_id: cartId }), 'Yavin cancel_link');
+    const { res, apiKey } = await this.postWithKeys(keys, '/api/v5/ecommerce/cancel_link/', { cart_id: cartId }, 'Yavin cancel_link');
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw gatewayHttpError(res.status, `Yavin cancel_link: ${res.status} ${redact(text, apiKey).slice(0, 200)}`);
@@ -347,10 +347,10 @@ export class YavinAdapter implements GatewayAdapter {
     const tx = transactionOf(found.cart);
     if (!tx) throw new YavinHttpError('Yavin: el carrito no tiene operación que devolver', 422);
     if (tx.refunded) throw new YavinHttpError(YAVIN_SECOND_REFUND_TEXT, 422);
-    const apiKey = await this.apiKeyOf(input.tenantId, 'existing');
+    const keys = await this.existingKeys(input.tenantId);
     // shortcut: el cuerpo de la devolución ({ amount } en céntimos) y el id de
     // la respuesta (`id` / `refund_id`) sin confirmar.
-    const res = await this.post(`/api/v5/transaction/${encodeURIComponent(tx.id)}/refund/`, apiKey, { amount: input.amountCents });
+    const { res, apiKey } = await this.postWithKeys(keys, `/api/v5/transaction/${encodeURIComponent(tx.id)}/refund/`, { amount: input.amountCents });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       const message = `Yavin refund: ${res.status} ${redact(text, apiKey).slice(0, 200)}`;
@@ -410,21 +410,55 @@ export class YavinAdapter implements GatewayAdapter {
    * devolver lo ya hecho): también la que el super-admin quitó (queda guardada
    * inactiva justo para esto); la activa primero.
    */
-  private async apiKeyOf(tenantId: string, use: 'new' | 'existing'): Promise<string> {
+  /** La clave activa del local: con ella se abren los enlaces nuevos. */
+  private async activeKey(tenantId: string): Promise<string> {
     const row = await this.prisma.asSystem((tx) =>
       tx.gatewayCredential.findFirst({
-        where: { tenantId, provider: 'YAVIN', ...(use === 'new' ? { active: true } : {}) },
+        where: { tenantId, provider: 'YAVIN', active: true },
+        select: { encKey: true, encNonce: true, encTag: true },
+      }),
+    );
+    if (!row) throw new Error('Yavin: el local no tiene credencial activa');
+    return this.openKey(tenantId, row);
+  }
+
+  /**
+   * Para lo ya hecho (comprobar, anular, devolver): la activa primero y, detrás,
+   * la anterior (inactiva). Un enlace abierto antes de cambiar la clave solo lo
+   * reconoce la anterior.
+   */
+  private async existingKeys(tenantId: string): Promise<string[]> {
+    const rows = await this.prisma.asSystem((tx) =>
+      tx.gatewayCredential.findMany({
+        where: { tenantId, provider: 'YAVIN' },
         orderBy: [{ active: 'desc' }, { createdAt: 'desc' }],
         select: { encKey: true, encNonce: true, encTag: true },
       }),
     );
-    if (!row) {
-      throw new Error(use === 'new' ? 'Yavin: el local no tiene credencial activa' : 'Yavin: el local no tiene ninguna clave de Yavin guardada');
-    }
+    if (rows.length === 0) throw new Error('Yavin: el local no tiene ninguna clave de Yavin guardada');
+    return rows.map((row) => this.openKey(tenantId, row));
+  }
+
+  private openKey(tenantId: string, row: { encKey: Uint8Array; encNonce: Uint8Array; encTag: Uint8Array }): string {
     try {
       return openYavinKey(this.config.get<string>('ENCRYPTION_KEK'), tenantId, row);
     } catch {
       throw new Error('Yavin: la credencial del local no se pudo descifrar');
+    }
+  }
+
+  /** Con la primera clave; si Yavin la rechaza (401/403) y hay otra guardada, con la siguiente. */
+  private async postWithKeys(
+    keys: readonly string[],
+    path: string,
+    body: unknown,
+    label?: string,
+  ): Promise<{ res: Response; apiKey: string }> {
+    for (let i = 0; ; i += 1) {
+      const apiKey = keys[i]!;
+      const res = label ? await gatewayFetch(() => this.post(path, apiKey, body), label) : await this.post(path, apiKey, body);
+      if ((res.status === 401 || res.status === 403) && i + 1 < keys.length) continue;
+      return { res, apiKey };
     }
   }
 
