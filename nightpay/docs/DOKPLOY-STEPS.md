@@ -39,6 +39,13 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Comprobación: en Git Providers sale «GitHub: Connected».
 
+**Si el repositorio cambia de organización de GitHub**, Dokploy deja de verlo:
+haz otra vez esta fase con la organización donde está ahora (la app de GitHub
+instalada allí, solo para `paytomaxx`), vuelve a elegir el repositorio en
+cada servicio (`nightpay-api`, las webs y los de la demo, rama `main`) y
+comprueba con un **Deploy** a mano de `main` que `/v1/health` enseña su commit
+(«Qué versión corre», D.1).
+
 ---
 
 ## Fase B — Proyecto, Postgres y Redis
@@ -78,7 +85,7 @@ los rechaza: no cierra cobros (ver [SETUP.md](../SETUP.md#simuladores-de-pasarel
 | Campo | Valor |
 |---|---|
 | Name | `nightpay-api` |
-| Source | GitHub, repo `ainhoanochesdeverano-dotcom/paytomaxx`, rama `main` |
+| Source | GitHub, repo `Jovedar-pas-sl/paytomaxx`, rama `main` |
 | Build Type | Dockerfile |
 | Build Context | `nightpay` |
 | Dockerfile | `apps/api/Dockerfile` |
@@ -94,6 +101,8 @@ terminado). Apágalo en `nightpay-api` (y en las webs de la Fase E) →
 1. En GitHub → **Actions → nightpay-ci**, espera a que el run del commit de
    `main` salga en verde (`check`, `integracion`, `migraciones-orden`, `e2e`
    y `docker`). En `main` un push nuevo ya no cancela el CI del anterior.
+   Para desplegar no hace falta esperar a `docs-socios` (solo hace la
+   documentación de la API de socios).
 2. Dokploy → `nightpay-api` → **Deploy** (manual) — fuera de la noche de
    cobro, ver D.5.
 
