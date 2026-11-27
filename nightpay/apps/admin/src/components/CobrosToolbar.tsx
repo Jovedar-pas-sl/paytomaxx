@@ -6,7 +6,7 @@ import { CHARGE_METHOD_LABELS, LEGACY_SECTION_META, type ChargeMethod, type Cobr
 import { fetchCobros, fetchOperators, type CobrosFilters, type Operator } from '@/lib/api';
 import { cobrosCsv, collectCobros, csvFileName } from '@/lib/cobros-csv';
 import { nextSearch, SEARCH_MIN_CHARS } from '@/lib/cobros-search';
-import { cobrosTotals, totalsLead, totalsParts } from '@/lib/cobros-totals';
+import { cobrosTotals, totalsLead, totalsNote, totalsParts } from '@/lib/cobros-totals';
 import {
   COBROS_COLUMNS,
   COBROS_VIEWS,
@@ -231,6 +231,7 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
               <Importe cents={p.cents} decimals="always" /> {p.label}
             </span>
           ))}
+          {totalsNote(totals) ? ` (${totalsNote(totals)})` : null}
         </p>
       ) : null}
 
