@@ -46,6 +46,7 @@ export const TIP_BUTTONS_CSS = `
 .tips .other .err{text-align:center}
 .tipnote{margin-top:.65rem;font-size:.875rem;color:var(--mute);text-align:center}
 .tipscreen{margin:-.2rem 0 .6rem;font-size:.875rem;color:var(--fg);text-align:center}
+@media screen and (max-height:900px){.tips.scr legend{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.tips.scr .tipscreen{margin-top:0}}
 `;
 
 /** Lo mismo en pantallas bajas (360×740): botones de 48 px, que siguen cabiendo las dos líneas. */
@@ -110,7 +111,8 @@ export function tipButtons(a: TipButtonsInput): string {
       : a.fromScreen && other !== null && other > 0
         ? `<p class="tipscreen" id="tipScreen">${h(t.tipFromScreen(euros(other * 100)))}</p>`
         : '';
-  return `<fieldset class="tips"><legend>${h(t.tipLegend)}</legend>${screen}<div class="tipgrid">
+  // Con el aviso, en pantallas bajas la pregunta solo la oye el lector (el aviso ya dice que es la propina): el TOTAL sigue sobre la barra.
+  return `<fieldset class="tips${screen ? ' scr' : ''}"><legend>${h(t.tipLegend)}</legend>${screen}<div class="tipgrid">
 <label><input type="radio" name="tip" value="0"${checked(0)}><span class="word">${box(`${t.noTip}. ${t.total} ${total(0)}`, t.noTip, 0)}</span></label>${options}${
     canOther
       ? `<label${a.otherHidden ? ' id="otherOpt" hidden' : ''}><input type="radio" name="tip" value="0" id="otherRadio"${other !== null ? ' checked' : ''}><span class="word"><b>${h(t.tipOther)}</b></span></label>`

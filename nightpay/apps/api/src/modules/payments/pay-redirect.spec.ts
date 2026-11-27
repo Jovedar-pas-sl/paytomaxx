@@ -344,7 +344,7 @@ describe('propina marcada desde la pantalla de la barra (idea 66, parte B): marc
 
   it('apunte 300 y ?tip=300: marcada, el total ya la lleva y, encima de las propinas, el aviso', () => {
     const html = page(withChosenTip({ ...base, screenTipCents: 300 } as PayRedirect, '300'));
-    expect(html).toContain(`<legend>¿Quieres dejar propina?</legend><p class="tipscreen" id="tipScreen">${NOTICE}</p><div class="tipgrid">`);
+    expect(html).toContain(`<fieldset class="tips scr"><legend>¿Quieres dejar propina?</legend><p class="tipscreen" id="tipScreen">${NOTICE}</p><div class="tipgrid">`);
     expect(html).toContain('value="300" checked');
     expect(html).toContain('Pagar 39,30 €');
   });
