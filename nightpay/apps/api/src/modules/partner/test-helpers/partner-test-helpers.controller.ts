@@ -10,11 +10,15 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { ZodValidationPipe } from '../../../common/pipes/zod.pipe';
 import { WalletLiveCodeService } from '../../wallets/wallet-live-code.service';
 import { liveWalletId } from '../../wallets/wallet-merge-chain';
+import { CurrentConnection, type PartnerAuth } from '../auth/current-connection.decorator';
+import { PartnerRateLimiter } from '../auth/partner-rate-limit';
 import { PartnerRoute } from '../http/partner-route.decorator';
 import { partnerError } from '../http/partner-problem';
-import { DemoFixturesMissingError, resetDemoFixtures } from './partner-demo-fixtures';
+import { DemoFixturesMissingError, DemoResetBusyError, resetDemoFixtures } from './partner-demo-fixtures';
 
 const REDIS_DOWN_RETRY_S = 5;
+/** Otro reinicio en marcha: tarda menos de un segundo; que lo intente en unos pocos. */
+const RESET_BUSY_RETRY_S = 5;
 
 /**
  * Las ayudas de la demo (decisión 17): `POST /test/live-codes` y
@@ -30,6 +34,7 @@ export class PartnerTestHelpersController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(WalletLiveCodeService) private readonly liveCodes: WalletLiveCodeService,
+    @Inject(PartnerRateLimiter) private readonly rates: PartnerRateLimiter,
   ) {}
 
   @PartnerRoute(PARTNER_ROUTES.createTestLiveCode)
@@ -52,14 +57,25 @@ export class PartnerTestHelpersController {
   }
 
   @PartnerRoute(PARTNER_ROUTES.resetTestFixtures)
-  async reset(@Body() body: unknown): Promise<void> {
+  async reset(@CurrentConnection() auth: PartnerAuth, @Body() body: unknown): Promise<void> {
     // Sin cuerpo: uno cualquiera (también `{}`) es una petición mal hecha.
     if (body !== undefined && body !== null) throw partnerError('invalid_request');
+    // Su propio tope (5 por conexión y minuto), antes de tocar la base.
+    let rate: Awaited<ReturnType<PartnerRateLimiter['hitDemoReset']>>;
+    try {
+      rate = await this.rates.hitDemoReset(auth.connection.id);
+    } catch (err) {
+      this.logger.warn(`Reinicio de prueba sin hacer: Redis no responde (${(err as Error).name})`);
+      throw partnerError('try_later', {}, REDIS_DOWN_RETRY_S);
+    }
+    if (!rate.ok) throw partnerError('rate_limited', {}, rate.retryAfter);
     let previous: string[];
     try {
       previous = await this.prisma.asSystem((tx) => resetDemoFixtures(tx));
     } catch (err) {
       if (err instanceof DemoFixturesMissingError) throw this.missing();
+      // Otro reinicio tiene el candado: 429 al momento, sin esperar dentro de la transacción.
+      if (err instanceof DemoResetBusyError) throw partnerError('rate_limited', {}, RESET_BUSY_RETRY_S);
       throw err;
     }
     // Tras el commit: los códigos del móvil de los saldos de antes mueren (si falla, viven sus 60 s).

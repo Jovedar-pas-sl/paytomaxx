@@ -10,12 +10,22 @@ const owner = { sub: 'dddddddd-0000-0000-0000-000000000001', tenantId: TENANT, r
 
 type Row = Record<string, unknown>;
 
+/** El where de Prisma que usa el servicio: igualdad, `{ not }` y `{ in }`. */
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === 'object' && 'not' in v) return row[k] !== (v as { not: unknown }).not;
+    if (v && typeof v === 'object' && 'in' in v) return (v as { in: unknown[] }).in.includes(row[k]);
+    return row[k] === v;
+  });
+}
+
 /**
  * Base de mentira con transacciones de verdad: lo que se escribe dentro de
  * withTenant se aplica solo si la transacción acaba bien.
  */
 function fakeDb() {
-  const state: { connections: Row[] } = {
+  const state: { connections: Row[]; foreign: Row[] } = {
+    foreign: [],
     connections: [
       {
         id: CONN,
@@ -67,21 +77,27 @@ function fakeDb() {
     withTenant: vi.fn(async (_tenant: string, fn: (tx: unknown) => Promise<unknown>) => {
       const draft = structuredClone(state.connections);
       const tx = {
-        $queryRaw: vi.fn(async () => draft.filter((c) => c.id === CONN && c.tenantId === TENANT).map((c) => ({ id: c.id }))),
+        $queryRaw: vi.fn(async (_q: unknown, id: string) => draft.filter((c) => c.id === id && c.tenantId === TENANT).map((c) => ({ id: c.id }))),
         partner: { findUnique: vi.fn(async ({ where }: { where: Row }) => ({ ...partner, id: where.id })), findMany: vi.fn(async () => [partner]) },
         venue: {
           findUnique: vi.fn(async () => ({ name: 'Local Demo Centro', businessId: 'eeeeeeee-0000-0000-0000-000000000001', business: { name: 'Empresa Demo S.L.', taxId: 'B00000000' } })),
         },
-        auditEvent: { findMany: vi.fn(async () => []) },
-        partnerConnection: {
-          findFirst: vi.fn(async ({ where }: { where: Row }) =>
-            draft.find((c) => (where.id === undefined || c.id === where.id) && c.tenantId === where.tenantId && (where.partnerId === undefined || c.partnerId === where.partnerId) && c.status !== 'REVOKED') ?? null,
+        auditEvent: {
+          findMany: vi.fn(async ({ where, take }: { where: Row; take?: number }) =>
+            state.foreign.filter((e) => matches(e, { targetId: where.targetId, ip: where.ip }) || where.targetId === undefined).slice(0, take),
           ),
+        },
+        partnerConnection: {
+          findFirst: vi.fn(async ({ where }: { where: Row }) => draft.find((c) => matches(c, where)) ?? null),
           findMany: vi.fn(async () => draft),
           create: vi.fn(async ({ data }: { data: Row }) => {
-            const row = { ...data, id: 'ffffffff-0000-0000-0000-000000000001', createdAt: new Date(), partner: { id: PARTNER, name: 'Cajeros Demo' } };
+            const row = { status: 'ACTIVE', pausedScopes: [], pausedReason: null, ...data, id: 'ffffffff-0000-0000-0000-000000000001', createdAt: new Date(), partner: { id: PARTNER, name: 'Cajeros Demo' } };
             draft.push(row);
             return row;
+          }),
+          delete: vi.fn(async ({ where }: { where: Row }) => {
+            const i = draft.findIndex((c) => c.id === where.id);
+            return draft.splice(i, 1)[0];
           }),
           update: vi.fn(async ({ where, data }: { where: Row; data: Row }) => {
             const row = draft.find((c) => c.id === where.id)!;
@@ -98,9 +114,8 @@ function fakeDb() {
   return { prisma, state };
 }
 
-function service(prisma: unknown, audit: unknown) {
+function service(prisma: unknown, audit: unknown, email: unknown = { isEnabled: () => false, send: vi.fn() }) {
   const totp = { assertForUser: vi.fn(async () => undefined) };
-  const email = { isEnabled: () => false, send: vi.fn() };
   const config = { get: () => undefined };
   return new PartnerConnectionsService(prisma as never, createFakeRedis() as never, audit as never, totp as never, email as never, config as never);
 }
@@ -146,5 +161,108 @@ describe('sin registro no hay cambio', () => {
     await service(prisma, audit).revoke(owner, CONN);
     expect(state.connections[0]).toMatchObject({ status: 'REVOKED' });
     expect(audit.logInTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'partner.key.revoked', tenantId: TENANT }));
+  });
+});
+
+describe('la pausa de OxioPay no se esquiva', () => {
+  const audit = { log: vi.fn(), logInTx: vi.fn(async () => undefined) };
+  const manager = { ...owner, role: 'MANAGER' } as JwtPayload;
+  const connect = { partnerId: PARTNER, scopes: ['wallet:balance'], ipAllowlist: [], expiresAt: null, delivery: 'copy' } as const;
+
+  it('pausada por OxioPay: ni el dueño ni el encargado la anulan', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'PAUSED', pausedReason: 'oxiopay' });
+    const s = service(prisma, audit);
+    for (const who of [owner, manager]) await expect(s.revoke(who, CONN)).rejects.toThrow('La pausó OxioPay: habla con OxioPay.');
+    expect(state.connections[0]).toMatchObject({ status: 'PAUSED', pausedReason: 'oxiopay' });
+  });
+
+  it('pausada por el dueño: sí la anula', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'PAUSED', pausedReason: 'owner' });
+    await service(prisma, audit).revoke(owner, CONN);
+    expect(state.connections[0]).toMatchObject({ status: 'REVOKED' });
+  });
+
+  it('anulada por OxioPay: conectar otra vez con ese socio da 409 y no sale clave', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'REVOKED', pausedReason: 'oxiopay' });
+    await expect(service(prisma, audit).create(owner, connect)).rejects.toThrow('La pausó OxioPay: habla con OxioPay.');
+    expect(state.connections).toHaveLength(1);
+  });
+
+  it('anulada por el dueño: conectar otra vez sí vale', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'REVOKED', pausedReason: 'owner' });
+    const out = await service(prisma, audit).create(owner, connect);
+    expect(out.key).toMatch(/^oxp_test_/);
+  });
+});
+
+describe('por correo: si no sale, no se pierde la clave', () => {
+  const audit = () => ({ log: vi.fn(), logInTx: vi.fn(async () => undefined) });
+  const failingMail = (how: 'reject' | 'undelivered') => ({
+    isEnabled: () => true,
+    send: vi.fn(async () => (how === 'reject' ? Promise.reject(new Error('Resend 500')) : { ok: false, delivered: false })),
+  });
+
+  it.each(['reject', 'undelivered'] as const)('cambiar sin solape (%s): vuelve la clave de antes, entera', async (how) => {
+    const { prisma, state } = fakeDb();
+    const before = structuredClone(state.connections[0]!);
+    Object.assign(state.connections[0]!, { keyExposedAt: new Date('2026-11-20T10:00:00Z') });
+    const a = audit();
+    const out = await service(prisma, a, failingMail(how)).rotate(owner, CONN, { overlap: 'none', expiresAt: null, delivery: 'email' });
+    expect(out.claim.delivered).toBe(false);
+    expect(out.key).toBeUndefined();
+    expect(state.connections[0]).toMatchObject({
+      keyHash: before.keyHash,
+      keyHint: before.keyHint,
+      keyCreatedAt: before.keyCreatedAt,
+      prevKeyHash: null,
+      keyExposedAt: new Date('2026-11-20T10:00:00Z'),
+      keyClaimHash: null,
+      keyClaimSealed: null,
+    });
+    expect(out.connection.keyHint).toBe(before.keyHint);
+    expect(a.logInTx).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ action: 'partner.key.issue_undone' }));
+  });
+
+  it('la primera conexión: si el correo no sale, no queda conexión (se puede conectar otra vez)', async () => {
+    const { prisma, state } = fakeDb();
+    state.connections = [];
+    const out = await service(prisma, audit(), failingMail('reject')).create(owner, {
+      partnerId: PARTNER,
+      scopes: ['wallet:balance'],
+      ipAllowlist: [],
+      expiresAt: null,
+      delivery: 'email',
+    });
+    expect(out.claim.delivered).toBe(false);
+    expect(state.connections).toHaveLength(0);
+  });
+
+  it('si sale, la clave nueva se queda', async () => {
+    const { prisma, state } = fakeDb();
+    const mail = { isEnabled: () => true, send: vi.fn(async () => ({ ok: true, delivered: true })) };
+    const out = await service(prisma, audit(), mail).rotate(owner, CONN, { overlap: 'none', expiresAt: null, delivery: 'email' });
+    expect(out.claim.delivered).toBe(true);
+    expect(state.connections[0]!.keyHash).not.toBe('a'.repeat(64));
+    expect(state.connections[0]!.keyClaimSealed).toEqual(expect.any(String));
+  });
+});
+
+describe('las IP ajenas de cada conexión', () => {
+  it('cinco por conexión: muchas de una no tapan las de otra', async () => {
+    const { prisma, state } = fakeDb();
+    const other = 'cccccccc-0000-0000-0000-000000000002';
+    state.connections.push({ ...state.connections[0]!, id: other, partnerId: 'bbbbbbbb-0000-0000-0000-000000000002' });
+    const at = new Date('2026-11-27T09:00:00Z');
+    // Más recientes primero: 600 de la primera y, detrás, una de la segunda.
+    for (let i = 0; i < 600; i++) state.foreign.push({ targetId: CONN, ip: `198.51.100.${i % 250}`, occurredAt: at });
+    state.foreign.push({ targetId: other, ip: '192.0.2.77', occurredAt: new Date('2026-11-26T09:00:00Z') });
+    const out = await service(prisma, { log: vi.fn(), logInTx: vi.fn() }).overview(owner);
+    const byId = new Map(out.connections.map((c) => [c.id, c]));
+    expect(byId.get(other)!.foreignIps).toEqual([{ ip: '192.0.2.77', at: '2026-11-26T09:00:00.000Z' }]);
+    expect(byId.get(CONN)!.foreignIps).toHaveLength(5);
   });
 });

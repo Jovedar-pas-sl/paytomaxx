@@ -59,16 +59,26 @@ export class DemoFixturesMissingError extends Error {
   }
 }
 
+/** Otro reinicio tiene el candado: este no espera (429 al momento). */
+export class DemoResetBusyError extends Error {
+  constructor() {
+    super('Otro reinicio de las fichas de prueba está en marcha');
+    this.name = 'DemoResetBusyError';
+  }
+}
+
 /**
  * Las 9 fichas como al principio, de una en una y en una transacción (con su
- * candado: dos reinicios a la vez van uno detrás de otro). Por ficha, un saldo
+ * candado, sin esperarlo: si otro reinicio lo tiene, DemoResetBusyError). Por ficha, un saldo
  * nuevo vacío (`insertEmptyWallet`, que reintenta el código corto) al que se
  * pone su saldo y su estado (se fija, nunca se resta), y la ficha por su `token`
  * apuntando a él. Lee los 3 locales y escribe solo esas 9 fichas y sus saldos
  * nuevos. Devuelve los saldos anteriores (para anular sus códigos del móvil).
  */
 export async function resetDemoFixtures(tx: DemoTx): Promise<string[]> {
-  await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtextextended('partner-demo-reset', 0))`;
+  // Sin esperar: varios reinicios a la vez no ocupan conexiones de la base esperando el candado.
+  const [lock] = await tx.$queryRaw<Array<{ ok: boolean }>>`SELECT pg_try_advisory_xact_lock(hashtextextended('partner-demo-reset', 0)) AS ok`;
+  if (!lock?.ok) throw new DemoResetBusyError();
   const venues = await demoVenues(tx);
   const tokens = FIXTURES.map((f) => DEMO_FIXTURES[f].token);
   const before = await tx.walletCard.findMany({ where: { token: { in: tokens } }, select: { walletId: true } });

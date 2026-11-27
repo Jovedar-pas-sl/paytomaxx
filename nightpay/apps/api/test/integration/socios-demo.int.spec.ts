@@ -283,13 +283,48 @@ describe('3. el reinicio: saldo nuevo, mismas fichas, solo lo suyo', () => {
     expect(after.businesses).toEqual(before.businesses);
   });
 
-  it('dos reinicios a la vez → dos 204 y un saldo por ficha, cada uno como al principio', async () => {
+  it('dos reinicios a la vez → el segundo no espera el candado (204 o 429 con Retry-After) y un saldo por ficha, como al principio', async () => {
     const [a, b] = await Promise.all([reset(CD), reset(OG)]);
-    expect([a.statusCode, b.statusCode]).toEqual([204, 204]);
+    expect([a.statusCode, b.statusCode]).toContain(204);
+    for (const r of [a, b].filter((x) => x.statusCode !== 204)) {
+      expect(r.statusCode).toBe(429);
+      expect(codeOf(r)).toBe('rate_limited');
+      expect(r.headers['retry-after']).toBe('5');
+    }
     const rows = await fixtureRows();
     expect(rows.size).toBe(9);
     expect(new Set([...rows.values()].map((c) => c.walletId)).size).toBe(9);
     for (const f of FIXTURES) expect(rows.get(DEMO_FIXTURES[f].token)!.wallet!.balanceCents, f).toBe(DEMO_FIXTURES[f].balanceCents);
+  });
+
+  it('con el candado tomado por otro reinicio: 429 rate_limited al momento, sin esperarlo', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let taken!: () => void;
+    const isTaken = new Promise<void>((r) => (taken = r));
+    const holder = s.sys(async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS ok FROM pg_advisory_xact_lock(hashtextextended('partner-demo-reset', 0))`;
+      taken();
+      await held;
+    });
+    await isTaken;
+    const started = Date.now();
+    const res = await reset(CD);
+    release();
+    await holder;
+    expect(res.statusCode).toBe(429);
+    expect(codeOf(res)).toBe('rate_limited');
+    expect(res.headers['retry-after']).toBe('5');
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('cinco reinicios por conexión y minuto; el sexto, 429 con Retry-After (otra conexión, aparte)', async () => {
+    for (let i = 0; i < 5; i++) expect((await reset(CD)).statusCode).toBe(204);
+    const sixth = await reset(CD);
+    expect(sixth.statusCode).toBe(429);
+    expect(codeOf(sixth)).toBe('rate_limited');
+    expect(Number(sixth.headers['retry-after'])).toBeGreaterThan(0);
+    expect((await reset(OG)).statusCode).toBe(204);
   });
 
   it('resetDemoFixtures sin la semilla: lanza «Faltan las fichas de prueba» y no escribe nada', async () => {

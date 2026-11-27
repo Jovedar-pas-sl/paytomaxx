@@ -8,6 +8,8 @@ export const PARTNER_AUDIT = {
   keyCreated: 'partner.key.created',
   keyRotated: 'partner.key.rotated',
   keyRevoked: 'partner.key.revoked',
+  /** El correo con el enlace no salió: la conexión nueva se borra o la clave de antes vuelve. */
+  keyIssueUndone: 'partner.key.issue_undone',
   keyExposed: 'partner.key.exposed',
   keySuspended: 'partner.key.suspended',
   keyExpiring: 'partner.key.expiring',

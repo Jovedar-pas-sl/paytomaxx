@@ -16,7 +16,7 @@ import { REDIS_CLIENT } from '../../../common/redis/redis.module';
  * pasado, 429 sin consultar la base. Por IP, para que quien robe la clave no
  * deje sin servicio a la IP buena.
  */
-export const PARTNER_RATE_LIMITS = Object.freeze({ all: 600, money: 120, rejected: 300 });
+export const PARTNER_RATE_LIMITS = Object.freeze({ all: 600, money: 120, rejected: 300, demoReset: 5 });
 
 export type PartnerRateResult = { ok: true } | { ok: false; retryAfter: number };
 
@@ -33,6 +33,14 @@ export class PartnerRateLimiter {
       return { ok: false, retryAfter };
     }
     return { ok: true };
+  }
+
+  /** El reinicio de las fichas de la demo: además, 5 por conexión y minuto. */
+  async hitDemoReset(connectionId: string): Promise<PartnerRateResult> {
+    const now = Date.now();
+    const retryAfter = Math.max(1, 60 - Math.floor((now % 60_000) / 1000));
+    const n = await this.count(`np:prl:demo-reset:${connectionId}:${Math.floor(now / 60_000)}`);
+    return n > PARTNER_RATE_LIMITS.demoReset ? { ok: false, retryAfter } : { ok: true };
   }
 
   /** ¿Esta clave, desde esta IP, ya se rechazó `rejected` veces este minuto? */

@@ -198,7 +198,7 @@ describe('consola: las conexiones de todos los locales', () => {
     const s = build();
     await s.service.revokeConnection(actor, connectionRow().id, { totpCode: '123456', reason: 'Clave filtrada' });
     expect(s.stepUp.verify).toHaveBeenCalledWith(actor, '123456', 'partner.connection.revoke');
-    expect(s.tx.partnerConnection.update.mock.calls[0]![0].data).toEqual({ status: 'REVOKED', keyClaimHash: null, keyClaimSealed: null, keyClaimExpiresAt: null });
+    expect(s.tx.partnerConnection.update.mock.calls[0]![0].data).toEqual({ status: 'REVOKED', pausedReason: 'oxiopay', keyClaimHash: null, keyClaimSealed: null, keyClaimExpiresAt: null });
 
     const revoked = build(createFakeRedis(), { id: connectionRow().id, tenantId: connectionRow().tenantId, status: 'REVOKED' });
     await expect(revoked.service.pauseConnection(actor, connectionRow().id, { reason: 'x' })).rejects.toBeInstanceOf(ConflictException);

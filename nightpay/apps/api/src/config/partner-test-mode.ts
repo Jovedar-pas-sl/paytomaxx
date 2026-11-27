@@ -6,7 +6,9 @@ import { z } from 'zod';
  * saldos de mentira: solo valen en la demo, con la API en `test`
  * (PARTNER_API_ENABLED=true y PARTNER_API_MODE=test) y PARTNER_TEST_HELPERS=1.
  * Y el modo prueba no arranca con dinero real a mano ni, en producción, con la
- * base, el Redis o la dirección de producción. Lo llama el `superRefine` de
+ * base, el Redis o la dirección de producción. Con las ayudas (y en la semilla,
+ * que llama a parseEnv), en cualquier NODE_ENV: la base y Redis locales o de la
+ * demo, y sin TELEGRAM_BOT_TOKEN ni REDSYS_SECRET_KEY. Lo llama el `superRefine` de
  * env.ts: cada fallo lleva en `path` la variable, nunca su valor. No lee la
  * base: sustituye la comprobación de tiendas BTCPay del diseño (§3.7, S8) por
  * BTCPAY_ENABLED apagado, la ENCRYPTION_KEK propia de la demo y la puerta 8.
@@ -35,12 +37,18 @@ export interface PartnerTestModeEnv {
   DATABASE_URL: string;
   REDIS_URL: string;
   WALLET_EVENTS_DATABASE_URL?: string | undefined;
+  TELEGRAM_BOT_TOKEN?: string | undefined;
+  REDSYS_SECRET_KEY?: string | undefined;
 }
 
 /** El host del sandbox de Redsys: el adaptador elige sus direcciones de prueba por él. */
 const REDSYS_SANDBOX_HOST = 'sis-t.redsys.es';
 const PAYMENT_CREDENTIALS = ['PAYTEF_API_TOKEN', 'PEANPE_API_KEY', 'VIVA_API_KEY', 'WIPAY_MERCHANT_ID'] as const;
 const DEMO_STORES = ['DATABASE_URL', 'REDIS_URL', 'WALLET_EVENTS_DATABASE_URL'] as const;
+/** Con las ayudas, la base y Redis en esta máquina o de la demo (no un túnel a los de producción). */
+const LOCAL_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1']);
+/** Secretos de producción que la demo nunca lleva (el bot de avisos, la firma del banco). */
+const PRODUCTION_SECRETS = ['TELEGRAM_BOT_TOKEN', 'REDSYS_SECRET_KEY'] as const;
 
 export const PARTNER_TEST_MODE_MESSAGES = {
   helpersOutsideDemo:
@@ -50,6 +58,8 @@ export const PARTNER_TEST_MODE_MESSAGES = {
   credential: (name: string) => `En modo prueba no van credenciales de cobro: quita ${name}.`,
   apiUrl: 'En modo prueba la API va en una dirección de demo, nunca en la de producción.',
   stores: 'En modo prueba la base y Redis son los de la demo (nightpay-demo-…), nunca los de producción.',
+  helperStores: 'Con las ayudas de prueba la base y Redis son locales (localhost o 127.0.0.1) o de la demo (con «demo» en el host).',
+  secret: (name: string) => `Con las ayudas de prueba no van secretos de producción: quita ${name}.`,
 } as const;
 
 function hostOf(url: string | undefined): string | null {
@@ -86,6 +96,22 @@ export function partnerTestModeIssues(env: PartnerTestModeEnv): PartnerTestModeI
     if (env.BTCPAY_ENABLED) issues.push({ path: 'BTCPAY_ENABLED', message: PARTNER_TEST_MODE_MESSAGES.btcpay });
     for (const name of PAYMENT_CREDENTIALS) {
       if ((env[name] ?? '').trim() !== '') issues.push({ path: name, message: PARTNER_TEST_MODE_MESSAGES.credential(name) });
+    }
+  }
+
+  // Con las ayudas (también la semilla, que pasa por aquí), en cualquier NODE_ENV: ni secretos de
+  // producción ni una base o un Redis que no sean de esta máquina o de la demo (un túnel a producción).
+  if (helpers) {
+    for (const name of PRODUCTION_SECRETS) {
+      if ((env[name] ?? '').trim() !== '') issues.push({ path: name, message: PARTNER_TEST_MODE_MESSAGES.secret(name) });
+    }
+    // En producción con la API en test, la regla de abajo (más estricta: solo de la demo).
+    if (!(apiTest && production)) {
+      for (const name of DEMO_STORES) {
+        if (name === 'WALLET_EVENTS_DATABASE_URL' && !env[name]) continue;
+        const host = hostOf(env[name]) ?? '';
+        if (!LOCAL_HOSTS.has(host) && !host.includes('demo')) issues.push({ path: name, message: PARTNER_TEST_MODE_MESSAGES.helperStores });
+      }
     }
   }
 

@@ -118,17 +118,28 @@ export class WalletLiveCodeService {
    * caducar, del modo de este despliegue y con su local, no borrado, en la
    * sociedad con la que se conectó y con NIF: lo que pide PartnerKeyGuard) tiene `wallet:balance` o `wallet:load` (dentro del techo
    * del socio) y alcanza el saldo (walletReachable, como POST /wallet/balance).
-   * Un saldo sumado a otro, nunca. Lecturas cruzadas: en asSystem.
+   * Un permiso útil en pausa (pausedScopes) no cuenta. Un saldo sumado a otro
+   * o bloqueado, nunca. Lecturas cruzadas: en asSystem. Nunca lanza: si falla,
+   * no sale (con un aviso en el log, solo el tipo del error).
    */
   async offered(walletId: string, now: Date = new Date()): Promise<boolean> {
+    try {
+      return await this.isOffered(walletId, now);
+    } catch (err) {
+      this.logger.warn(`«Pagar o recargar en otro sistema» sin mirar: la página sale sin él (${(err as Error).name})`);
+      return false;
+    }
+  }
+
+  private async isOffered(walletId: string, now: Date): Promise<boolean> {
     const mode = partnerApiMode();
     if (!mode) return false;
     return this.prisma.asSystem(async (tx) => {
       const wallet = await tx.clientWallet.findUnique({
         where: { id: walletId },
-        select: { tenantId: true, walletGroup: true, mergedIntoId: true },
+        select: { tenantId: true, walletGroup: true, mergedIntoId: true, blockedAt: true },
       });
-      if (!wallet || wallet.mergedIntoId) return false;
+      if (!wallet || wallet.mergedIntoId || wallet.blockedAt) return false;
       const home = await tx.venue.findUnique({ where: { id: wallet.tenantId }, select: { businessId: true } });
       if (!home?.businessId) return false;
       const conns = await tx.partnerConnection.findMany({
@@ -145,6 +156,7 @@ export class WalletLiveCodeService {
         select: {
           tenantId: true,
           scopes: true,
+          pausedScopes: true,
           keyCreatedAt: true,
           keyResumedAt: true,
           lastUsedAt: true,
@@ -158,7 +170,7 @@ export class WalletLiveCodeService {
           Boolean(c.venue.business?.taxId) &&
           // Dormida (90 días sin uso): el guard la duerme al verla; aquí ya no vale.
           now.getTime() - latest(c.keyCreatedAt, c.lastUsedAt, c.keyResumedAt) <= DORMANT_AFTER_MS &&
-          OFFER_SCOPES.some((s) => c.scopes.includes(s) && c.partner.allowedScopes.includes(s)) &&
+          OFFER_SCOPES.some((s) => c.scopes.includes(s) && c.partner.allowedScopes.includes(s) && !c.pausedScopes.includes(s)) &&
           walletReachable(wallet, home, { tenantId: c.tenantId, walletGroup: c.venue.walletGroup, businessId: c.venue.businessId }),
       );
     });

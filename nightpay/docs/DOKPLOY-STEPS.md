@@ -475,10 +475,25 @@ PARTNER_API_MODE=test
 PARTNER_TEST_HELPERS=1
 ```
 
-**Sin** `TELEGRAM_*`, Resend (`RESEND_*`), `BACKUP_*`, `SENTRY_DSN`,
-`BTCPAY_ENABLED`, credenciales de cobro (`PAYTEF_API_TOKEN`, `PEANPE_API_KEY`,
-`VIVA_API_KEY`, `WIPAY_*`) ni ningún dato de producción (nunca una copia de la
-base de producción).
+**No se copian de producción** (al partir de las de D.2, bórralas):
+
+| Variable | Por qué |
+|---|---|
+| `TELEGRAM_*` (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`…) | los avisos de la demo irían al chat de producción; con `PARTNER_TEST_HELPERS=1` y `TELEGRAM_BOT_TOKEN` el API no arranca |
+| `REDSYS_MERCHANT_CODE`, `REDSYS_TERMINAL`, `REDSYS_SECRET_KEY` | el comercio real del banco; con `REDSYS_SECRET_KEY` el API de la demo no arranca |
+| `NEXT_PUBLIC_WEB_CLIENT_URL` | la web del cliente de producción: los enlaces de la demo llevarían a ella |
+| `GOOGLE_WALLET_*` | los pases de Google Wallet del emisor real |
+| `WEB_PUSH_VAPID_*` | las claves de los avisos al móvil de producción |
+| `BACKUP_*` | las copias irían al almacén de las de producción |
+
+**Sin** Resend (`RESEND_*`), `SENTRY_DSN`, `BTCPAY_ENABLED`, credenciales de
+cobro (`PAYTEF_API_TOKEN`, `PEANPE_API_KEY`, `VIVA_API_KEY`, `WIPAY_*`) ni
+ningún dato de producción (nunca una copia de la base de producción).
+
+Con `PARTNER_TEST_HELPERS=1` (el API y la semilla `partner-demo-seed`, en
+cualquier `NODE_ENV`) la base y Redis tienen que estar en `localhost`,
+`127.0.0.1` o en un host con «demo» (`nightpay-demo-…`): un túnel a la base de
+producción no arranca.
 
 **Cloudflare** (Fase F): `demo-api`, `demo-admin` y `demo-operator` →
 `<IP del servidor de la demo>` en naranja, Full (strict) y su propia regla

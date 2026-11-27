@@ -306,8 +306,9 @@ export class PublicWalletController {
     // OxioParty: la página de la pulsera (de día, con «Lo que sobra» y las casetas).
     const party = isPartyEdition() && this.party ? await this.party.pageData(walletId) : null;
     // «Pagar o recargar en otro sistema»: la API de socios encendida (como PartnerApiEnabledGuard en
-    // POST /w/:token/live-code) y una conexión que alcanza el saldo. Si falla, la página sale sin él.
-    const liveCode = partnerApiOn() && this.liveCodes ? await this.liveCodes.offered(walletId).catch(() => false) : false;
+    // POST /w/:token/live-code) y una conexión que alcanza el saldo. Si falla, la página sale sin él
+    // (offered no lanza: avisa en el log).
+    const liveCode = partnerApiOn() && this.liveCodes ? await this.liveCodes.offered(walletId) : false;
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
