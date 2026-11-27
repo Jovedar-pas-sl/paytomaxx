@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pinTipButtons, pinTipCents, pinTipInitial, pinTipSetup, withScreenTip } from './pin-tip';
+import { pinTipButtons, pinTipCents, pinTipInitial, pinTipOptions, pinTipSetup, screenTipNotice, tipDestination, withScreenTip } from './pin-tip';
 
 // B1: la propina la elige el cliente en la pantalla del PIN (en el móvil del
 // personal), sin nada marcado; con la ficha sin PIN no hay propina.
@@ -66,5 +66,46 @@ describe('la propina elegida en la pantalla de la barra, en el PIN del móvil', 
     expect(withScreenTip(null, 500)).toBeNull();
     expect(withScreenTip(setup, 999_00)).toBe(setup);
     expect(pinTipInitial(withScreenTip(setup, 0)!)).toEqual({ kind: 'none' });
+  });
+});
+
+describe('cada botón de propina dice el total con ella (idea 66)', () => {
+  const setup = pinTipSetup({ totalCents: 3300, ...methods })!;
+
+  it('«Sin propina» y las sugeridas, cada una con lo vendido + ella', () => {
+    expect(pinTipOptions(setup)).toEqual([
+      { cents: 0, totalCents: 3300 },
+      { cents: 200, totalCents: 3500 },
+      { cents: 500, totalCents: 3800 },
+    ]);
+  });
+
+  it('un cobro de antes con propina: la base es lo vendido (baseCents), no el importe con la propina de antes', () => {
+    const before = pinTipSetup({ totalCents: 4000, tipCents: 700, ...methods })!;
+    expect(pinTipOptions(before)).toEqual([
+      { cents: 0, totalCents: 3300 },
+      { cents: 200, totalCents: 3500 },
+      { cents: 500, totalCents: 3800 },
+      { cents: 700, totalCents: 4000 },
+    ]);
+  });
+
+  it('la elegida en la pantalla de la barra, igual: lo vendido + ella', () => {
+    expect(pinTipOptions(withScreenTip(setup, 300)!)).toContainEqual({ cents: 300, totalCents: 3600 });
+  });
+});
+
+describe('a quién va la propina y el aviso de la pantalla, en los dos idiomas', () => {
+  it('«La propina» delante, en español y en inglés', () => {
+    expect(tipDestination(true)).toEqual({ es: 'La propina va entera para el personal', en: 'The whole tip goes to the staff' });
+    expect(tipDestination(false)).toEqual({ es: 'La propina es para el local', en: 'The tip goes to the venue' });
+  });
+
+  it('la propina que eligió en la pantalla: cuánto, y que se puede cambiar o quitar', () => {
+    expect(screenTipNotice(200)).toEqual({
+      es: 'En la pantalla elegiste 2\u00a0€ de propina. Puedes cambiarla o quitarla.',
+      en: 'You chose a €2 tip on the screen. You can change or remove it.',
+    });
+    expect(screenTipNotice(250).en).toBe('You chose a €2.50 tip on the screen. You can change or remove it.');
   });
 });

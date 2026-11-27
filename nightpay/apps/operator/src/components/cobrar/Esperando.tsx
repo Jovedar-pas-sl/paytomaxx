@@ -637,6 +637,9 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           chip={cobro.pinChip}
           amountCents={cobro.totalCents}
           tipSetup={pinTip}
+          // Idea 66: a quién va (como en /s: de la chica que cobra; si no, del local) y si la marcó la pantalla de la barra.
+          tipToStaff={getUser()?.role === 'OPERATOR'}
+          presetFromScreen={pinTip !== basePinTip}
           detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
           reason={pin.reason}
           onCancel={() => setPin(null)}

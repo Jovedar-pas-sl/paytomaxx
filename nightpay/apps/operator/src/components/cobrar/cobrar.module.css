@@ -1592,7 +1592,8 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 }
 
 .pinTipOpt {
-  min-height: 3rem;
+  /* 60 px: las teclas de la casa (idea 66). Los euros a 16/600 y, debajo, el total con ella. */
+  min-height: 3.75rem;
   border-radius: var(--np-r-md);
   background: var(--np-surface-2);
   border: none;
@@ -1603,9 +1604,23 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
   align-items: center;
   justify-content: center;
   gap: 0.0625rem;
-  font: 700 var(--np-fs-16)/1.1 var(--np-font-num);
+  font: 600 var(--np-fs-16)/1.1 var(--np-font-num);
   padding: 0.25rem;
   cursor: pointer;
+}
+
+/* Pantallas bajas (con todo y un PIN mal no cabe sin desplazar): 52 px y, más bajas, 48. */
+@media (max-height: 760px) {
+  .pinTipOpt {
+    /* 52 px, escrito como suma: esa medida en rem es la vieja del cuadrado de la carta (ui-grafito3 la vigila). */
+    min-height: calc(3rem + 0.25rem);
+  }
+}
+
+@media (max-height: 700px) {
+  .pinTipOpt {
+    min-height: 3rem;
+  }
 }
 
 .pinTipWord {
@@ -1615,6 +1630,19 @@ html[data-contrast='sala'] .lastRow[data-n='4']:not([data-big]) {
 .pinTipOpt small {
   font: 500 var(--np-fs-14) var(--np-font-sans);
   color: var(--np-text-mute);
+}
+
+.pinTipTo,
+.pinTipScreen {
+  margin: 0;
+  text-align: center;
+  font: 500 var(--np-fs-14)/1.35 var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+/* La propina que eligió en la pantalla de la barra: el aviso, sobre las propinas. */
+.pinTipScreen {
+  color: var(--np-text);
 }
 
 .pinTipOn {
