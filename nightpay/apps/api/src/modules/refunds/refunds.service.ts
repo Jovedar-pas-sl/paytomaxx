@@ -47,6 +47,7 @@ import { findRefundApproval, lockRefundIntent, refundIntent } from './refund-int
 import { replayOfRefund, savedResponse, type RefundReplay, type RefundResult } from './refund-replay';
 import { saldoNoSeDevuelve } from '../wallets/saldo-rule';
 import { assertNotBitcoin } from './bitcoin-refund';
+import { assertNotYavinBankRefund, assertYavinFirstRefund } from './yavin-refund';
 import { eur } from '../../common/money/eur';
 
 /**
@@ -353,6 +354,8 @@ export class RefundsService {
       // Primero si cabe (no se pide un código para algo imposible), luego si le
       // toca pedirla al dueño y el 2FA (en una aprobada ya lo puso el dueño).
       await assertRefundFits(tx, payment.id, locked, request.amountCents);
+      // Yavin: una sola devolución por operación (la segunda, 409 claro).
+      await assertYavinFirstRefund(tx, payment);
       if (!approved) await assertBelowApprovalThreshold(tx, payment, request.amountCents, actor);
       const twoFactorRequired = approved ? false : await this.checkTwoFactor(tx, request, actor);
       const refund = await tx.refund.create({
@@ -598,6 +601,7 @@ export class RefundsService {
     // (WalletChargesService.payout) apunta en sus recargas.
     if (payment.walletId && !opts.walletPayout) throw saldoNoSeDevuelve();
     assertNotBitcoin(payment.provider);
+    assertNotYavinBankRefund(payment.provider);
     if (!REFUNDABLE_STATUSES.has(payment.status)) {
       throw new ConflictException('Solo se registran devoluciones de cobros pagados');
     }

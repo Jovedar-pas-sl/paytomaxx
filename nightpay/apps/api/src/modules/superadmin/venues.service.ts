@@ -25,6 +25,7 @@ import { SuperAdminAuditService } from './superadmin-audit.service';
 import { commissionMapOf, planVenueRulesChange, profileNeedsStepUp } from './superadmin-rules';
 import type { SuperAdminActor } from './superadmin.guard';
 import { serviceFeeGatewayProblem } from '../payments/service-fee';
+import { BASE_GATEWAY_WHERE } from '../gateways/card-gateway';
 
 const VENUE_NOT_FOUND = 'Local no encontrado';
 
@@ -92,7 +93,7 @@ export class SuperAdminVenuesService {
   /** Por qué no se puede encender la «Comisión del servicio» en el local (su pasarela); null: se puede. */
   private async serviceFeeBlock(id: string): Promise<string | null> {
     const credential = await this.prisma.acrossVenues((tx) =>
-      tx.gatewayCredential.findFirst({ where: { tenantId: id, active: true }, orderBy: { createdAt: 'asc' }, select: { provider: true } }),
+      tx.gatewayCredential.findFirst({ where: { tenantId: id, ...BASE_GATEWAY_WHERE }, orderBy: { createdAt: 'asc' }, select: { provider: true } }),
     );
     return serviceFeeGatewayProblem(credential?.provider ?? null, this.config.get<string>('PEANPE_AMOUNT_FORMAT_VERIFIED'));
   }

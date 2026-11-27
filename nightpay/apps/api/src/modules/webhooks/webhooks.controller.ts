@@ -35,6 +35,7 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
 import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
+import { YavinAdapter, cartIsPaid, noticeTokenHash } from '../gateways/yavin.adapter';
 import { boundedInput } from '../../common/pipes/input-limits';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
@@ -133,6 +134,8 @@ export class WebhooksController {
   private readonly gate: WebhookProviderGate | null;
   /** Para procesar el aviso de Redsys al llegar (WebhookIngestProcessor); sin él (pruebas de antes), solo la cola. */
   private readonly moduleRef: ModuleRef | null;
+  /** Yavin (enlace de pago con QR); null si no está (pruebas de antes). */
+  private readonly yavin: YavinAdapter | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
@@ -146,6 +149,7 @@ export class WebhooksController {
     @Inject(RedsysAdapter) redsys: RedsysAdapter,
     @Inject(WebhookProviderGate) gate?: WebhookProviderGate,
     @Optional() @Inject(ModuleRef) moduleRef?: ModuleRef,
+    @Optional() @Inject(YavinAdapter) yavin?: YavinAdapter,
   ) {
     this.prisma = prisma;
     this.gateways = gateways;
@@ -158,6 +162,7 @@ export class WebhooksController {
     this.redsys = redsys;
     this.gate = gate ?? null;
     this.moduleRef = moduleRef ?? null;
+    this.yavin = yavin ?? null;
   }
 
   /**
@@ -185,7 +190,8 @@ export class WebhooksController {
       provider !== 'WIPAY' &&
       provider !== 'PEANPE' &&
       provider !== 'PAYTEF' &&
-      provider !== 'REDSYS'
+      provider !== 'REDSYS' &&
+      provider !== 'YAVIN'
     ) {
       throw new BadRequestException(`Unknown provider: ${providerParam}`);
     }
@@ -212,6 +218,9 @@ export class WebhooksController {
       throw new UnauthorizedException(
         'Wipay/Cecabank webhooks usan ruta dedicada POST /v1/webhooks/wipay (form-urlencoded)',
       );
+    }
+    if (provider === 'YAVIN') {
+      throw new UnauthorizedException('Yavin avisa por POST /v1/webhooks/yavin/<token del intento>');
     }
 
     const adapter = this.gateways.get(provider);
@@ -328,6 +337,79 @@ export class WebhooksController {
 
     await this.enqueueDelivery(provider, verify.externalEventId, delivery.id);
 
+    this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
+    return { received: true };
+  }
+
+  /**
+   * Aviso de Yavin. Yavin NO firma sus avisos: la URL lleva un token secreto
+   * al azar POR INTENTO (crypto.randomBytes; en la base solo su SHA-256, en
+   * payment_attempts.noticeTokenHash). Token desconocido → 401 y nada cambia.
+   * Aun con el token bueno, el cuerpo del aviso no se usa y nunca da nada por
+   * pagado: se pregunta a Yavin (get_cart_information). Sin pagar → 200 y el
+   * cobro sigue esperando. Pagado → se guarda un aviso de NightPay (uno por
+   * carrito: un segundo aviso es duplicado) y el procesador lo vuelve a
+   * comprobar con Yavin, importe al céntimo, antes de darlo por pagado.
+   * Con YAVIN_ENABLED apagado sigue igual: los enlaces ya abiertos se pueden
+   * pagar 72 h y su aviso tiene que apuntarse (el interruptor solo impide
+   * abrir enlaces nuevos).
+   */
+  @Public()
+  @Post('yavin/:token')
+  @HttpCode(200)
+  @IpRateLimit({ max: 600, windowSec: 60, scope: 'webhook-yavin', failOpen: true })
+  async receiveYavin(@Param('token') token: string): Promise<{ received: true; duplicate?: boolean }> {
+    if (!this.yavin) throw new NotFoundException();
+    const provider: Provider = 'YAVIN';
+    // 43 caracteres base64url (32 bytes). Lo demás ni se busca.
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      throw new UnauthorizedException();
+    }
+    const hash = noticeTokenHash(token);
+    const attempt = await this.prisma.asSystem((tx) =>
+      tx.paymentAttempt.findUnique({
+        where: { noticeTokenHash: hash },
+        select: { id: true, tenantId: true, provider: true, providerTxId: true, noticeTokenHash: true },
+      }),
+    );
+    // La búsqueda es por la huella; además, comparación en tiempo constante.
+    if (!attempt || attempt.provider !== 'YAVIN' || !attempt.noticeTokenHash || !sameSecret(hash, attempt.noticeTokenHash)) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'invalid' });
+      throw new UnauthorizedException();
+    }
+    const cartId = attempt.providerTxId;
+    const externalEventId = `${cartId}_paid`;
+    const existing = await this.prisma.webhookDelivery.findUnique({
+      where: { provider_externalEventId: { provider, externalEventId } },
+      select: { id: true, processedAt: true },
+    });
+    if (existing?.processedAt) {
+      this.metrics.webhooksReceived.inc({ provider, outcome: 'duplicate' });
+      return { received: true, duplicate: true };
+    }
+    if (!existing) {
+      const found = await this.yavin.cartOf(attempt.tenantId, cartId);
+      if (!found.ok) {
+        // Yavin lo reintenta (y si no, la conciliación del cobro lo mira).
+        this.logger.warn(`webhook yavin: no se pudo comprobar el carrito ${cartId}: ${found.reason}`);
+        throw new HttpException('Yavin no responde ahora', HttpStatus.SERVICE_UNAVAILABLE);
+      }
+      if (!cartIsPaid(found.cart)) {
+        this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
+        return { received: true };
+      }
+    }
+    const delivery =
+      existing ??
+      (await this.saveDelivery({
+        provider,
+        externalEventId,
+        rawBody: Buffer.from(JSON.stringify({ attemptId: attempt.id, cartId }), 'utf8'),
+        signature: 'yavin-url-token',
+        tenantId: attempt.tenantId,
+      }));
+    await this.processNowOrQueue(provider, externalEventId, delivery.id);
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
   }

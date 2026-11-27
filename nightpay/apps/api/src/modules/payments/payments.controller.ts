@@ -30,7 +30,8 @@ import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import type { JwtPayload } from '@nightpay/contracts';
+import type { CardGatewayChoice, JwtPayload } from '@nightpay/contracts';
+import { cardGatewayChoicesIn } from '../gateways/card-gateway';
 import { PaymentsService } from './payments.service';
 import { mayReadCobro } from './payment-read-access';
 import { staffBankRef, type StaffBankRef } from './staff-bank-ref';
@@ -88,6 +89,18 @@ export class PaymentsController {
   @Roles('OWNER', 'MANAGER', 'OPERATOR', 'WAITER')
   async unpaid(@Tenant() tenantId: string, @CurrentUser() user: JwtPayload): Promise<{ items: UnpaidCobro[] }> {
     return { items: await listUnpaidCobros(this.prisma, { tenantId, userId: user.sub }) };
+  }
+
+  /**
+   * Entre qué pasarelas de tarjeta elige el personal al cobrar: «BBVA» y
+   * «Yavin» solo si el local tiene las dos (card-gateway.ts); si no, ninguna
+   * elección (como hoy).
+   */
+  @Get('card-gateways')
+  @UseGuards(RolesGuard)
+  @Roles('OWNER', 'MANAGER', 'OPERATOR', 'WAITER')
+  async cardGateways(@Tenant() tenantId: string): Promise<CardGatewayChoice> {
+    return { options: await this.prisma.asSystem((tx) => cardGatewayChoicesIn(tx, tenantId)) };
   }
 
   /**

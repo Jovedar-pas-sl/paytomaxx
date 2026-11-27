@@ -180,6 +180,27 @@ export class PublicPayController {
     sendJson(res, ctx ? 200 : 404, ctx ? ctx.view : { message: 'Pago no encontrado' });
   }
 
+  /**
+   * Vuelta del cliente desde la página de Yavin (return_url_success /
+   * return_url_cancelled). Yavin añade el carrito (cartId) a la URL: se va a
+   * /pay/result?op=<carrito>, que enseña el estado REAL del cobro (lo que diga
+   * la URL no paga nada). También con YAVIN_ENABLED apagado: el cliente de un
+   * enlace ya abierto tiene que poder volver.
+   */
+  @Public()
+  @Get('yavin/return')
+  @IpRateLimit(PAY_PAGE_LIMIT)
+  yavinReturn(
+    @Query('cartId') cartId: string | undefined,
+    @Query('lang') langQuery: string | undefined,
+    @Res() res: FastifyReply,
+  ): void {
+    // shortcut: el nombre del parámetro (cartId) solo se vio en un resumen de la documentación.
+    const op = isPayLookupKey(cartId) ? cartId : '';
+    const lang = PAY_LANGUAGES.includes(langQuery as PayLanguage) ? `&lang=${langQuery}` : '';
+    redirectTo(res, `/pay/result?op=${encodeURIComponent(op)}${lang}`);
+  }
+
   @Public()
   @Get('result')
   @IpRateLimit(PAY_PAGE_LIMIT)

@@ -118,6 +118,7 @@ import { assertBankWaitOver } from './cancel-at-bank';
 import { heldOnReaderConflict, isHeldOnReader } from './reader-hold';
 import { serviceFeeQuote } from '@nightpay/contracts';
 import { btcpayEnabled } from '../btcpay/btcpay-flag';
+import { cardGatewayFor } from '../gateways/card-gateway';
 import { bitcoinOfferedFor } from '../btcpay/btcpay-logic';
 import { VENUE_SERVICE_FEE_SELECT, refundableFeeCents, venueServiceFeeOf } from './service-fee';
 
@@ -393,7 +394,7 @@ export interface LockedPaymentRow {
   amountCents: number;
   availableAmountCents: number;
   providerTxId: string | null;
-  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null;
+  provider: 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | 'YAVIN' | null;
   createdByUserId: string | null;
   walletId: string | null;
   tipCents: number;
@@ -517,6 +518,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       // Bitcoin no: su factura la vigila el repaso de BTCPay (btcpay-sweep). La
       // conciliación de las pasarelas no sabe preguntar a BTCPay y, agotada, lo
       // dejaba «Sin confirmar» (ORPHAN) mientras el cliente aún podía pagar.
+      // Yavin sí entra (como Redsys y Paytef): se pregunta su carrito.
       const stuck = await this.prisma.$queryRawUnsafe<Array<{
         id: string;
         tenantId: string;
@@ -973,6 +975,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           ...(tipBeneficiaryUserId ? { tipBeneficiaryUserId } : {}),
           ...(draft.captureMethod ? { captureMethod: draft.captureMethod } : {}),
           ...(walletId ? { walletId } : {}),
+          // Yavin: la pasarela que eligió el camarero (solo cuenta con las dos; card-gateway.ts).
+          ...(dto.cardGateway && !walletId ? { cardGateway: dto.cardGateway } : {}),
           ...(draft.service ?? {}),
           // OxioParty: la caseta de quien cobra (en OxioPay no se añade nada).
           ...stallSeal(draft.stallId),
@@ -1068,7 +1072,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     }
     const declared = dto.tipCents ?? 0;
     if (declared <= 0) return NO_TIP;
-    const provider = await this.activeProvider(tenantId);
+    const provider = await this.activeProvider({ tenantId, walletId: input.isWalletTopUp ? 'saldo' : null });
     const confirmable = creatorTipConfirmable({
       provider,
       isPosExternal: input.isPosExternal,
@@ -1116,15 +1120,8 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.cancelHooks.push(hook);
   }
 
-  private async activeProvider(tenantId: string): Promise<Provider | null> {
-    const credential = await this.prisma.asSystem((tx) =>
-      tx.gatewayCredential.findFirst({
-        where: { tenantId, active: true },
-        orderBy: { createdAt: 'asc' },
-        select: { provider: true },
-      }),
-    );
-    return credential?.provider ?? null;
+  private async activeProvider(payment: { tenantId: string; walletId: string | null }): Promise<Provider | null> {
+    return this.prisma.asSystem((tx) => cardGatewayFor(tx, payment));
   }
 
   /**
@@ -1334,7 +1331,14 @@ export class PaymentsService implements OnApplicationBootstrap {
   private async findPayable(
     qrToken: string,
   ): Promise<
-    PayablePayment & { tenantId: string; provider: Provider | null; updatedAt: Date; walletId: string | null; staffUserId: string | null }
+    PayablePayment & {
+      tenantId: string;
+      provider: Provider | null;
+      cardGateway: Provider | null;
+      updatedAt: Date;
+      walletId: string | null;
+      staffUserId: string | null;
+    }
   > {
     const payment = await this.prisma.asSystem((tx) =>
       tx.payment.findUnique({
@@ -1344,6 +1348,7 @@ export class PaymentsService implements OnApplicationBootstrap {
           tenantId: true,
           status: true,
           provider: true,
+          cardGateway: true,
           amountCents: true,
           serviceFeeCents: true,
           serviceFeeBps: true,
@@ -1379,7 +1384,7 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Pasarela que cobrará: la del cobro o, si aún no ha ido al banco, la
     // activa del local. La propina solo se cobra (y se reparte) con Redsys.
     // (Una factura de bitcoin cerrada deja el cobro con BTCPAY: para la tarjeta cuenta la pasarela del local.)
-    const provider = payment.provider && payment.provider !== 'BTCPAY' ? payment.provider : await this.activeProvider(payment.tenantId);
+    const provider = payment.provider && payment.provider !== 'BTCPAY' ? payment.provider : await this.activeProvider(payment);
     const { walletId, wallet, attempts, venue, createdBy, serviceName, tipGoesTo, idempotencyKey, linkedWalletCharge, ...rest } =
       payment;
     const firstTopUp = wallet !== null && !selfTopUpClaimHash(idempotencyKey) && (await this.isFirstTopUp(walletId, payment.id));
@@ -1819,7 +1824,7 @@ export class PaymentsService implements OnApplicationBootstrap {
              SET status = ${result.nextState}::"PaymentStatus",
                  "availableAmountCents" = ${result.nextContext.availableAmountCents},
                  "providerTxId" = ${result.nextContext.providerTxId ?? p.providerTxId},
-                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | null}::"Provider",
+                 provider = ${(result.nextContext.provider ?? p.provider) as 'WIPAY' | 'PEANPE' | 'PAYTEF' | 'REDSYS' | 'BTCPAY' | 'YAVIN' | null}::"Provider",
                  "authorizedAt" = CASE WHEN ${result.nextState}::text = 'AUTHORIZED'
                                        THEN COALESCE("authorizedAt", NOW()) ELSE "authorizedAt" END,
                  "updatedAt" = NOW()
@@ -2574,13 +2579,10 @@ export class PaymentsService implements OnApplicationBootstrap {
     // Otro POST ya lo abrió (o ya terminó): no se vuelve a la pasarela.
     if (!OPENABLE_STATES.has(payment.status)) throw new ConflictException(PAYMENT_ALREADY_STARTED);
 
-    // Resolver provider activo del venue
-    const credential = await this.prisma.asSystem((tx) =>
-      tx.gatewayCredential.findFirst({
-        where: { tenantId: payment.tenantId, active: true },
-        orderBy: { createdAt: 'asc' },
-      }),
-    );
+    // La pasarela de tarjeta del cobro: la del local o, si el super-admin lo
+    // eligió y hay credencial, Yavin (card-gateway.ts).
+    const provider = await this.prisma.asSystem((tx) => cardGatewayFor(tx, payment));
+    const credential = provider ? { provider } : null;
     if (!credential) {
       // Sin pasarela este cobro no se puede pagar con tarjeta: definitivo.
       return this.checkoutNotOpened(payment.id, new Error('Venue has no active gateway credential'), 'no-active-gateway');
@@ -2637,7 +2639,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     this.logger.log(
       `Payment ${payment.id} authorizing via ${credential.provider} (txId=${providerTxId})`,
     );
-    return { status: 'AUTHORIZING', providerTxId, result: opened.result };
+    // La huella del token del aviso de Yavin no sale de aquí.
+    const { noticeTokenHash: _hidden, ...result } = opened.result;
+    return { status: 'AUTHORIZING', providerTxId, result };
   }
 
   /**
@@ -2730,6 +2734,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         tipCents,
         payMethod: choice?.method ?? null,
         claimHash: choice?.claimHash ?? null,
+        ...(result.noticeTokenHash ? { noticeTokenHash: result.noticeTokenHash } : {}),
       },
     });
     // Detalle del pago: el móvil del cliente que va a pagar con este intento.

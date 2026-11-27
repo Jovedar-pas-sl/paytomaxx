@@ -25,6 +25,7 @@ import { VENUE_METHODS_SELECT, assertMethodsEnabled } from '../venues/venue-meth
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { eur } from '../../common/money/eur';
 import { HOME_TOPUP_KEY_PREFIX } from '../home-topup/home-topup-rules';
+import { BASE_GATEWAY_WHERE } from '../gateways/card-gateway';
 import {
   FICHA_TOPUP_CAPS,
   FICHA_TOPUP_KEY_PREFIX,
@@ -406,7 +407,7 @@ export class WalletTopUpService {
         where: { id: wallet.tenantId },
         select: { ...VENUE_PAUSE_SELECT, ...VENUE_METHODS_SELECT, ...VENUE_SERVICE_FEE_SELECT, nightSettings: true },
       });
-      const gateways = await tx.gatewayCredential.count({ where: { tenantId: wallet.tenantId, active: true } });
+      const gateways = await tx.gatewayCredential.count({ where: { tenantId: wallet.tenantId, ...BASE_GATEWAY_WHERE } });
       const last = await tx.payment.findFirst({
         where: { walletId: wallet.id, tenantId: wallet.tenantId },
         orderBy: { createdAt: 'desc' },

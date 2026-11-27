@@ -38,8 +38,8 @@ const SELECT = {
   linkedWalletCharge: { select: { payToken: true, status: true, expiresAt: true } },
 } as const;
 
-/** Las pasarelas que vuelven a /pay/result?op= (Redsys: Ds_Order; Cecabank/Wipay: Num_operacion). */
-export const RESULT_PAGE_PROVIDERS = ['REDSYS', 'WIPAY'] as const;
+/** Las pasarelas que vuelven a /pay/result?op= (Redsys: Ds_Order; Cecabank/Wipay: Num_operacion; Yavin: su carrito, por /pay/yavin/return). */
+export const RESULT_PAGE_PROVIDERS = ['REDSYS', 'WIPAY', 'YAVIN'] as const;
 
 /**
  * Un token de QR (UUID) o un pedido del banco (12 o 32 caracteres) con buena

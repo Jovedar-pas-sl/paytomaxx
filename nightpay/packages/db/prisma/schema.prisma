@@ -89,6 +89,9 @@ model Venue {
   // (payment_lines.serviceOperatorId). Los locales de antes, encendida; los
   // nuevos los crea el API apagada. El código la da por apagada solo con false.
   operatorsChargeFromPhone Boolean @default(true)
+  // Yavin (enlace de pago con QR): el super-admin lo elige para el local. Solo
+  // cuenta con credencial YAVIN activa y YAVIN_ENABLED; apagado, todo con Redsys.
+  yavinSelected Boolean @default(false)
   // «Cargar saldo desde casa» (20261103100000, apps/api/src/modules/home-topup):
   // el enlace público del local (/r/<código>) para cargar el saldo antes de
   // llegar. Apagado de serie; el código es al azar (16 letras de base64url) y
@@ -380,6 +383,8 @@ enum Provider {
           // CaixaBank, Sabadell). Form POST hosted + HMAC-SHA256-3DES.
   BTCPAY  // BTCPay Server del propio local: «Pagar con bitcoin». No es la
           // pasarela de tarjeta del local, es una forma de pago más.
+  YAVIN   // Yavin: segunda pasarela de tarjeta, solo enlace de pago online
+          // (QR). Con YAVIN_ENABLED y elegida por el super-admin en el local.
 }
 
 // «Pagar con bitcoin» (BTCPay Server): la conexión de CADA local a SU BTCPay.
@@ -600,6 +605,9 @@ model Payment {
   status               PaymentStatus @default(CREATED)
   provider             Provider?
   providerTxId         String?
+  // Yavin: la pasarela que eligió el camarero (REDSYS = «BBVA» o YAVIN) en un
+  // local con las dos. NULL: la decide el servidor (gateways/card-gateway.ts).
+  cardGateway          Provider?
   qrToken              String        @unique
   qrExpiresAt          DateTime      @db.Timestamptz
   availableAmountCents Int
@@ -754,6 +762,8 @@ model PaymentAttempt {
   payMethod    String?
   // Huella de la cookie del navegador que abrió el intento (enlace del saldo).
   claimHash    String?
+  // Yavin: SHA-256 del token secreto de la URL de su aviso (no firma avisos).
+  noticeTokenHash String? @unique
   createdAt    DateTime @default(now()) @db.Timestamptz
   updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz
 

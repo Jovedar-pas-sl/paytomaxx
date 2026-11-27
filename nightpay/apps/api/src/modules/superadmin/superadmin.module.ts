@@ -25,6 +25,8 @@ import { SuperAdminAuditService } from './superadmin-audit.service';
 import { SuperAdminGuard } from './superadmin.guard';
 import { SuperAdminVenuesController } from './venues.controller';
 import { SuperAdminVenuesService } from './venues.service';
+import { SuperAdminYavinController } from './yavin-venue.controller';
+import { SuperAdminYavinService } from './yavin-venue.service';
 
 /**
  * Consola del super-admin: /v1/superadmin/* (ver docs/SUPERADMIN.md).
@@ -37,6 +39,8 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminOverviewController,
     SuperAdminBusinessesController,
     SuperAdminVenuesController,
+    // Yavin en un local (solo con YAVIN_ENABLED).
+    SuperAdminYavinController,
     SuperAdminStaffController,
     SuperAdminPayoutAccountsController,
     SuperAdminCustomersController,
@@ -50,6 +54,7 @@ import { SuperAdminVenuesService } from './venues.service';
     SuperAdminOverviewService,
     SuperAdminBusinessesService,
     SuperAdminVenuesService,
+    SuperAdminYavinService,
     SuperAdminStaffService,
     SuperAdminPayoutAccountsService,
     SuperAdminCustomersService,

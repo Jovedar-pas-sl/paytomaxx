@@ -67,6 +67,11 @@ export const AuthorizeResultSchema = z.object({
       fields: z.record(z.string(), z.string()),
     })
     .optional(),
+  /**
+   * Yavin: huella (SHA-256) del token secreto de la URL de su aviso, que va
+   * en payment_attempts. Uso interno: nunca sale hacia el cliente.
+   */
+  noticeTokenHash: z.string().optional(),
 });
 export type AuthorizeResult = z.infer<typeof AuthorizeResultSchema>;
 
