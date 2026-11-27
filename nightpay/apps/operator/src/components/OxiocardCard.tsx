@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import type { OxiocardView } from '@nightpay/contracts';
 import { oxiocardText, requestMyOxiocard } from '@/lib/oxiocard';
 
@@ -39,11 +39,7 @@ export function OxiocardCard({ view, onChange }: Props) {
           Abrir mi OxioCard
         </Button>
       ) : null}
-      {error ? (
-        <p role="alert" style={{ ...textStyle, color: 'var(--np-danger)' }}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
     </section>
   );
 }

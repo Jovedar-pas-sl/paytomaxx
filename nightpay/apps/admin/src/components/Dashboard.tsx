@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties } from 'react';
+import type { CobroRow } from '@nightpay/contracts';
 import { Button, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
 import { TAB_TOURS } from '@/lib/tours';
 import { MyProfileButton, ProfileProvider } from './MyProfileButton';
@@ -15,6 +16,7 @@ import {
 } from '@/lib/api';
 import { DEFAULT_TIMEZONE } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
+import { fetchPartnerConnections } from '@/lib/endpoints/partner-connections';
 import { decidableCount } from '@/lib/approvals';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
 import {
@@ -41,6 +43,7 @@ import { OperatorsPanel } from './OperatorsPanel';
 import { PaymentsPanel } from './PaymentsPanel';
 import { ReservationsPanel, type ReservationsView } from './reservations/ReservationsPanel';
 import { ReportsPanel } from './ReportsPanel';
+import { ResumenPanel } from './ResumenPanel';
 import { SectionHint } from './SectionHint';
 import { AlertsPanel } from './settings/AlertsPanel';
 import { NightPanel } from './settings/NightPanel';
@@ -50,6 +53,7 @@ import { VenueKitPanel } from './settings/VenueKitPanel';
 import { PermissionsPanel } from './settings/PermissionsPanel';
 import { RulesPanel } from './settings/RulesPanel';
 import { SecurityPanel } from './settings/SecurityPanel';
+import { PartnersPanel } from './settings/partners/PartnersPanel';
 import { SuperAdminPanel } from './superadmin/SuperAdminPanel';
 import { Skel } from './Skeleton';
 import { TabBar, tabId, tabPanelId } from './TabBar';
@@ -99,14 +103,16 @@ export function Dashboard({ user, onLogout }: Props) {
   const reports = useCanSeeReports(user);
   // Datáfono apagado en Formas de cobro: fuera la pestaña Datáfonos (y su permiso).
   const [posOn, setPosOn, posKnown] = useVenuePosOn(user);
-  const viewer = { role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports: reports.can, posOn };
+  // «Otras plataformas»: solo si la API de socios contesta (apagada o en OxioParty, 404).
+  const [partnersOn, partnersKnown] = usePartnersOn(user);
+  const viewer = { role: user.role, isSuperAdmin: user.isSuperAdmin, canSeeReports: reports.can, posOn, partnersOn };
   const sections = visibleSections(viewer);
   const tabs = sections.flatMap((s) => s.tabs);
   // La sección y la pestaña van en la URL (?s=ajustes&t=formas): recargar deja donde se estaba.
-  // Una que este rol no ve nunca se pinta (se vuelve a Cobros).
+  // Una que este rol no ve nunca se pinta (se vuelve al Resumen).
   const [tab, navigate] = useUrlNav(sections, {
-    permissive: visibleSections({ ...viewer, canSeeReports: true, posOn: true }),
-    settled: reports.known && posKnown,
+    permissive: visibleSections({ ...viewer, canSeeReports: true, posOn: true, partnersOn: true }),
+    settled: reports.known && posKnown && partnersKnown,
   });
   /** La pestaña que se miró la última vez en cada sección (volver a la sección la abre). */
   const [lastInSection, setLastInSection] = useState<Partial<Record<SectionKey, TabKey>>>({});
@@ -125,6 +131,8 @@ export function Dashboard({ user, onLogout }: Props) {
   const [focusPayment, setFocusPayment] = useState<string | null>(null);
   /** Filtros con los que abrir Cobros (desde una cifra del mapa del dinero). */
   const [cobrosFilter, setCobrosFilter] = useState<CobrosFilters | null>(null);
+  /** Cobro cuyo detalle abrir en Cobros (desde «Últimos cobros» del Resumen), sin filtrar la lista. */
+  const [cobroRow, setCobroRow] = useState<CobroRow | null>(null);
   /** La vista con la que se abre Reservados y RRPP (el atajo de Compañeras: los RRPP); null = la de siempre. */
   const [reservasView, setReservasView] = useState<ReservationsView | null>(null);
 
@@ -157,6 +165,11 @@ export function Dashboard({ user, onLogout }: Props) {
 
   function openCobros(filter: CobrosFilters): void {
     setCobrosFilter(filter);
+    goTo('payments');
+  }
+
+  function openCobro(row: CobroRow): void {
+    setCobroRow(row);
     goTo('payments');
   }
 
@@ -259,6 +272,10 @@ export function Dashboard({ user, onLogout }: Props) {
                     onOpenCobros={openCobros}
                     cobrosFilter={cobrosFilter}
                     onCobrosFilterDone={() => setCobrosFilter(null)}
+                    onOpenCobro={openCobro}
+                    cobroRow={cobroRow}
+                    onCobroRowDone={() => setCobroRow(null)}
+                    mapKnown={reports.known}
                     reservasView={reservasView}
                     onLogout={() => void logout()}
                     loggingOut={loggingOut}
@@ -336,6 +353,12 @@ interface ActivePanelProps {
   onOpenCobros: (filter: CobrosFilters) => void;
   cobrosFilter: CobrosFilters | null;
   onCobrosFilterDone: () => void;
+  /** Desde el Resumen: Cobros con el detalle de ese cobro abierto. */
+  onOpenCobro: (row: CobroRow) => void;
+  cobroRow: CobroRow | null;
+  onCobroRowDone: () => void;
+  /** Ya se sabe si el encargado ve los informes (el mapa del dinero del Resumen). */
+  mapKnown: boolean;
   /** La vista con la que se abre Reservados y RRPP (null: la de siempre). */
   reservasView: ReservationsView | null;
   onLogout: () => void;
@@ -350,15 +373,28 @@ function ActivePanel(props: ActivePanelProps) {
   const { tab, tabs, user, onNavigate } = props;
   const isOwner = user.role === 'OWNER';
   switch (tab) {
+    case 'resumen':
+      return (
+        <ResumenPanel
+          isOwner={isOwner}
+          showMoneyMap={tabs.some((t) => t.key === 'money')}
+          mapKnown={props.mapKnown}
+          tabs={tabs}
+          onNavigate={onNavigate}
+          onOpenPayment={props.onOpenPayment}
+          onOpenCobro={props.onOpenCobro}
+        />
+      );
     case 'payments':
       return (
         <PaymentsPanel
           user={user}
-          onNavigate={onNavigate}
           focusPaymentId={props.focusPayment}
           onFocusDone={props.onFocusPaymentDone}
           initialFilter={props.cobrosFilter}
           onInitialFilterDone={props.onCobrosFilterDone}
+          openRow={props.cobroRow}
+          onOpenRowDone={props.onCobroRowDone}
           // «Descargar»: quien ve el mapa del dinero (el dueño, y el encargado con «ver informes»).
           canExport={tabs.some((t) => t.key === 'money')}
         />
@@ -408,6 +444,8 @@ function ActivePanel(props: ActivePanelProps) {
       return isOwner ? <SectionsPanel /> : null;
     case 'alerts':
       return isOwner ? <AlertsPanel /> : null;
+    case 'partners':
+      return <PartnersPanel role={user.role} />;
     case 'security':
       return <SecurityPanel user={user} onLogout={props.onLogout} loggingOut={props.loggingOut} />;
     case 'superadmin':
@@ -518,6 +556,34 @@ function useVenuePosOn(user: User): [boolean, (posOn: boolean) => void, boolean]
     };
   }, [user.tenantId]);
   return [posOn, setPosOn, known];
+}
+
+/**
+ * ¿Está encendida la API de socios? (Ajustes → «Otras plataformas»). Sale
+ * solo si GET /v1/admin/partner-connections contesta: apagada, en OxioParty o
+ * si falla, no. El segundo: ya se sabe (o falló la pregunta).
+ */
+function usePartnersOn(user: User): [boolean, boolean] {
+  const [on, setOn] = useState(false);
+  const [known, setKnown] = useState(isPartyEdition());
+  useEffect(() => {
+    if (isPartyEdition()) return undefined;
+    setOn(false);
+    setKnown(false);
+    const controller = new AbortController();
+    fetchPartnerConnections(controller.signal)
+      .then(() => {
+        if (!controller.signal.aborted) setOn(true);
+      })
+      .catch(() => {
+        // Apagada (404) o sin respuesta: la pestaña no sale.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setKnown(true);
+      });
+    return () => controller.abort();
+  }, [user.tenantId]);
+  return [on, known];
 }
 
 /** Super-admin sin la 2FA activada (para el aviso de arriba). Ante la duda, no se avisa. */

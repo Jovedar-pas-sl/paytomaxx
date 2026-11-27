@@ -1,0 +1,249 @@
+/* «Otras plataformas» (Ajustes del local) y la consola «Socios» (super-admin).
+   CSS a mano con --np-*; nada de :has, color-mix ni oklch (el datáfono puede
+   ser un Chrome 64). Desde 641 px (tablet y PC): las conexiones en rejilla y
+   los botones en fila. Móvil = hasta 640px (360×740, 390×844 y el datáfono de
+   360×720): una columna, todo a lo ancho y los botones de 44 px. */
+
+.np-ptn-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-ptn-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  min-width: 0;
+  padding: 1rem 1.125rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-ptn-card[data-state='revoked'] {
+  opacity: 0.72;
+}
+
+.np-ptn-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.np-ptn-name {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-ptn-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+.np-ptn-meta {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, max-content) minmax(0, 1fr);
+  gap: 0.375rem 1rem;
+  margin: 0;
+}
+
+.np-ptn-meta div {
+  display: contents;
+}
+
+.np-ptn-meta dt {
+  font-size: 0.875rem;
+  color: var(--np-text-dim);
+}
+
+.np-ptn-meta dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  color: var(--np-text);
+  overflow-wrap: anywhere;
+}
+
+.np-ptn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.np-ptn-error {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-danger);
+}
+
+.np-ptn-old summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  color: var(--np-text-mute);
+}
+
+/* ─── Hojas: conectar, cambiar clave, reanudar y la clave ─────────────── */
+
+.np-ptn-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.125rem;
+}
+
+.np-ptn-lead {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--np-text);
+}
+
+.np-ptn-help {
+  display: block;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--np-text-mute);
+}
+
+.np-ptn-label {
+  display: block;
+  margin: 0 0 0.375rem;
+  padding: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-ptn-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.np-ptn-mono {
+  font-family: var(--np-font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.np-ptn-radios {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.np-ptn-radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-height: 2.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  cursor: pointer;
+}
+
+.np-ptn-radio[data-checked='true'] {
+  border-color: var(--np-border-hi);
+  background: var(--np-surface-2, var(--np-surface));
+}
+
+.np-ptn-radio input {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0.125rem 0 0;
+  accent-color: var(--np-accent);
+}
+
+.np-ptn-radio-label {
+  display: block;
+  font-size: 1rem;
+  color: var(--np-text);
+}
+
+.np-ptn-keybox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  padding: 1rem;
+  border: 1px solid var(--np-border-hi);
+  border-radius: var(--np-r-md);
+  background: var(--np-bg);
+}
+
+/* La clave: 48 cifras que no caben en 360 px; se parte donde haga falta y se
+   selecciona entera de un toque (por si el portapapeles no deja). */
+.np-ptn-key {
+  display: block;
+  font-family: var(--np-font-mono, ui-monospace, monospace);
+  font-size: 1rem;
+  line-height: 1.5;
+  color: var(--np-text);
+  word-break: break-all;
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+/* ─── La consola «Socios» ─────────────────────────────────────────────── */
+
+.np-ptn-ipbox {
+  width: 100%;
+  min-height: 6rem;
+  padding: 0.75rem;
+  font-family: var(--np-font-mono, ui-monospace, monospace);
+  font-size: 1rem;
+  color: var(--np-text);
+  background: var(--np-surface);
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .np-ptn-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .np-ptn-card {
+    padding: 1rem;
+  }
+
+  .np-ptn-meta {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.125rem;
+  }
+
+  .np-ptn-meta dd {
+    margin-bottom: 0.5rem;
+  }
+
+  .np-ptn-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .np-ptn-actions .np-btn {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .np-ptn-form .np-btn {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+}

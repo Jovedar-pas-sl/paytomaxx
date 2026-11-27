@@ -843,3 +843,55 @@ describe('idea 69: el saldo a mano (lo último, los últimos movimientos y «Blo
     expect(() => new Function(js)).not.toThrow();
   });
 });
+
+describe('«Pagar o recargar en otro sistema» (el código del móvil)', () => {
+  /** liveCodeRender del JS de la página, con un $ de mentira: ¿sale el bloque con este estado? */
+  function shown(html: string, s: Partial<ClientWalletState>): boolean {
+    const js = script(html);
+    const fn = js.slice(js.indexOf('function liveCodeRender('), js.indexOf('function lcStop('));
+    const els: Record<string, { hidden: boolean }> = {};
+    const $ = (id: string) => (els[id] ??= { hidden: false });
+    const C = { liveCode: js.includes('\\"liveCode\\":true') };
+    new Function('$', 'C', 'LC', `${fn}liveCodeRender(${JSON.stringify(state(s))});`)($, C, { on: false });
+    return !els.lcCard.hidden;
+  }
+
+  it.each(['es', 'en', 'fr', 'pt'] as const)('%s: con liveCode, el bloque (oculto sin JS) entre las vistas y los movimientos, y su JS', (lang) => {
+    const t = WALLET_TEXT[lang].liveCode;
+    const html = renderWalletPage('tok-1', lang, state(), { topUp, liveCode: true });
+    const block = between(html, 'id="lcCard"', 'id="moves"');
+    expect(html.indexOf('id="viewTop"')).toBeLessThan(html.indexOf('id="lcCard"'));
+    expect(html).toContain('<section class="card lc" id="lcCard" hidden');
+    for (const text of [t.button, t.hint, t.alt, t.warn, t.note, t.hide]) expect(block).toContain(text.replace(/'/g, '&#39;'));
+    expect(html).toContain('.fqri img{display:block;width:100%;height:auto}');
+    const js = script(html);
+    expect(js).toContain('if(C.aviso)avisoRender(s);liveCodeRender(s);');
+    expect(js).toContain("post('/live-code')");
+    expect(js).toContain('\\"liveCode\\":true');
+    expect(js).not.toContain('innerHTML');
+    expect(() => new Function(js)).not.toThrow();
+    const page = js.slice(js.indexOf('function $(id)'), js.indexOf('})();'));
+    expect(page.includes(BACKSLASH)).toBe(false);
+  });
+
+  it('sin liveCode: ni el bloque, ni su CSS, ni su JS (la página, igual que antes)', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { topUp });
+    expect(html).not.toContain('lcCard');
+    expect(html).not.toContain('.fqri img');
+    expect(html).not.toContain('liveCode');
+    expect(html).not.toContain('/live-code');
+    expect(renderWalletPage('tok-1', 'es', state(), { topUp, liveCode: false })).toBe(html);
+  });
+
+  it('el JS lo enseña con ACTIVE o DEPLETED; nunca sumado, con devolución o cerrado', () => {
+    const html = renderWalletPage('tok-1', 'es', state(), { liveCode: true });
+    expect(shown(html, {})).toBe(true);
+    expect(shown(html, { status: 'DEPLETED', balanceCents: 0 })).toBe(true);
+    expect(shown(html, { status: 'DEPLETED', balanceCents: 0, merged: true })).toBe(false);
+    expect(
+      shown(html, { refund: { stage: 'requested', amountCents: 100, methods: [] } as unknown as ClientWalletState['refund'] }),
+    ).toBe(false);
+    expect(shown(html, { status: 'REFUNDED' as ClientWalletState['status'] })).toBe(false);
+    expect(shown(html, { status: 'EXPIRED' as ClientWalletState['status'] })).toBe(false);
+  });
+});

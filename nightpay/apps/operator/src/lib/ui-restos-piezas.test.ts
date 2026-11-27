@@ -64,10 +64,12 @@ describe('importes: «€» y la regla común, nunca «EUR» ni cuentas a mano',
     expect(live).not.toMatch(/toFixed\(1\)\.replace\('\.', ','\)\} k/);
   });
 
-  it('Importe (sin `size`) en «Esta noche» del panel y del personal y en «Mis cobros»', () => {
+  it('Importe en «Esta noche» del panel (Pagado en grande en el Resumen, el resto sin `size`), del personal y en «Mis cobros»', () => {
     const strip = read('../../../admin/src/components/TonightStrip.tsx');
-    expect(strip.match(/<Importe cents=\{[a-zA-Z]+\} decimals="always" \/>/g)).toHaveLength(2);
-    expect(strip).not.toMatch(/<Importe[^>]*size=/);
+    // Entrega 9 B: «Pagado esta noche» del Resumen va en tamaño héroe y rueda; en la franja entera, sin tamaño.
+    expect(strip).toContain(`<Importe cents={night.chargedCents} size={full ? undefined : 'hero'} decimals="always" rolling />`);
+    expect(strip.match(/<Importe[^>]*size=/g)).toHaveLength(1);
+    expect(strip.match(/<Importe cents=\{[a-zA-Z.]+\} decimals="always"( rolling)? \/>/g)).toHaveLength(2);
     const card = read('../components/TonightCard.tsx');
     expect(card).toContain('<Importe cents={cents} rolling />');
     const cobros = read('../components/MyCobros.tsx');

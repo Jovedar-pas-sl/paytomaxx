@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { formatMoney, type ReservationCashQuote, type ReservationView } from '@nightpay/contracts';
 import {
   arriveReservation,
@@ -107,11 +107,7 @@ export function ReservasTab() {
           {notice}
         </p>
       ) : null}
-      {error ? (
-        <p role="alert" style={bad}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
       {scan ? (
         <Button
           variant="ghost"
@@ -185,7 +181,7 @@ function Door({
   const [error, setError] = useState<string | null>(null);
   const step = doorStep(r, tonightInMadrid());
 
-  if (step.kind === 'blocked') return <p style={bad}>{step.reason}</p>;
+  if (step.kind === 'blocked') return <FormError>{step.reason}</FormError>;
   if (step.kind === 'arrived') {
     return checkedIn ? (
       <p style={ok}>Ya ha llegado. Esta persona ya ha entrado.</p>
@@ -258,7 +254,7 @@ function Door({
           </Button>
         </>
       )}
-      {error ? <p style={bad}>{error}</p> : null}
+      {error ? <FormError>{error}</FormError> : null}
     </div>
   );
 }
@@ -331,7 +327,6 @@ const h2: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 7
 const note: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-text-mute)' };
 const line: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)' };
 const ok: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-success)', fontWeight: 600 };
-const bad: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', color: 'var(--np-danger-text)', fontWeight: 600 };
 const row: CSSProperties = { display: 'flex', gap: '0.5rem', alignItems: 'center' };
 const card: CSSProperties = {
   display: 'flex',

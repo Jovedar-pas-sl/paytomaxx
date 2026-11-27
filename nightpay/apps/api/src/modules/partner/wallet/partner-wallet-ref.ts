@@ -15,7 +15,8 @@ import { AuditService } from '../../audit/audit.service';
 import { isIssuedCard } from '../../wallets/wallet-card-ops';
 import { WalletLiveCodeService } from '../../wallets/wallet-live-code.service';
 import { liveWalletId, lockLiveWallet, type LockedWallet } from '../../wallets/wallet-merge-chain';
-import { formatWalletCode, sameWalletGroup } from '../../wallets/wallet-rules';
+import { formatWalletCode } from '../../wallets/wallet-rules';
+import { walletReachable } from './wallet-reachable';
 import type { PartnerAuth } from '../auth/current-connection.decorator';
 import { partnerError } from '../http/partner-problem';
 import { PARTNER_WALLET_AUDIT, PartnerWalletLimits, type PartnerRefKind } from './partner-wallet-limits';
@@ -87,23 +88,9 @@ export function classifyWalletRef(raw: string): WalletRefShape {
 
 // ─── El alcance de una clave ─────────────────────────────────────────────
 
-/**
- * ¿Llega esta clave a este saldo? El mismo grupo que comprueba el personal
- * del local (sameWalletGroup) **y** el local de origen del saldo (donde se
- * creó) con sociedad, la misma que la del local de la clave. Pura: la usa
- * también la página del saldo (PR 8).
- */
-export function walletReachable(
-  wallet: { tenantId: string; walletGroup: string | null },
-  home: { businessId: string | null },
-  conn: { tenantId: string; walletGroup: string | null; businessId: string | null },
-): boolean {
-  return (
-    sameWalletGroup(wallet, { id: conn.tenantId, walletGroup: conn.walletGroup }) &&
-    home.businessId !== null &&
-    home.businessId === conn.businessId
-  );
-}
+// walletReachable vive aparte (wallet-reachable.ts): la usa también la página
+// del saldo (WalletLiveCodeService.offered) sin ciclo de imports.
+export { walletReachable } from './wallet-reachable';
 
 // ─── A3. Resolver la referencia (con el alcance antes que todo) ─────────
 
