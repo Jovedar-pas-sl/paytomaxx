@@ -15,6 +15,7 @@ import { PrismaService } from '../../../common/prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { PARTNER_AUDIT, partnerAuditPayload } from '../partner-audit';
 import { partnerApiMode, partnerApiOn } from '../partner-flag';
+import { testHelpersOn } from '../../../config/partner-test-mode';
 import { partnerError, PartnerHttpException } from '../http/partner-problem';
 import { PARTNER_ROUTE } from '../http/partner-route.meta';
 import { PARTNER_CONNECTION_INCLUDE, type PartnerAuth, type PartnerGuardConnection } from './current-connection.decorator';
@@ -48,7 +49,8 @@ const latest = (...dates: Array<Date | null>) => Math.max(...dates.map((d) => d?
 
 /**
  * La puerta de la API de socios (§3.3 del diseño), en este orden:
- *  1. apagada (o en OxioParty) o congelada del todo: 404; `money` congelado: 403 en las de dinero;
+ *  1. apagada (o en OxioParty), una ruta solo de la demo fuera de la demo o congelada del todo: 404;
+ *     `money` congelado: 403 en las de dinero;
  *  2. la clave en el cuerpo: 400; con `Origin`: 403;
  *  3. sin tocar la base: clave bloqueada 401; si no se conoce, cortacircuitos 503 e IP bloqueada 429;
  *  4. solo `Bearer oxp_<modo>_<48 hex>` del modo del despliegue;
@@ -81,6 +83,8 @@ export class PartnerKeyGuard implements CanActivate {
 
     // 1. Interruptor y congelación. Las rutas sin clave acaban aquí.
     if (!partnerApiOn()) throw partnerError('not_found');
+    // Tercera barrera de las ayudas de prueba (tras el arranque y el módulo): sin tocar Redis ni la base.
+    if (def.demoOnly && !(testHelpersOn() && partnerApiMode() === 'test')) throw partnerError('not_found');
     const freeze = await this.redis(() => this.freeze.current());
     if (freeze === 'all') throw partnerError('not_found');
     if (freeze === 'money' && def.money) throw partnerError('partner_api_frozen');

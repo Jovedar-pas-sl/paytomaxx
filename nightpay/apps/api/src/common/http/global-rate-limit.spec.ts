@@ -98,13 +98,31 @@ describe('límite global: API de socios', () => {
     const auth = { authorization: `Bearer ${KEY}` };
     expect(isGlobalRateLimitExempt(req('/v1/partner/openapi.json', '203.0.113.5', auth))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner/no-existe', '203.0.113.5', auth))).toBe(false);
-    // Una del contrato aún sin hacer (la demo, PR 8): sin ruta, el límite de siempre.
+    // Las ayudas de la demo (PR 8) fuera de la demo (sin PARTNER_TEST_HELPERS=1): no existen, el límite de siempre.
     expect(isGlobalRateLimitExempt(req('/v1/partner/test/live-codes', '203.0.113.5', auth, 'POST'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/test/fixtures/reset', '203.0.113.5', auth, 'POST'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/loads', '203.0.113.5', auth, 'GET'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', auth, 'POST'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner', '203.0.113.5', auth))).toBe(false);
     vi.stubEnv('PARTNER_API_ENABLED', 'false');
     expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', auth))).toBe(false);
+  });
+
+  it('las ayudas de la demo quedan fuera del límite global solo en la demo (test con PARTNER_TEST_HELPERS=1)', () => {
+    on();
+    const auth = { authorization: `Bearer ${KEY}` };
+    const helpers = () => [
+      isGlobalRateLimitExempt(req('/v1/partner/test/live-codes', '203.0.113.5', auth, 'POST')),
+      isGlobalRateLimitExempt(req('/v1/partner/test/fixtures/reset', '203.0.113.5', auth, 'POST')),
+    ];
+    vi.stubEnv('PARTNER_API_MODE', 'test');
+    vi.stubEnv('PARTNER_TEST_HELPERS', '1');
+    expect(helpers()).toEqual([true, true]);
+    vi.stubEnv('PARTNER_API_MODE', 'live');
+    expect(helpers()).toEqual([false, false]);
+    vi.stubEnv('PARTNER_API_MODE', 'test');
+    vi.stubEnv('PARTNER_TEST_HELPERS', 'true');
+    expect(helpers()).toEqual([false, false]);
   });
 
   it('sin clave, con una mal formada o fuera de /v1/partner/, el límite global de siempre', () => {
