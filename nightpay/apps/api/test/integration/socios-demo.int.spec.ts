@@ -152,10 +152,13 @@ describe('2. la semilla, GET /me y cada ficha', () => {
   it('la semilla dos veces da los mismos recuentos; GET /me, el emisor del contrato', async () => {
     const first = await s.sys((tx) => seedPartnerDemo(tx, { carga: 3 }));
     const second = await s.sys((tx) => seedPartnerDemo(tx, { carga: 3 }));
-    expect(first).toEqual({ sociedades: 2, locales: 3, fichas: 9, carga: 3 });
+    // `carga` cuenta todas las demo-carga-… de la base (una semilla anterior con --carga 300 deja 300).
+    expect(first).toMatchObject({ sociedades: 2, locales: 3, fichas: 9 });
+    expect(first.carga).toBeGreaterThanOrEqual(3);
     expect(second).toEqual(first);
     const cargas = await s.sys((tx) => tx.walletCard.findMany({ where: { token: { startsWith: 'demo-carga-' } }, include: { wallet: true } }));
-    expect(cargas.map((c) => c.token).sort()).toEqual(['demo-carga-000001', 'demo-carga-000002', 'demo-carga-000003']);
+    expect(cargas).toHaveLength(first.carga);
+    expect(cargas.map((c) => c.token)).toEqual(expect.arrayContaining(['demo-carga-000001', 'demo-carga-000002', 'demo-carga-000003']));
     expect(cargas.every((c) => c.status === 'ISSUED' && c.venueId === venues.centro.id && c.wallet?.status === 'DEPLETED')).toBe(true);
     const me = await s.app.inject({ method: 'GET', url: '/v1/partner/me', headers: { authorization: `Bearer ${CD.key}` } });
     expect(me.statusCode, me.body).toBe(200);
