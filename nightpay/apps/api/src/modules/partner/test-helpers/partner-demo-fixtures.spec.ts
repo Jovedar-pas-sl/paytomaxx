@@ -57,6 +57,39 @@ describe('DEMO_FIXTURES y el contrato', () => {
   });
 });
 
+describe('apps/e2e/partner/fixtures.json (lo que comprueba demo-check.mjs)', () => {
+  type E2eFixtures = {
+    link: string;
+    fixtures: Record<string, { token: string; uid: string | null; balanceCents: number }>;
+    samples: Array<{ qr: string; status: number; code: string; reason?: string }>;
+  };
+  const e2e = JSON.parse(readFileSync(join(__dirname, '../../../../../e2e/partner/fixtures.json'), 'utf8')) as E2eFixtures;
+
+  it('sus fichas son DEMO_FIXTURES (token, UID y saldo), en el mismo orden', () => {
+    expect(Object.keys(e2e.fixtures)).toEqual([...FIXTURES]);
+    for (const f of FIXTURES) {
+      const { token, uid, balanceCents } = e2e.fixtures[f]!;
+      expect({ token, uid, balanceCents }, f).toEqual(DEMO_FIXTURES[f]);
+    }
+  });
+
+  it('el enlace de la guía, y los 7 textos de muestra de la tabla del contrato', () => {
+    expect(e2e.link).toBe('https://demo-operator.oxiopay.example/?ficha=');
+    const rows = fixtureSchema.description
+      .split('\n')
+      .map((l) => /^\| `([^`]+)` \| (?:`(\d{3}) ([a-z_]+)`)?(?:, )?(?:`reason: ([a-z_]+)`)? \|$/.exec(l))
+      .filter((m): m is RegExpExecArray => m !== null);
+    expect(rows).toHaveLength(7);
+    expect(e2e.samples.map((s) => s.qr)).toEqual(rows.map((m) => m[1]));
+    for (const [i, m] of rows.entries()) {
+      const s = e2e.samples[i]!;
+      expect(s.reason, s.qr).toBe(m[4]);
+      if (m[2]) expect([s.status, s.code], s.qr).toEqual([Number(m[2]), m[3]]);
+      else expect([s.status, s.code], s.qr).toEqual([422, 'wallet_ref_not_accepted']);
+    }
+  });
+});
+
 describe('a qué fichas llega una clave de Local Demo Centro', () => {
   // Las sociedades y los locales de la semilla, con ids inventados.
   const biz = { main: 'b-main', other: 'b-other' } as const;
