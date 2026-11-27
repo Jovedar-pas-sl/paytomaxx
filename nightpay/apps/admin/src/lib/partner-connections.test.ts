@@ -46,6 +46,7 @@ function conn(over: Partial<PartnerConnectionView> = {}): PartnerConnectionView 
     lastUsedIp: null,
     ipAllowlist: ['203.0.113.7'],
     foreignIps: [],
+    limits: { perOperationCents: 30000, walletDayCents: 60000, nightCents: 500000 },
     createdAt: '2026-11-20T10:00:00.000Z',
     ...over,
   };
