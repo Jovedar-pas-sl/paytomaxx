@@ -81,7 +81,7 @@ describe('GET /v1/admin/export/:kind', () => {
   it('«recargas-socios»: las cargas de los cajeros de otras plataformas, con su nombre de fichero', async () => {
     const { controller, reports } = makeController();
     const { reply, sent } = fakeReply();
-    await controller.export('t-1', 'recargas-socios', '2026-11-01', '2026-11-30', reply);
+    await controller.export(owner, 't-1', 'recargas-socios', '2026-11-01', '2026-11-30', reply);
     expect(reports.recargasSocios).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-11-01' }));
     expect(reports.recargasEfectivo).not.toHaveBeenCalled();
     expect(sent.status).toBe(200);
