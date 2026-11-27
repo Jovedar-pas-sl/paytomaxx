@@ -11,8 +11,11 @@ import {
   saldoPayTokenOf,
   settledPayView,
   switchesMethod,
+  withChosenTip,
   type PayablePayment,
+  type PayRedirect,
 } from './pay-redirect';
+import { renderChoosePage } from './public-pay.pages';
 
 const NOW = new Date('2026-10-13T08:00:00Z');
 const FUTURE = new Date(NOW.getTime() + 3 * 60_000);
@@ -304,5 +307,58 @@ describe('reutilizar el pedido abierto: solo el del mismo navegador', () => {
     expect(freshPendingOrder(attempts, now, 'chica')).toBeNull();
     expect(freshPendingOrder(attempts, now, null)).toBeNull();
     expect(freshPendingOrder(attempts, now)).toBe('ORD1');
+  });
+});
+
+describe('propina marcada desde la pantalla de la barra (idea 66, parte B): marcada y con aviso solo si el servidor la tiene apuntada', () => {
+  const payable: PayablePayment = {
+    id: 'pay-1',
+    status: 'CREATED',
+    amountCents: 3_300,
+    serviceFeeCents: 330,
+    tipCents: 0,
+    currency: 'EUR',
+    qrExpiresAt: FUTURE,
+    authorizedAt: null,
+    allowTip: true,
+    walletToken: null,
+    walletClaimHash: null,
+  };
+  const page = (view: PayRedirect): string =>
+    renderChoosePage(view as Extract<PayRedirect, { kind: 'choose' }>, {
+      token: 't',
+      lang: 'es',
+      device: { wallet: null, inApp: null },
+      statementName: null,
+      now: NOW,
+    }).replace(/[\u00a0\u202f]/g, ' ');
+  const NOTICE = 'En la pantalla elegiste 3 € de propina. Puedes cambiarla o quitarla.';
+  // 33 € con 3,30 € de comisión: «+3 €» es una de las sugeridas.
+  const base = choosePayPage(payable, NOW);
+
+  it('?tip=300 sin apunte: nada marcado y sin aviso', () => {
+    const html = page(withChosenTip(base, '300'));
+    expect(html).not.toContain(NOTICE);
+    expect(html).not.toMatch(/value="300" checked/);
+  });
+
+  it('apunte 300 y ?tip=300: marcada, el total ya la lleva y, encima de las propinas, el aviso', () => {
+    const html = page(withChosenTip({ ...base, screenTipCents: 300 } as PayRedirect, '300'));
+    expect(html).toContain(`<legend>¿Quieres dejar propina?</legend><p class="tipscreen" id="tipScreen">${NOTICE}</p><div class="tipgrid">`);
+    expect(html).toContain('value="300" checked');
+    expect(html).toContain('Pagar 39,30 €');
+  });
+
+  it('apunte 200 y ?tip=300: nada marcado y sin aviso', () => {
+    const html = page(withChosenTip({ ...base, screenTipCents: 200 } as PayRedirect, '300'));
+    expect(html).not.toContain('tipscreen" id');
+    expect(html).not.toMatch(/value="300" checked/);
+  });
+
+  it('la que pidió al personal (cobro único) sale marcada como siempre, pero sin el aviso de la pantalla', () => {
+    const saldo = { payToken: 's', status: 'PENDING', expiresAt: FUTURE, enabled: true };
+    const html = page(choosePayPage({ ...payable, saldo, tipCents: 300 }, NOW));
+    expect(html).toContain('value="300" checked');
+    expect(html).not.toContain('tipscreen" id');
   });
 });

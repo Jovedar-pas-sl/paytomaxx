@@ -27,12 +27,15 @@ export function publicBaseUrls(env: Env = process.env): { api: string; client: s
 }
 
 /**
- * Con datáfono (POS_EXTERNAL) el QR NO lleva a la pasarela (cobraría dos
- * veces): abre la app del personal para confirmar la venta del lector.
+ * El QR de un cobro con tarjeta va directo a la página de pago del API
+ * (/pay/<token>), sin pasar por la web del cliente (idea 72: antes, un salto
+ * más y la propina de la pantalla de la barra se perdía en él). Con datáfono
+ * (POS_EXTERNAL) el QR NO lleva a la pasarela (cobraría dos veces): abre la
+ * app del personal para confirmar la venta del lector.
  */
 export function cardQrUrl(
   p: { id: string; qrToken: string; captureMethod: string | null },
-  urls: { client: string; operator: string } = publicBaseUrls(),
+  urls: { api: string; operator: string } = publicBaseUrls(),
 ): string {
-  return p.captureMethod === 'POS_EXTERNAL' ? `${urls.operator}/?pos=${p.id}` : `${urls.client}/pay/${p.qrToken}`;
+  return p.captureMethod === 'POS_EXTERNAL' ? `${urls.operator}/?pos=${p.id}` : `${urls.api}/pay/${p.qrToken}`;
 }

@@ -90,6 +90,8 @@ const SAME_IN_PT = new Set([
   'wallet.movementsAll',
   'wallet.movementsLess',
   'wallet.lostQuick',
+  // «Enviar» el justificante por correo (idea 68): se dice igual.
+  'pay.receipt.emailSend',
 ]);
 
 /** «hace » / « ago»: vacíos en algún idioma por cómo se dice. */

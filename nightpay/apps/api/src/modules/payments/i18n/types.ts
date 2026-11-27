@@ -165,6 +165,8 @@ export interface PayText {
   tipToVenue: string;
   /** Lo que oye el lector de pantalla en cada propina: «Propina de 3 €. Total 39,30 €». */
   tipWithTotal: (tip: string, total: string) => string;
+  /** La propina que eligió en la pantalla de la barra (idea 66, parte B), encima de las propinas: «En la pantalla elegiste 2 € de propina…». */
+  tipFromScreen: (tip: string) => string;
   total: string;
   /** Desglose: Consumo (o Recarga) · Comisión del servicio · Propina · Total. */
   breakdown: { consumption: string; topUp: string; serviceFee: string; tip: string };
@@ -263,6 +265,23 @@ export interface PayText {
     save: string;
     back: string;
     noPersonalData: string;
+    /** Idea 68: «Compartir» (solo con navigator.share) y lo que dice al compartir: «Justificante de 35,00 €». */
+    share: string;
+    shareText: (amount: string) => string;
+    /** Idea 68: el justificante por correo (solo a quien pagó y con el correo configurado). */
+    emailOpen: string;
+    emailLabel: string;
+    emailSend: string;
+    emailWhy: string;
+    emailSent: string;
+    emailError: string;
+    emailCap: string;
+    emailBad: string;
+    /** Desde otra web, sin pagar o desde otro móvil: no se envía. */
+    emailForbidden: PayNotice;
+    /** Asunto (sin el local: se ve con el móvil bloqueado): «Tu justificante de 35,00 €». */
+    emailSubject: (amount: string) => string;
+    emailIgnore: string;
   };
 }
 

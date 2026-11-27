@@ -59,6 +59,7 @@ import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './
 import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf, servedOperators } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
+import { DISPLAY_TIP_EVENT } from '../customer-display/display-tip-event';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -1138,7 +1139,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.findPayable(qrToken);
     const settled = settledPayView(payment);
     if (settled) return settled;
-    if (payment.status !== 'AUTHORIZING') return this.withStaffPhoto(choosePayPage(payment), payment.staffUserId);
+    if (payment.status !== 'AUTHORIZING') {
+      return this.withStaffPhoto(await this.withScreenTip(choosePayPage(payment), payment.id), payment.staffUserId);
+    }
     // Factura de bitcoin abierta: su página (QR y cuenta atrás), no la del banco.
     if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     // Otras pasarelas: se reenvía lo guardado, como antes.
@@ -1158,7 +1161,34 @@ export class PaymentsService implements OnApplicationBootstrap {
       paymentUpdatedAt: payment.updatedAt,
     });
     // Denegado o abandonado: puede volver a elegir (p. ej. tarjeta en vez de Apple Pay).
-    return decision === 'retry' ? this.withStaffPhoto(choosePayPage(payment), payment.staffUserId) : retryOutcome(decision);
+    return decision === 'retry'
+      ? this.withStaffPhoto(await this.withScreenTip(choosePayPage(payment), payment.id), payment.staffUserId)
+      : retryOutcome(decision);
+  }
+
+  /**
+   * La última propina que el cliente eligió en la «Pantalla del cliente» de la
+   * barra para este cobro (apunte `display.tip`, lo escribe setTip() de
+   * customer-display): con ella, withChosenTip() marca la del ?tip= del QR.
+   * Sin propinas en el cobro no se mira. Si no se puede leer, la página sale
+   * como siempre (nada marcado).
+   */
+  private async withScreenTip(view: PayRedirect, paymentId: string): Promise<PayRedirect> {
+    if (view.kind !== 'choose' || view.tipMaxCents <= 0) return view;
+    try {
+      const last = await this.prisma.asSystem((tx) =>
+        tx.paymentEvent.findFirst({
+          where: { paymentId, eventType: DISPLAY_TIP_EVENT },
+          orderBy: { id: 'desc' },
+          select: { payload: true },
+        }),
+      );
+      const cents = (last?.payload as { tipCents?: unknown } | null | undefined)?.tipCents;
+      return typeof cents === 'number' && Number.isInteger(cents) && cents > 0 ? { ...view, screenTipCents: cents } : view;
+    } catch (err) {
+      this.logger.warn(`Propina de la pantalla sin leer (payment=${paymentId}): ${(err as Error).message}`);
+      return view;
+    }
   }
 
   /**

@@ -63,6 +63,7 @@ const pay: PayText = {
   tipToStaff: 'Reversé en totalité au personnel',
   tipToVenue: 'Il revient à l’établissement',
   tipWithTotal: (tip, total) => `Pourboire de ${tip}. Total ${total}`,
+  tipFromScreen: (tip) => `Sur l’écran, vous avez choisi ${tip} de pourboire. Vous pouvez le modifier ou le retirer.`,
   total: 'Total',
   breakdown: { consumption: 'Consommation', topUp: 'Recharge', serviceFee: 'Frais de service', tip: 'Pourboire' },
   // Court: que la ligne « Frais de service » ne se coupe pas sur un petit écran.
@@ -257,6 +258,19 @@ const pay: PayText = {
     save: 'Enregistrer ou imprimer',
     back: 'Retour',
     noPersonalData: 'Ce reçu ne contient aucune donnée personnelle.',
+    share: 'Partager',
+    shareText: (amount) => `Reçu de ${amount}`,
+    emailOpen: 'Me l’envoyer par e-mail',
+    emailLabel: 'Votre e-mail',
+    emailSend: 'Envoyer',
+    emailWhy: 'Nous l’utilisons uniquement pour vous envoyer ce reçu.',
+    emailSent: 'Envoyé. Consultez vos e-mails.',
+    emailError: 'L’envoi a échoué. Réessayez.',
+    emailCap: 'Nous vous l’avons déjà envoyé trois fois. Utilisez « Partager ».',
+    emailBad: 'Vérifiez votre adresse e-mail.',
+    emailForbidden: { title: 'Non envoyé', body: 'Le reçu par e-mail ne peut être demandé que depuis le téléphone qui a payé.', notCharged: false },
+    emailSubject: (amount) => `Votre reçu de ${amount}`,
+    emailIgnore: 'Si vous ne l’avez pas demandé, ignorez cet e-mail.',
   },
 };
 

@@ -86,6 +86,14 @@ export type PayRedirect =
        * propina» marcada, como siempre.
        */
       presetTipCents?: number;
+      /**
+       * La última propina que el cliente eligió en la «Pantalla del cliente»
+       * de la barra (el apunte `display.tip` de este cobro; idea 66, parte B).
+       * Solo la usa withChosenTip(): nunca se pinta.
+       */
+      screenTipCents?: number;
+      /** La marcada es la que eligió en la pantalla de la barra: se le avisa encima de las propinas. */
+      presetFromScreen?: true;
       /** «Pagar con bitcoin»: el local lo tiene encendido para este cobro (y el servidor también). */
       bitcoin?: boolean;
       /** Un pago de un reservado (señal, resto o todo): sus páginas dicen sus reglas. */
@@ -432,17 +440,26 @@ export function choosePayPage(p: PayablePayment, now: Date = new Date()): PayRed
 
 /**
  * La propina que el cliente ya eligió en la «Pantalla del cliente» de la barra
- * (su QR lleva ?tip=): sale marcada y el total ya la incluye. Solo si es una
- * de las que se ofrecen en este cobro; si no, la página como siempre (nada marcado).
+ * (su QR lleva ?tip=): sale marcada, con su aviso, y el total ya la incluye.
+ * Solo si el servidor sabe que la eligió allí (el último apunte `display.tip`
+ * del cobro es esa misma: un ?tip= escrito a mano no marca nada) y es una de
+ * las que se ofrecen en este cobro; si no, la página como siempre (nada
+ * marcado). Para no marcarla nunca (decisión del dueño), devolver `view` aquí.
  */
 export function withChosenTip(view: PayRedirect, raw: string | undefined): PayRedirect {
   if (view.kind !== 'choose' || raw === undefined) return view;
   const cents = Number(raw);
   if (!Number.isInteger(cents) || cents <= 0) return view;
-  if (view.tipOptionsCents.includes(cents)) return { ...view, presetTipCents: cents };
+  if (view.screenTipCents !== cents) return view;
+  if (view.tipOptionsCents.includes(cents)) return { ...view, presetTipCents: cents, presetFromScreen: true };
   // «Otra» en la tablet (euros enteros hasta el tope, como npTipOther): un botón más, marcado.
   if (cents % 100 !== 0 || cents > view.tipMaxCents) return view;
-  return { ...view, tipOptionsCents: [...view.tipOptionsCents, cents].sort((a, b) => a - b), presetTipCents: cents };
+  return {
+    ...view,
+    tipOptionsCents: [...view.tipOptionsCents, cents].sort((a, b) => a - b),
+    presetTipCents: cents,
+    presetFromScreen: true,
+  };
 }
 
 /**

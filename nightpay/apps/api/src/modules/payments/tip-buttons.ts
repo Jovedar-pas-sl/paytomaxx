@@ -45,6 +45,7 @@ export const TIP_BUTTONS_CSS = `
 .tips .eur span{font-size:1.375rem;font-weight:600}
 .tips .other .err{text-align:center}
 .tipnote{margin-top:.65rem;font-size:.875rem;color:var(--mute);text-align:center}
+.tipscreen{margin:-.2rem 0 .6rem;font-size:.875rem;color:var(--fg);text-align:center}
 `;
 
 /** Lo mismo en pantallas bajas (360×740): botones de 48 px, que siguen cabiendo las dos líneas. */
@@ -54,6 +55,7 @@ export const TIP_BUTTONS_LOW_CSS = `
 .tips .eur input{min-height:3rem}
 .tips .other{margin-top:.5rem}
 .tipnote{margin-top:.45rem}
+.tipscreen{margin-bottom:.45rem}
 `;
 
 export interface TipButtonsInput {
@@ -76,6 +78,12 @@ export interface TipButtonsInput {
   otherHidden?: boolean;
   /** La propina va entera a una persona del personal; si no, es del local. */
   toStaff: boolean;
+  /**
+   * La marcada es la que eligió en la pantalla de la barra (idea 66, parte B):
+   * encima de las propinas, «En la pantalla elegiste 2 € de propina. Puedes
+   * cambiarla o quitarla.». Solo si el servidor lo sabe.
+   */
+  fromScreen?: boolean;
 }
 
 export function tipButtons(a: TipButtonsInput): string {
@@ -84,6 +92,7 @@ export function tipButtons(a: TipButtonsInput): string {
   const euros = (cents: number): string => clientMoney(cents, t.locale, a.currency);
   const total = (tip: number): string => clientMoney(a.dueCents + tip, t.locale, a.currency, true);
   const checked = (cents: number): string => (a.checkedCents === cents ? ' checked' : '');
+  const other = a.otherEuros ?? null;
   // Lo que se ve (los euros y el total) y, aparte, la frase entera para el lector de pantalla.
   const box = (said: string, top: string, tip: number): string =>
     `<span class="sr">${h(said)}</span><b aria-hidden="true">${h(top)}</b><small aria-hidden="true">${h(total(tip))}</small>`;
@@ -94,9 +103,14 @@ export function tipButtons(a: TipButtonsInput): string {
     )
     .join('');
   const canOther = a.maxCents >= 100;
-  const other = a.otherEuros ?? null;
   const maxText = euros(Math.floor(a.maxCents / 100) * 100);
-  return `<fieldset class="tips"><legend>${h(t.tipLegend)}</legend><div class="tipgrid">
+  const screen =
+    a.fromScreen && a.checkedCents !== null && a.checkedCents > 0
+      ? `<p class="tipscreen" id="tipScreen">${h(t.tipFromScreen(euros(a.checkedCents)))}</p>`
+      : a.fromScreen && other !== null && other > 0
+        ? `<p class="tipscreen" id="tipScreen">${h(t.tipFromScreen(euros(other * 100)))}</p>`
+        : '';
+  return `<fieldset class="tips"><legend>${h(t.tipLegend)}</legend>${screen}<div class="tipgrid">
 <label><input type="radio" name="tip" value="0"${checked(0)}><span class="word">${box(`${t.noTip}. ${t.total} ${total(0)}`, t.noTip, 0)}</span></label>${options}${
     canOther
       ? `<label${a.otherHidden ? ' id="otherOpt" hidden' : ''}><input type="radio" name="tip" value="0" id="otherRadio"${other !== null ? ' checked' : ''}><span class="word"><b>${h(t.tipOther)}</b></span></label>`

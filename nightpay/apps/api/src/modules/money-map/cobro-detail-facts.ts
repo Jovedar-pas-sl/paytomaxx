@@ -488,6 +488,8 @@ const EVENT_TEXT: Readonly<Record<string, string>> = {
   'payment.card_refunded_after_saldo': 'La tarjeta cobrada de más se devolvió sola',
   'payment.approval_unbooked': 'El banco aprobó la tarjeta después de pagar con el saldo',
   [WALLET_CREDITED_EVENT]: 'Saldo recargado',
+  'display.tip': 'El cliente eligió la propina en la pantalla de la barra',
+  'receipt.emailed': 'Justificante enviado por correo al cliente',
 };
 
 const AUDIT_TEXT: Readonly<Record<string, string>> = {
@@ -596,6 +598,7 @@ function eventDetail(type: string, p: Record<string, unknown>, people: ReadonlyM
   if (type === 'payment.refund_partial') return typeof p.amountCents === 'number' ? eurText(p.amountCents) : null;
   if (type === 'payment.canceled') return nameOf(people.get(stringOf(p.byUserId) ?? ''));
   if (type === 'pos.confirmed') return nameOf(people.get(stringOf(p.confirmedByUserId) ?? ''));
+  if (type === 'display.tip') return typeof p.tipCents === 'number' ? (p.tipCents > 0 ? eurText(p.tipCents) : 'Sin propina') : null;
   if (type === WALLET_CREDITED_EVENT) {
     const b = balanceOf(p);
     return b ? `saldo ${eurText(b.beforeCents)} → ${eurText(b.afterCents)}` : null;

@@ -220,6 +220,7 @@ function tipChoices(view: ChooseView, t: PayText): string {
     checkedCents: preset > 0 ? preset : null,
     otherHidden: true,
     toStaff: view.tipToStaff === true,
+    fromScreen: view.presetFromScreen === true && preset > 0,
   });
 }
 
