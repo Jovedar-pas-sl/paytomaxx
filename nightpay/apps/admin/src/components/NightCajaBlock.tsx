@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@nightpay/ui';
 import type { NightCaja } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
@@ -19,7 +20,7 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
   return (
     <section className="np-caja" aria-label="Caja de la noche">
       <header className="np-caja-head">
-        <LockIcon />
+        <Icon name="lock" size={20} />
         <span className="np-caja-kicker">Caja</span>
         <span className="np-caja-time">Congelada a las {formatDateTime(caja.frozenAt, tz, 'time')}</span>
       </header>
@@ -69,24 +70,5 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
       </p>
       {caja.note ? <p className="np-caja-quote">«{caja.note}»</p> : null}
     </section>
-  );
-}
-
-function LockIcon() {
-  return (
-    <svg
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4" y="11" width="16" height="10" rx="2" />
-      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-    </svg>
   );
 }

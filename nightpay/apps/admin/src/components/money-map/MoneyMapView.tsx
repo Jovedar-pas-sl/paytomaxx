@@ -2,8 +2,8 @@
 
 import type { CSSProperties } from 'react';
 import type { MoneyMap } from '@nightpay/contracts';
-import { Button } from '@nightpay/ui';
-import { eurShort } from '@/lib/money-map-view';
+import { Button, Importe } from '@nightpay/ui';
+import { formatEur } from '@/lib/money';
 import { moneyMapDetails, type MoneyDetail } from '@/lib/money-map-details';
 import { canOpenSection, type MoneyMapTarget } from '@/lib/money-map-cobros';
 import { moneyMapQuestions, type QuestionCard } from '@/lib/money-map-questions';
@@ -60,12 +60,12 @@ export function MoneyMapView({ map, onOpen, onAction }: Props) {
         {onOpen ? (
           <button type="button" className="np-mmq-sold-total np-mm-open" onClick={() => onOpen({ kind: 'sales' })} aria-label={`Ver los cobros de ${q.sold.label.toLowerCase()}`}>
             <span>Lo vendido</span>
-            <b className="np-mmq-sold-num">{eurShort(q.sold.cents)}</b>
+            <b className="np-mmq-sold-num"><Importe cents={q.sold.cents} decimals="always" /></b>
           </button>
         ) : (
           <div className="np-mmq-sold-total">
             <span>Lo vendido</span>
-            <b className="np-mmq-sold-num">{eurShort(q.sold.cents)}</b>
+            <b className="np-mmq-sold-num"><Importe cents={q.sold.cents} decimals="always" /></b>
           </div>
         )}
         {q.sold.parts.length === 0 ? (
@@ -77,13 +77,13 @@ export function MoneyMapView({ map, onOpen, onAction }: Props) {
                 <>
                   <span className="np-mmq-swatch" aria-hidden="true" />
                   <span>{s.label}</span>
-                  <b>{eurShort(s.cents)}</b>
+                  <b><Importe cents={s.cents} decimals="always" /></b>
                 </>
               );
               return (
                 <li key={s.key} style={{ '--np-c': s.color } as CSSProperties}>
                   {onOpen && canOpenSection(s.key) ? (
-                    <button type="button" className="np-mmq-part np-mm-open" onClick={() => onOpen({ kind: 'section', code: s.key })} aria-label={`Ver los cobros de ${s.label}: ${eurShort(s.cents)}`}>
+                    <button type="button" className="np-mmq-part np-mm-open" onClick={() => onOpen({ kind: 'section', code: s.key })} aria-label={`Ver los cobros de ${s.label}: ${formatEur(s.cents)}`}>
                       {content}
                     </button>
                   ) : (
@@ -153,7 +153,7 @@ export function QuestionCardView({ card, onAction, onOpen }: { card: QuestionCar
       </h3>
       <div className="np-mmq-row">
         <span className="np-mmq-num" data-neg={card.cents < 0 || undefined}>
-          {eurShort(card.cents)}
+          <Importe cents={card.cents} decimals="always" />
         </span>
         {action && onAction && !onOpen ? (
           <Button variant="ghost" size="sm" onClick={() => onAction(action)}>
@@ -177,7 +177,7 @@ function DetailBlock({ detail }: { detail: MoneyDetail }) {
               {r.label}
               {r.count !== undefined ? <em> · {r.count} operaciones</em> : null}
             </span>
-            <b data-neg={(r.cents !== null && r.cents < 0) || undefined}>{r.cents === null ? 'No disponible' : eurShort(r.cents)}</b>
+            <b data-neg={(r.cents !== null && r.cents < 0) || undefined}>{r.cents === null ? 'No disponible' : <Importe cents={r.cents} decimals="always" />}</b>
           </li>
         ))}
       </ul>

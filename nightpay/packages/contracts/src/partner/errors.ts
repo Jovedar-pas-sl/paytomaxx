@@ -468,6 +468,11 @@ export const PARTNER_ERROR_RESPONSES = {
   },
   PayloadTooLarge: { description: 'The body is larger than 16 KB (16,384 bytes).', codes: ['body_too_large'] },
   ValidationFailed: { description: 'A field breaks its rule; `param` names it.', codes: ['validation_failed'], examples: ['ProblemValidationReason'] },
+  ValidationFailedFixture: {
+    description: 'A field breaks its rule; `param` names it.',
+    codes: ['validation_failed'],
+    examples: ['ProblemValidationFixture'],
+  },
   RateLimited: {
     description:
       'Too many requests; nothing was done. Retry after `Retry-After`, with the same Idempotency-Key and body. See the\nrate-limit table for each bucket.\n',
@@ -517,6 +522,11 @@ export const PARTNER_PROBLEM_EXAMPLES = {
     summary: 'A field breaks its rule',
     code: 'validation_failed',
     extra: { detail: 'reason must be 1 to 140 characters.', param: 'reason' },
+  },
+  ProblemValidationFixture: {
+    summary: 'Not a fixture of the demo',
+    code: 'validation_failed',
+    extra: { detail: 'fixture must be one of the demo fixtures.', param: 'fixture' },
   },
   ProblemWalletNotFound: { summary: 'Unknown, or outside the key\'s reach', code: 'wallet_not_found' },
   ProblemFichaCopy: { summary: 'The chip\'s serial is not the ficha\'s', code: 'ficha_copy_suspected' },

@@ -311,7 +311,8 @@ describe('los siete pasos', () => {
     });
     expect(steps.map((s) => s.key)).toEqual(['cobros', 'datafonos', 'saldo', 'efectivo', 'chicas', 'incidencias', 'z']);
     expect(steps.every((s) => s.status === 'ok')).toBe(true);
-    expect(steps[6]!.title).toBe('Congelar el Z');
+    expect(steps[6]!.title).toBe('Informe Z');
+    expect(steps[6]!.detail).toBe('Al cerrar, el informe Z ya no cambia: lo que llegue después irá como ajuste en el de la noche siguiente.');
   });
 
   it('el peor estado manda', () => {

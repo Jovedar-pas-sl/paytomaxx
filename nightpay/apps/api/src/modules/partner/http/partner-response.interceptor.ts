@@ -28,9 +28,12 @@ export class PartnerResponseInterceptor implements NestInterceptor {
     const reply = http.getResponse<HeaderReply>();
     reply.header('Request-Id', partnerRequestId(http.getRequest()));
     reply.header('Cache-Control', 'no-store');
+    // Sin cuerpo (204): nada que analizar.
+    const schema = def.response;
+    if (schema === null) return next.handle();
     return next.handle().pipe(
       map((body: unknown) => {
-        const parsed = def.response.safeParse(body);
+        const parsed = schema.safeParse(body);
         if (parsed.success) return parsed.data;
         // Solo dónde falla, nunca los valores.
         const where = parsed.error.issues.map((i) => i.path.join('.') || '(raíz)').join(', ');

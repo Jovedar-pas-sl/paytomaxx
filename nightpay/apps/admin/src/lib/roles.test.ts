@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canUsePanel, resolveTab, SECTION_HINTS, sectionOf, visibleSections, visibleTabs, type PanelViewer } from './roles';
+import { canUsePanel, PANEL_TABS, PARTY_TABS, resolveTab, SECTION_HINTS, sectionOf, settingsGroups, visibleSections, visibleTabs, type PanelViewer } from './roles';
 
 const keys = (user: PanelViewer) => visibleTabs(user).map((t) => t.key);
 const sections = (user: PanelViewer) => visibleSections(user).map((s) => s.key);
@@ -178,5 +178,53 @@ describe('«Otras plataformas» (API de socios)', () => {
   it('nunca en OxioParty', () => {
     expect(visibleTabs({ role: 'OWNER', partnersOn: true }, 'party').map((t) => t.key)).not.toContain('partners');
     expect(resolveTab('partners', 'party')).toBeNull();
+  });
+});
+
+describe('Ajustes como lista (entrega 10 A, idea 21)', () => {
+  const ajustes = (user: PanelViewer) => visibleSections(user).find((s) => s.key === 'ajustes')!.tabs;
+
+  it('cada pestaña de Ajustes lleva su grupo, su frase y su icono, en el orden de siempre', () => {
+    const rows = ajustes({ role: 'OWNER', isSuperAdmin: true, partnersOn: true }).map((t) => [t.key, t.group, t.label, t.hint, t.icon]);
+    expect(rows).toEqual([
+      ['carta', 'local', 'Carta', 'Lo que vendes y a qué precio', 'receipt'],
+      ['sections', 'local', 'Secciones', 'Nombres y colores de cada sección', 'list'],
+      ['terminals', 'local', 'Datáfonos', 'Los aparatos de cobro del local', 'pos'],
+      ['rules', 'local', 'Reglas del local', 'Comisiones, esperas y topes', 'sliders'],
+      ['methods', 'local', 'Formas de cobro', 'Cómo te pagan, propinas y saldo desde casa', 'card'],
+      ['partners', 'local', 'Otras plataformas', 'Las claves de los cajeros y otras plataformas', 'share'],
+      ['night', 'local', 'Noche', 'Fichas, PIN y recepción', 'moon'],
+      ['permissions', 'equipo', 'Permisos', 'Lo que pueden hacer encargados y camareros', 'users'],
+      ['alerts', 'equipo', 'Avisos por Telegram', 'Qué te avisa y dónde', 'bell'],
+      ['security', 'cuenta', 'Seguridad', 'Tu sesión y la verificación en dos pasos', 'lock'],
+      ['superadmin', 'cuenta', 'Super admin', 'Todos los locales de la plataforma', 'user'],
+    ]);
+  });
+
+  it('los grupos: «El local», «El equipo» y «Tu cuenta»; uno sin pestañas no sale (el encargado no ve «El equipo»)', () => {
+    expect(settingsGroups(ajustes({ role: 'OWNER' })).map((g) => [g.label, g.tabs.length])).toEqual([
+      ['El local', 6],
+      ['El equipo', 2],
+      ['Tu cuenta', 1],
+    ]);
+    expect(settingsGroups(ajustes({ role: 'MANAGER' })).map((g) => [g.label, g.tabs.map((t) => t.key)])).toEqual([
+      ['El local', ['carta', 'terminals']],
+      ['Tu cuenta', ['security']],
+    ]);
+  });
+
+  it('OxioParty, igual que estaba: sin grupo, frase ni icono', () => {
+    for (const tab of PARTY_TABS) {
+      expect(tab).not.toHaveProperty('group');
+      expect(tab).not.toHaveProperty('hint');
+      expect(tab).not.toHaveProperty('icon');
+    }
+    expect(PARTY_TABS.find((t) => t.key === 'night')?.label).toBe('Pulseras y PIN');
+  });
+
+  it('fuera de Ajustes, nada nuevo', () => {
+    for (const tab of PANEL_TABS.filter((t) => t.section !== 'ajustes')) {
+      expect(tab.group ?? tab.hint ?? tab.icon).toBeUndefined();
+    }
   });
 });

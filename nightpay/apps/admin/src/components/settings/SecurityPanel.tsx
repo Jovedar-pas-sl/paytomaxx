@@ -2,6 +2,7 @@
 
 import { Button } from '@nightpay/ui';
 import type { User } from '@/lib/api';
+import { useVenue } from '@/lib/venue-context';
 import { TwoFactorCard } from '../TwoFactorCard';
 import { PasskeysCard } from './PasskeysCard';
 import { SettingsCard } from './SettingsBits';
@@ -10,7 +11,7 @@ const ROLE_LABELS: Record<User['role'], string> = {
   OWNER: 'Dueño',
   MANAGER: 'Encargado',
   WAITER: 'Camarero',
-  OPERATOR: 'Operadora',
+  OPERATOR: 'Compañera',
 };
 
 /**
@@ -26,13 +27,15 @@ export function SecurityPanel({
   onLogout: () => void;
   loggingOut: boolean;
 }) {
+  // El nombre del local; el slug, solo mientras no llega.
+  const venue = useVenue();
   return (
     <div className="np-set-stack">
       <SettingsCard title="Tu cuenta" tour="seguridad-cuenta">
         <div className="np-set-account">
           <p>
             <strong>{user.email}</strong>
-            {ROLE_LABELS[user.role]} · <code>{user.venueSlug}</code>
+            {ROLE_LABELS[user.role]} · {venue.name ?? venue.slug}
             {user.isSuperAdmin ? ' · super-admin' : ''}
           </p>
           <Button variant="ghost" onClick={onLogout} loading={loggingOut}>

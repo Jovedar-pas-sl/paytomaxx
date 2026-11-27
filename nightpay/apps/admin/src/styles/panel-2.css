@@ -1,0 +1,342 @@
+/* Panel II, parte A (entrega 10): Ajustes como lista, el cierre plegado,
+   Primeros pasos, «Cerrar noche» en Resumen y la cabecera.
+   Para un Chrome 64 (el datáfono): huecos de grid con grid-*-gap además de
+   *-gap, nada de gap en flex (márgenes), ni inset, ni min()/clamp(). */
+
+/* ─── Ajustes como lista ──────────────────────────────────────────── */
+
+.np-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-row-gap: 1.25rem;
+  row-gap: 1.25rem;
+  align-items: start;
+}
+
+.np-setnav-group {
+  margin: 0 0 1.25rem;
+}
+
+.np-setnav-group:last-child {
+  margin-bottom: 0;
+}
+
+.np-setnav-title {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text-mute);
+}
+
+.np-setnav-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  overflow: hidden;
+}
+
+.np-setnav-list > li + li {
+  border-top: 1px solid var(--np-border);
+}
+
+.np-setnav-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-column-gap: 0.75rem;
+  column-gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  background: transparent;
+  color: var(--np-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-setnav-row[data-pending] {
+  cursor: default;
+}
+
+.np-setnav-row:hover {
+  background: var(--np-surface-2);
+}
+
+.np-setnav-row:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: -2px;
+}
+
+.np-setnav-icon {
+  color: var(--np-text-mute);
+}
+
+.np-setnav-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.np-setnav-name {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.np-setnav-hint {
+  margin-top: 0.125rem;
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--np-text-mute);
+}
+
+.np-setnav-arrow {
+  color: var(--np-text-dim);
+}
+
+.np-settings-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 3rem;
+  margin: 0 0 0.75rem -0.5rem;
+  padding: 0 0.75rem 0 0.25rem;
+  border: 0;
+  border-radius: var(--np-r-md);
+  background: transparent;
+  color: var(--np-text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.np-settings-back .np-icon,
+.np-settings-back svg {
+  margin-right: 0.25rem;
+}
+
+.np-settings-back:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+/* Desde 900: la lista de 240 a la izquierda y la pantalla al lado; la activa, marcada. */
+@media (min-width: 900px) {
+  .np-settings {
+    grid-template-columns: 15rem minmax(0, 1fr);
+    grid-column-gap: 1.5rem;
+    column-gap: 1.5rem;
+  }
+
+  .np-setnav {
+    position: -webkit-sticky;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .np-setnav-row[aria-current='page'] {
+    background: var(--np-surface-2);
+  }
+
+  .np-settings-back {
+    display: none;
+  }
+}
+
+/* Por debajo: la lista sola o la pantalla de una fila (Dashboard: data-view). */
+@media (max-width: 899px) {
+  .np-settings[data-view='list'] .np-settings-page {
+    display: none;
+  }
+
+  .np-settings[data-view='page'] .np-setnav {
+    display: none;
+  }
+}
+
+/* ─── El cierre: un paso listo, plegado ───────────────────────────── */
+
+.np-close-step[data-folded] {
+  display: block;
+  padding: 0.25rem 0;
+}
+
+.np-close-step[data-folded]::before {
+  top: 3rem;
+}
+
+.np-close-fold {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--np-r-md);
+  background: transparent;
+  color: var(--np-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-close-fold:focus-visible,
+.np-close-step-toggle:focus-visible {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+.np-close-fold .np-close-mark {
+  flex: none;
+  margin-right: 0.875rem;
+}
+
+.np-close-fold-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-right: 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.np-close-fold-title .np-close-step-n,
+.np-close-step-toggle .np-close-step-n {
+  margin-right: 0.5rem;
+}
+
+.np-close-fold-arrow {
+  flex: none;
+  margin-left: 0.5rem;
+  color: var(--np-text-dim);
+}
+
+.np-close-step-toggle {
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ─── Primeros pasos (Resumen, el dueño) ──────────────────────────── */
+
+.np-pasos {
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-pasos-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.np-pasos-title {
+  margin: 0 0.75rem 0 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.np-pasos-count {
+  margin-right: auto;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-pasos-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-pasos-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-column-gap: 0.75rem;
+  column-gap: 0.75rem;
+  align-items: center;
+  min-height: 3rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-pasos-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 2px solid var(--np-border);
+  border-radius: 50%;
+  color: var(--np-success);
+}
+
+.np-pasos-row[data-done] .np-pasos-mark {
+  border-color: var(--np-success);
+  background: var(--np-pill-success-bg);
+}
+
+.np-pasos-row[data-done] .np-pasos-label {
+  color: var(--np-text-mute);
+}
+
+.np-pasos-label {
+  font-size: 1rem;
+}
+
+.np-pasos-go {
+  min-height: 2.25rem;
+}
+
+/* ─── «Cerrar noche» en la franja «Esta noche» ────────────────────── */
+
+.np-tonight-close {
+  min-height: 2.5rem;
+  margin-left: auto;
+}
+
+/* ─── La cabecera: el local, como mucho en dos líneas a 360 ───────── */
+
+.np-brand-tag {
+  margin-top: 0.25rem;
+}
+
+/* ─── Móvil (hasta 640; el datáfono, 360×720, también) ───────────── */
+
+@media (max-width: 640px) {
+  .np-close-fold .np-close-mark {
+    margin-right: 0.625rem;
+  }
+
+  .np-pasos {
+    padding: 0.875rem 1rem;
+  }
+
+  .np-pasos-go {
+    min-height: 2.75rem;
+  }
+
+  .np-tonight-close {
+    min-height: 3rem;
+  }
+
+  .np-brand-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+  }
+
+  .np-header-actions {
+    flex-wrap: nowrap !important;
+  }
+}

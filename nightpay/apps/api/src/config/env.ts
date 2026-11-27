@@ -5,6 +5,7 @@ import { DEFAULT_EDITION, EDITIONS } from '@nightpay/contracts';
 import { LEGACY_SUBSCRIBE_UNTIL_HINT, isValidLegacySubscribeUntil } from './realtime-legacy';
 import { AUTH_BODY_REFRESH_UNTIL_HINT, isValidAuthBodyRefreshUntil } from './auth-body-refresh';
 import { DEFAULT_GOOGLE_WALLET_CLASS_SUFFIX } from './google-wallet';
+import { checkPartnerTestMode } from './partner-test-mode';
 
 /**
  * Secretos que en producción no pueden ser los de ejemplo: con ellos
@@ -138,6 +139,10 @@ const EnvSchema = z.object({
   // el otro (401 wrong_environment). Sin valor por defecto: obligatoria con la
   // anterior encendida.
   PARTNER_API_MODE: z.enum(['live', 'test']).optional(),
+  // Solo en la demo: "1" monta las ayudas de prueba (/v1/partner/test/…). Exige
+  // la API en test y, en cualquier NODE_ENV, nada de dinero real (ver
+  // config/partner-test-mode.ts). Nunca en producción.
+  PARTNER_TEST_HELPERS: z.string().optional(),
   // Nombre de la marca en pantallas, concepto del cobro y correos (por
   // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
   BRAND_NAME: z.string().trim().min(2).max(20).optional(),
@@ -368,6 +373,8 @@ const EnvSchema = z.object({
       message: 'PARTNER_API_MODE es obligatoria con PARTNER_API_ENABLED: live (producción) o test (la demo).',
     });
   }
+  // El freno de la demo: ayudas solo con la API en test y el modo prueba sin dinero real.
+  checkPartnerTestMode(env, ctx);
   if (env.NODE_ENV !== 'production') return;
   // En real, la lista de IP de las claves compara la IP que da Cloudflare: sin
   // ORIGIN_AUTH_SECRET, quien llegue directo inventaría la cabecera (puerta 1 del §10).

@@ -235,7 +235,7 @@ export function PayoutConfirmModal({
       <Modal open onClose={closeGuarded} title="Pago apuntado" width="32rem">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <p style={{ margin: 0 }}>
-            Liquidación de <strong className="np-num">{formatEur(created.totalCents)}</strong> (
+            Pago de <strong className="np-num">{formatEur(created.totalCents)}</strong> (
             {created.earningCount === 1 ? '1 comisión' : `${created.earningCount} comisiones`}).
           </p>
           <Notice tone={created.outcome.tone}>{created.outcome.message}</Notice>
@@ -249,7 +249,7 @@ export function PayoutConfirmModal({
     <Modal open onClose={closeGuarded} title={asking ? 'Pedir pago al dueño' : 'Marcar pagado'} width="32rem">
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         <p style={{ margin: 0, fontSize: '1rem' }}>
-          Saldo pendiente a liquidar: <strong className="np-num">{formatEur(balanceCents)}</strong>
+          Por pagar: <strong className="np-num">{formatEur(balanceCents)}</strong>
           {autoVerifiable ? <RateNote rate={rate} balanceCents={balanceCents} currency={currency} /> : null}
         </p>
         {holdNote ? <Notice tone="warning">{holdNote}</Notice> : null}
@@ -337,10 +337,10 @@ export function PayoutConfirmModal({
         )}
 
         <Input
-          label={autoVerifiable ? 'Hash de la transacción on-chain' : 'Referencia externa (receipt ID, SEPA ref, etc.)'}
+          label={autoVerifiable ? 'Hash de la transacción on-chain' : 'Referencia del pago'}
           value={externalTxId}
           onChange={(e) => setExternalTxId(e.target.value)}
-          placeholder={autoVerifiable ? '0x... o TxId Tron' : 'Receipt ID, número SEPA, etc.'}
+          placeholder={autoVerifiable ? '0x... o TxId Tron' : 'N.º de la transferencia o del justificante'}
           hint={
             autoVerifiable
               ? 'Se verificará contra la red al apuntarlo.'
@@ -351,7 +351,7 @@ export function PayoutConfirmModal({
           spellCheck={false}
         />
         <Input
-          label="Receipt URL (opcional, screenshot)"
+          label="Enlace al justificante (opcional)"
           value={receiptUrl}
           onChange={(e) => setReceiptUrl(e.target.value)}
           placeholder="https://..."
@@ -417,7 +417,7 @@ export function PayoutConfirmModal({
           required={askedForCode}
           hint={
             confirmed
-              ? 'Al poner el sexto número se confirma la liquidación. Cada código vale una sola vez.'
+              ? 'Al poner el sexto número se apunta el pago. Cada código vale una sola vez.'
               : 'Marca antes la casilla; luego, al poner el sexto número, se confirma.'
           }
         />
@@ -443,7 +443,7 @@ export function PayoutConfirmModal({
               disabled={!confirmed || !chosenRail || railBlocked || (!asking && askedForCode && locked)}
               style={{ flex: 1 }}
             >
-              {asking ? 'Pedir al dueño' : 'Confirmar liquidación'}
+              {asking ? 'Pedir al dueño' : 'Apuntar el pago'}
             </Button>
           </div>
         )}

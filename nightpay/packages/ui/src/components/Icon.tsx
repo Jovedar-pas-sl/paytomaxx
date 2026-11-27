@@ -95,6 +95,8 @@ export const ICON_PATHS = {
   ],
   sliders: ['M4 7h10', 'M18 7h2', 'M4 17h4', 'M12 17h8', 'M16 5a2 2 0 1 0 0 4a2 2 0 0 0 0-4Z', 'M10 15a2 2 0 1 0 0 4a2 2 0 0 0 0-4Z'],
   // Las secciones del panel (y las de OxioParty).
+  // Ajustes → Super admin (una persona).
+  user: ['M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4.5 21a7.5 7.5 0 0 1 15 0'],
   users: ['M9 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M2.5 20a6.5 6.5 0 0 1 13 0', 'M16 4.3a3.5 3.5 0 0 1 0 6.4', 'M18 14.5a6.5 6.5 0 0 1 3.5 5.5'],
   chart: ['M5 20V11', 'M12 20V5', 'M19 20v-6', 'M3 20h18'],
   activity: ['M3 12h4l3-7 4 14 3-7h4'],
