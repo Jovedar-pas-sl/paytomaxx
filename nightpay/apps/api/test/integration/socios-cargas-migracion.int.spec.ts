@@ -182,6 +182,15 @@ describe('wallet_cash_topups y partner_connections: lo reemplazado', () => {
 
 describe('FORCE RLS y repetirla', () => {
   it('el local B no ve nada del libro de A (ni con una consulta sin filtro)', async () => {
+    const [role] = await prisma.$queryRaw<Array<{ rolsuper: boolean; rolbypassrls: boolean }>>`
+      SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user`;
+    if (role?.rolsuper || role?.rolbypassrls) {
+      // Como entra producción (superusuario): RLS no separa nada; lo separan los WHERE con
+      // "tenantId" y "connectionId" del código (socios-cargas*.int.spec.ts lo prueban así).
+      const all = await cls.run(() => prisma.withTenant(B.id, (tx) => tx.$queryRaw<Array<{ n: bigint }>>`SELECT count(*) AS n FROM partner_wallet_operations`));
+      expect(Number(all[0]!.n)).toBeGreaterThan(0);
+      return;
+    }
     const seen = await cls.run(() =>
       prisma.withTenant(B.id, (tx) => tx.$queryRaw<Array<{ tenantId: string }>>`SELECT "tenantId"::text AS "tenantId" FROM partner_wallet_operations`),
     );
