@@ -18,6 +18,7 @@ import { sealTotpSecret } from '../../src/modules/auth/totp-crypto';
 import { TotpService } from '../../src/modules/auth/totp.service';
 import { claimStepScript, createFakeRedis } from '../../src/modules/auth/testing/fake-redis';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
+import { idDocumentData } from '../../src/modules/operators/id-document';
 import { OperatorsService } from '../../src/modules/operators/operators.service';
 import { PaymentsService } from '../../src/modules/payments/payments.service';
 import { WalletChargesService } from '../../src/modules/wallets/wallet-charges.service';
@@ -366,6 +367,24 @@ describe('personal, cuentas de cobro y registro (todos los locales)', () => {
     await expect(
       asSuperAdmin(() => staff.create(actor, { venueId: V1, role: 'WAITER', email: `ENC-${r}@x.es`, totpCode: '123456' })),
     ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('baja de una compañera desde la consola: su documento se borra y su ficha NFC viva queda anulada', async () => {
+    const leaving = await sys(async (tx) => {
+      const u = await tx.user.create({ data: { tenantId: V1, email: `baja-${r}@x.es`, passwordHash: 'x', role: 'OPERATOR' } });
+      await tx.user.update({ where: { id: u.id }, data: idDocumentData(u.id, { type: 'DNI', number: '12345678Z' }) });
+      const [{ n }] = await tx.$queryRaw<Array<{ n: number }>>`SELECT nextval('wallet_cards_number_seq')::int AS n`;
+      await tx.staffCard.create({ data: { tenantId: V1, userId: u.id, token: randomBytes(16).toString('base64url'), uid: `04${r}`, number: n! } });
+      return u.id;
+    });
+    const view = await asSuperAdmin(() => staff.disable(actor, leaving, { reason: 'deja el local', totpCode: '123456' }));
+    expect(view.active).toBe(false);
+    const row = await sys((tx) =>
+      tx.user.findUniqueOrThrow({ where: { id: leaving }, select: { idDocumentType: true, idDocumentNumber: true, deletedAt: true } }),
+    );
+    expect(row).toMatchObject({ idDocumentType: null, idDocumentNumber: null, deletedAt: expect.any(Date) });
+    const cards = await sys((tx) => tx.staffCard.findMany({ where: { userId: leaving }, select: { revokedAt: true, revokedReason: true } }));
+    expect(cards).toEqual([{ revokedAt: expect.any(Date), revokedReason: 'offboarded' }]);
   });
 
   it('lista por local y rol con último login y 2FA; reset de contraseña de una cuenta activa', async () => {

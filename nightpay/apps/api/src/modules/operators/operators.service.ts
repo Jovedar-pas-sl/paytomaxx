@@ -1356,8 +1356,8 @@ export class OperatorsService {
     return this.toPublicView(updated);
   }
 
-  /** Baja: su ficha NFC viva queda anulada (y en el registro). */
-  private async revokeStaffCardOnLeave(tenantId: string, operatorId: string, actorUserId: string): Promise<void> {
+  /** Baja: su ficha NFC viva queda anulada (y en el registro). También la baja desde la consola de OxioPay. */
+  async revokeStaffCardOnLeave(tenantId: string, operatorId: string, actorUserId: string): Promise<void> {
     const number = await this.prisma.asSystem((tx) =>
       revokeLiveStaffCard(tx, { tenantId, userId: operatorId, byUserId: actorUserId, reason: 'offboarded' }),
     );
