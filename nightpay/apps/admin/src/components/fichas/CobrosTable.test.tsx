@@ -111,4 +111,13 @@ describe('tabla de Cobros', () => {
     expect(text(empty)).toContain('No hay cobros con estos filtros');
     expect(text(empty)).toContain('Quitar todo');
   });
+
+  it('`compact` (los últimos del Resumen): hora, qué, estado e importe, sin cabecera; cargando, cinco siluetas', () => {
+    const html = renderToStaticMarkup(<CobrosTable rows={[row()]} empty={EMPTY} compact columns={['ref']} onDetails={() => undefined} />);
+    expect(html).not.toContain('<thead');
+    expect([...html.matchAll(/<td data-card="([a-z]+)"/g)].map((m) => m[1])).toEqual(['hora', 'que', 'estado', 'importe']);
+    expect(html).not.toContain('Marta');
+    expect(html).toContain('tabindex="0"');
+    expect(renderToStaticMarkup(<CobrosTable rows={null} empty={EMPTY} compact />).match(/<tr aria-hidden="true"/g)).toHaveLength(5);
+  });
 });
