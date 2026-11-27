@@ -377,6 +377,16 @@ export const FR: CustomerTexts = withFrenchSpacing<CustomerTexts>({
     reconnecting: 'Reconnexion…',
     linkGone: 'Ce lien n’est plus valable. Demandez-en un nouveau à l’accueil.',
     activateAtReception: 'Pour activer le paiement avec votre téléphone ou choisir votre PIN, demandez le QR d’activation à l’accueil.',
+    liveCode: {
+      button: 'Payer ou recharger dans un autre système',
+      hint: 'Un code pour recharger à la borne de l’établissement. Il change tout seul chaque minute.',
+      loading: 'Préparation de votre code…',
+      alt: 'Votre code pour le lecteur',
+      warn: 'Montrez-le uniquement au lecteur de l’établissement. Ne l’envoyez à personne et n’en faites pas de capture d’écran.',
+      note: 'Il change chaque minute et s’éteint au bout de 5 minutes.',
+      hide: 'Masquer le code',
+      ended: 'Le code s’est éteint. Si vous en avez besoin, touchez à nouveau.',
+    },
     detail: {
       title: 'Détail du paiement',
       loading: 'Chargement…',

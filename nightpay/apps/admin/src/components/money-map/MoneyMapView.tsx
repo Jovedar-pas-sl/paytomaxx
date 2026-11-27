@@ -133,16 +133,29 @@ export function MoneyMapSkeleton() {
   );
 }
 
-function QuestionCardView({ card, onAction }: { card: QuestionCard; onAction?: Props['onAction'] }) {
+/**
+ * Una de las preguntas del dinero. En el mapa, con su botón («Cerrar la caja»,
+ * «Ver por compañera»). En el Resumen (`onOpen`), la pregunta es un botón que
+ * ocupa toda la tarjeta y abre el mapa, sin el otro botón.
+ */
+export function QuestionCardView({ card, onAction, onOpen }: { card: QuestionCard; onAction?: Props['onAction']; onOpen?: () => void }) {
   const action = card.action;
   return (
-    <section className="np-mmq-card" data-tone={card.key} {...TOUR[card.key]}>
-      <h3 className="np-mmq-q">{card.question}</h3>
+    <section className="np-mmq-card" data-tone={card.key} data-opens={onOpen ? '' : undefined} {...TOUR[card.key]}>
+      <h3 className="np-mmq-q">
+        {onOpen ? (
+          <button type="button" className="np-mmq-open" onClick={onOpen}>
+            {card.question}
+          </button>
+        ) : (
+          card.question
+        )}
+      </h3>
       <div className="np-mmq-row">
         <span className="np-mmq-num" data-neg={card.cents < 0 || undefined}>
           {eurShort(card.cents)}
         </span>
-        {action && onAction ? (
+        {action && onAction && !onOpen ? (
           <Button variant="ghost" size="sm" onClick={() => onAction(action)}>
             {ACTION_LABELS[action]}
           </Button>

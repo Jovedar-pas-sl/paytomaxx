@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
   Button,
   Card,
+  FormError,
   Icon,
   QrCountdown,
   StatusPill,
@@ -288,11 +289,7 @@ export function ActivePayment({
         </Button>
       )}
 
-      {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger-text)', margin: 0, fontSize: 'var(--np-fs-14)', fontWeight: 500, textAlign: 'center' }}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
       <CancelCobroConfirm
         open={confirming}
         atBank={bank === 'late'}

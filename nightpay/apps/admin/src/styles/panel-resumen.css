@@ -1,0 +1,295 @@
+/* Panel (admin) · Hoy → Resumen (entrega 9 B, ideas 13 y 9 B).
+   Encima de @nightpay/ui/styles.css y de panel-tonight.css (la franja de
+   «Esta noche»), panel-money-q.css (las preguntas del mapa) y
+   panel-cobros.css (la tabla), con sus tokens --np-*. Para un Chrome 64:
+   rejilla con grid-gap (sin gap en flex), sin inset, min(), clamp(), :has()
+   ni color-mix(). Móvil = hasta 640px; «táctil» = hasta 640 o pointer: coarse. */
+
+.np-resumen {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-row-gap: 1.5rem;
+  row-gap: 1.5rem;
+}
+
+/* ─── La fila de cifras ─────────────────────────────────────────────── */
+
+.np-resumen-figs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-row-gap: 1rem;
+  row-gap: 1rem;
+  align-items: start;
+}
+
+/* «Pagado» manda; el gráfico cabe en su caja, como mucho 15rem. */
+.np-spark {
+  display: block;
+  width: 100%;
+  max-width: 15rem;
+  height: 2rem;
+  margin: 0.375rem 0 0.125rem;
+  color: var(--np-text);
+  overflow: visible;
+}
+
+.np-tonight[data-variant='hero'] {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.np-tonight-hero {
+  margin: 0;
+}
+
+.np-tonight-hero .np-tonight-fig {
+  padding: 0;
+  border-left: 0;
+}
+
+/* El desglose de hoy, como mucho dos líneas (entero al pasar el ratón: su title). */
+.np-tonight-parts {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.np-tonight-hours {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-tonight-error,
+.np-resumen-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.np-tonight-error > * + *,
+.np-resumen-error > * + * {
+  margin-left: 0.75rem;
+}
+
+/* Lo ganado, la caja y lo que se debe: tres tarjetas del mapa en fila. */
+.np-resumen-map {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-column-gap: 1rem;
+  column-gap: 1rem;
+  align-items: stretch;
+}
+
+.np-resumen-map .np-mmq-num {
+  font-size: 1.75rem;
+}
+
+/* La frase, a dos líneas. */
+.np-resumen-map .np-mmq-cap {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+/* La pregunta es un botón que ocupa toda la tarjeta y abre el mapa. */
+.np-mmq-card[data-opens] {
+  position: relative;
+}
+
+.np-mmq-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-mmq-open::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+}
+
+.np-mmq-card[data-opens]:hover {
+  border-color: var(--np-border-hi);
+}
+
+.np-mmq-open:focus-visible {
+  outline: 0;
+}
+
+.np-mmq-open:focus-visible::after {
+  outline: 2px solid var(--np-accent);
+  outline-offset: 2px;
+}
+
+/* Desde 1280: todo en una línea, como «Esta noche» (1,5 + 1 + 1 + 1). */
+@media (min-width: 1280px) {
+  .np-resumen-figs[data-map] {
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 3fr);
+    grid-column-gap: 1rem;
+    column-gap: 1rem;
+  }
+}
+
+/* Hasta 640: «Pagado» arriba y las tres como filas de 48, sin frase. */
+@media (max-width: 640px) {
+  .np-resumen-map {
+    grid-template-columns: minmax(0, 1fr);
+    grid-row-gap: 0.5rem;
+    row-gap: 0.5rem;
+  }
+
+  .np-resumen-map .np-mmq-card {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 3rem;
+    padding: 0.25rem 1rem;
+    border-top-width: 1px;
+    border-left: 4px solid var(--np-mmq-c, var(--np-border-hi));
+    border-radius: 0.75rem;
+  }
+
+  .np-resumen-map .np-mmq-q {
+    font-size: 0.875rem;
+  }
+
+  .np-resumen-map .np-mmq-num {
+    font-size: 1.125rem;
+  }
+
+  .np-resumen-map .np-mmq-cap {
+    display: none;
+  }
+}
+
+/* ─── Debajo: «Pide tu atención» y «Últimos cobros» ─────────────────── */
+
+.np-resumen-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-row-gap: 1.5rem;
+  row-gap: 1.5rem;
+  align-items: start;
+}
+
+@media (min-width: 1101px) {
+  .np-resumen-cols {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-column-gap: 1.5rem;
+    column-gap: 1.5rem;
+  }
+}
+
+.np-resumen-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.np-resumen-block > * + * {
+  margin-top: 0.75rem;
+}
+
+.np-resumen-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-resumen-calma {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-resumen-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Cada fila, 56 px: la etiqueta, el título con su línea y el botón. */
+.np-resumen-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-column-gap: 0.75rem;
+  column-gap: 0.75rem;
+  align-items: center;
+  min-height: 3.5rem;
+  padding: 0.375rem 0;
+  border-bottom: 1px solid var(--np-border);
+}
+
+.np-resumen-row-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.np-resumen-row-title {
+  overflow: hidden;
+  font-size: 0.9375rem;
+  color: var(--np-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-resumen-row-meta {
+  margin-top: 0.125rem;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-resumen-row-btn {
+  min-height: 2.25rem;
+}
+
+.np-resumen-more {
+  align-self: flex-start;
+}
+
+/* Los últimos cobros, sin cabecera: hora, qué, estado e importe. */
+.np-resumen-cobros {
+  overflow: hidden;
+  border: 1px solid var(--np-border);
+  border-radius: 1rem;
+}
+
+.np-cobros-table[data-compact] td[data-card='hora'] {
+  width: 5rem;
+}
+
+.np-cobros-table[data-compact] td[data-card='estado'] {
+  width: 9rem;
+}
+
+.np-cobros-table[data-compact] td[data-card='importe'] {
+  width: 7rem;
+}
+
+@media (max-width: 640px) {
+  .np-resumen-row {
+    min-height: 4rem;
+  }
+}
+
+/* Táctil: botones y enlaces de 44. */
+@media (max-width: 640px), (pointer: coarse) {
+  .np-resumen-row-btn,
+  .np-resumen-more {
+    min-height: 2.75rem;
+  }
+}

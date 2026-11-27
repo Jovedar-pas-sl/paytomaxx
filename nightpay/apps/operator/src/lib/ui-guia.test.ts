@@ -68,7 +68,9 @@ describe('la entrada del menú del logo', () => {
   it('está en los dos menús (Recepción e Inicio), justo antes de «Salir»', () => {
     const staff = source('../components/staff-menu.tsx');
     const menu = staff.slice(staff.indexOf('export function StaffMenu('));
-    expect(menu).toMatch(/<GuiaMenuLink \/>\s*<LogoutMenuItem onLogout=\{onLogout\} \/>/);
+    // Entrega 4B: en Recepción, «Salir» va en el pie de la hoja (footer); la guía, la última de la lista.
+    expect(menu).toContain('footer={<LogoutMenuItem onLogout={onLogout} />}');
+    expect(menu).toMatch(/<GuiaMenuLink \/>\s*<\/div>\s*<\/Sheet>/);
     const cobrar = source('../components/cobrar/CobrarFlow.tsx');
     const inicio = cobrar.slice(cobrar.indexOf('const menuModal'));
     expect(inicio).toMatch(/<GuiaMenuLink \/>\s*<LogoutMenuItem onLogout=\{onLogout\} \/>/);

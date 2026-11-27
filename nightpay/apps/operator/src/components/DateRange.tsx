@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
-import { Button, Input } from '@nightpay/ui';
+import { useId, useState, type CSSProperties } from 'react';
+import { Button, FieldError, Input } from '@nightpay/ui';
 import { NO_DAYS, rangeProblem, type DayRange } from '@/lib/history';
 
 interface Props {
@@ -16,6 +16,7 @@ interface Props {
 export function DateRange({ value, onChange }: Props) {
   const active = value.fromDay !== '' || value.toDay !== '';
   const [open, setOpen] = useState(active);
+  const problemId = useId();
   if (!open) {
     return (
       <div>
@@ -29,12 +30,30 @@ export function DateRange({ value, onChange }: Props) {
   return (
     <div role="group" aria-label="Buscar por fechas" style={box}>
       <div style={row}>
-        <Input label="Desde" type="date" style={dateStyle} value={value.fromDay} onChange={(e) => onChange({ ...value, fromDay: e.target.value })} />
-        <Input label="Hasta" type="date" style={dateStyle} value={value.toDay} onChange={(e) => onChange({ ...value, toDay: e.target.value })} />
+        <Input
+          label="Desde"
+          type="date"
+          style={dateStyle}
+          value={value.fromDay}
+          onChange={(e) => onChange({ ...value, fromDay: e.target.value })}
+          aria-describedby={problem ? problemId : undefined}
+          aria-invalid={problem ? true : undefined}
+        />
+        <Input
+          label="Hasta"
+          type="date"
+          style={dateStyle}
+          value={value.toDay}
+          onChange={(e) => onChange({ ...value, toDay: e.target.value })}
+          aria-describedby={problem ? problemId : undefined}
+          aria-invalid={problem ? true : undefined}
+        />
       </div>
-      <p role={problem ? 'alert' : undefined} style={problem ? errorStyle : hintStyle}>
-        {problem ?? 'Cada noche cuenta hasta las 8:00 del día siguiente.'}
-      </p>
+      {problem ? (
+        <FieldError id={problemId}>{problem}</FieldError>
+      ) : (
+        <p style={hintStyle}>Cada noche cuenta hasta las 8:00 del día siguiente.</p>
+      )}
       {active ? (
         <div>
           <Button
@@ -59,4 +78,3 @@ const row: CSSProperties = { display: 'grid', gridTemplateColumns: 'minmax(0, 1f
 // El campo de fecha del iPhone trae un ancho mínimo propio: sin él, no se sale de su columna.
 const dateStyle: CSSProperties = { minWidth: 0 };
 const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)', lineHeight: 1.4 };
-const errorStyle: CSSProperties = { ...hintStyle, color: 'var(--np-danger-text)' };

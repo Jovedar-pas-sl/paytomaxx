@@ -151,6 +151,8 @@ export interface NightView {
   z: NightZ;
   /** `provider` BTCPAY: paga con bitcoin (sin banco). Un API de antes no lo trae. */
   pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
+  /** Lo pagado hora a hora, solo con la noche abierta (`at` en UTC; la de ahora, `open`). Un API de antes no lo trae: sin gráfico. */
+  hourly?: Array<{ at: string; chargedCents: number; open: boolean }>;
 }
 
 export interface NightListItem {

@@ -12,8 +12,6 @@ import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
-import type { TabKey } from '@/lib/roles';
-import { todayTiles, type NightTotals } from '@/lib/today-tiles';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
@@ -27,7 +25,6 @@ import { BitcoinCashModal, type BitcoinCashTarget } from './BitcoinCashModal';
 import { useBitcoinCash } from '@/lib/use-bitcoin-cash';
 import { RefundsModal } from './RefundsModal';
 import { ReverseChargeModal } from './ReverseChargeModal';
-import { TonightStrip } from './TonightStrip';
 
 const PAGE_SIZE = 50;
 /** Tope de `limit` en GET /v1/admin/cobros. */
@@ -37,7 +34,6 @@ const MAX_POLL_MS = 60_000;
 
 interface Props {
   user: User;
-  onNavigate?: (key: TabKey) => void;
   /** Cobro a abrir al llegar (desde una incidencia): se abren sus devoluciones. */
   focusPaymentId?: string | null;
   onFocusDone?: () => void;
@@ -52,7 +48,7 @@ interface Props {
 }
 
 /**
- * Pestaña Cobros: «Esta noche», métricas y los cobros (con tarjeta y del
+ * Pestaña Cobros: las cifras de hoy y los cobros (con tarjeta y del
  * saldo) en seis columnas, con sus vistas y filtros. Tocar un cobro abre su
  * detalle al lado de la lista (sin taparla), con sus botones (devolver, anular,
  * resolver…) en el pie: las mismas reglas, confirmaciones y verificaciones.
@@ -62,7 +58,6 @@ interface Props {
  */
 export function PaymentsPanel({
   user,
-  onNavigate,
   focusPaymentId = null,
   onFocusDone,
   initialFilter = null,
@@ -105,8 +100,6 @@ export function PaymentsPanel({
   const [reverseFor, setReverseFor] = useState<CobroRow | null>(null);
   /** «Abrir cobro» de una incidencia que no está entre los cobros cargados. */
   const [focusMissing, setFocusMissing] = useState(false);
-  // Lo cobrado y los pagos de «Esta noche»: «Hoy» no repite las cifras que coinciden.
-  const [nightTotals, setNightTotals] = useState<NightTotals>(undefined);
   // Filas cargadas (el refresco pide las mismas) y filtro vigente (para
   // descartar un "Cargar más" que vuelve después de cambiar el filtro).
   const loadedRef = useRef(0);
@@ -139,12 +132,15 @@ export function PaymentsPanel({
     window.history.replaceState(window.history.state, '', `${pathname}${withoutRef(search)}${hash}`);
   }, [linkRef, payments]);
 
-  // Desde otra pantalla: el detalle de ese cobro, sin filtrar la lista (una vez).
+  // Desde otra pantalla (los últimos cobros del Resumen): el detalle de ese cobro, sin filtrar
+  // la lista (una vez). Se espera a la lista: los botones del dinero salen con la fila de su
+  // respuesta, nunca con la que trajo el Resumen (de hasta 20 s antes); si no está, sin ellos.
   useEffect(() => {
-    if (!openRow) return;
-    openDetail(openRow, versionRef.current);
+    if (!openRow || payments === null) return;
+    const fresh = payments.find((p) => p.kind === openRow.kind && p.id === openRow.id);
+    openDetail(fresh ?? openRow, fresh ? listVersion : -1);
     onOpenRowDone?.();
-  }, [openRow, onOpenRowDone]);
+  }, [openRow, payments, onOpenRowDone]);
 
   // Desde el mapa del dinero: la lista con los filtros de esa cifra (una vez).
   useEffect(() => {
@@ -289,8 +285,6 @@ export function PaymentsPanel({
 
   return (
     <>
-      <TonightStrip onNavigate={onNavigate} onNightTotals={setNightTotals} />
-
       {focusMissing ? (
         <Notice tone="info" action={{ label: 'Entendido', onClick: () => setFocusMissing(false) }}>
           Ese cobro no está entre los últimos cargados. Pulsa «Cargar más» abajo, ábrelo y, en su detalle, Devoluciones → Resolver.
@@ -319,19 +313,14 @@ export function PaymentsPanel({
 
       <section className="np-metrics" data-tour="cobros-resumen">
         {/* Los pagos con tarjeta (también las recargas con tarjeta): lo pagado con el saldo no cuenta aquí. */}
-        {/* Solo si dicen otra cosa que «Esta noche» (y nada hasta saberlo: no aparecen para desaparecer). */}
-        {todayTiles(nightTotals, metrics?.today) !== 'show' ? null : (
-          <>
-            {/* Sin los pagados con bitcoin: no pasan por el banco. */}
-            <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count - (metrics.today.bitcoinCount ?? 0)) : '—'} />
-            <MetricTile
-              title="Hoy · cobrado"
-              value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
-              // Lo que suma el total: ventas con tarjeta + propinas + recargas (no son venta).
-              note={metrics ? (cobradoNote(metricsCobradoParts(metrics.today), formatEur) ?? undefined) : undefined}
-            />
-          </>
-        )}
+        {/* «Esta noche» está en el Resumen: aquí salen siempre las cinco de «Hoy». Sin los pagados con bitcoin: no pasan por el banco. */}
+        <MetricTile title="Hoy · pagos con tarjeta" value={metrics ? String(metrics.today.count - (metrics.today.bitcoinCount ?? 0)) : '—'} />
+        <MetricTile
+          title="Hoy · cobrado"
+          value={eurOrDash(metrics ? (metrics.today.chargedCents ?? metrics.today.grossCents) : undefined)}
+          // Lo que suma el total: ventas con tarjeta + propinas + recargas (no son venta).
+          note={metrics ? (cobradoNote(metricsCobradoParts(metrics.today), formatEur) ?? undefined) : undefined}
+        />
         <MetricTile title="Hoy · reembolsos" value={eurOrDash(metrics?.today.refundedCents)} />
         {/* El neto resta también el saldo devuelto en efectivo, que no sale en «reembolsos»: su cuenta, a la vista (P-12). */}
         <MetricTile title="Hoy · neto" value={eurOrDash(metrics?.today.netCents)} note={NET_NOTE} />

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useId, useState, type CSSProperties, type FormEvent } from 'react';
 import { passkeysSupported, type CreationOptionsJSON } from '@nightpay/api-client';
 import { unlockName, type StaffPasskeyView } from '@nightpay/contracts';
-import { Button, EmptyState, Input, Modal } from '@nightpay/ui';
+import { Button, EmptyState, FormError, Input, Sheet } from '@nightpay/ui';
 import { fetchPasskeys, fetchStepUp, passkeyRegister, passkeyRegistrationOptions, removePasskey, stepUpErrorText } from '../lib/api-step-up';
 
 /**
@@ -25,6 +25,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
   const [done, setDone] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const supported = passkeysSupported();
+  const formId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -106,7 +107,22 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   return (
-    <Modal open={open} onClose={close} title="Llave de acceso">
+    <Sheet
+      open={open}
+      onClose={close}
+      title="Llave de acceso"
+      footer={
+        !supported ? undefined : options ? (
+          <Button onClick={() => void create()} loading={busy}>
+            Crear la llave con {unlock}
+          </Button>
+        ) : (
+          <Button type="submit" form={formId} loading={busy}>
+            Añadir una llave en este móvil
+          </Button>
+        )
+      }
+    >
       <div style={stack}>
         <p style={note}>
           Confirma con tu móvil (Face ID o huella) para ver lo delicado de tus cobros, si no usas la verificación en dos pasos.
@@ -126,7 +142,7 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
         {done ? <p style={{ margin: 0 }}>Llave creada. Ya puedes confirmar con este móvil.</p> : null}
         {!supported ? <p style={{ margin: 0 }}>Este navegador no permite llaves de acceso.</p> : null}
         {supported && !options ? (
-          <form onSubmit={(e) => void begin(e)} style={stack}>
+          <form id={formId} onSubmit={(e) => void begin(e)} style={stack}>
             <Input label="Tu contraseña" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
             {totpEnabled ? (
               <Input
@@ -138,23 +154,11 @@ export function PasskeySheet({ open, onClose }: { open: boolean; onClose: () => 
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
               />
             ) : null}
-            <Button type="submit" loading={busy}>
-              Añadir una llave en este móvil
-            </Button>
           </form>
         ) : null}
-        {supported && options ? (
-          <Button onClick={() => void create()} loading={busy}>
-            Crear la llave con {unlock}
-          </Button>
-        ) : null}
-        {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: 'var(--np-fs-14)' }}>
-            {error}
-          </p>
-        ) : null}
+        {error ? <FormError>{error}</FormError> : null}
       </div>
-    </Modal>
+    </Sheet>
   );
 }
 

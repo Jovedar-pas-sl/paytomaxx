@@ -369,6 +369,16 @@ export const PT: CustomerTexts = {
     reconnecting: 'A restabelecer a ligação…',
     linkGone: 'Este link já não é válido. Peça um novo na receção.',
     activateAtReception: 'Para ativar o pagamento com o telefone ou escolher o seu PIN, peça na receção o QR de ativação.',
+    liveCode: {
+      button: 'Pagar ou carregar noutro sistema',
+      hint: 'Um código para carregar na máquina do local. Muda sozinho a cada minuto.',
+      loading: 'A preparar o seu código…',
+      alt: 'O seu código para o leitor',
+      warn: 'Mostre-o apenas no leitor do local. Não o envie a ninguém nem lhe faça captura de ecrã.',
+      note: 'Muda a cada minuto e desliga-se ao fim de 5 minutos.',
+      hide: 'Ocultar o código',
+      ended: 'O código desligou-se. Se precisar, toque outra vez.',
+    },
     detail: {
       title: 'Detalhe do pagamento',
       loading: 'A carregar…',

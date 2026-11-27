@@ -8,6 +8,7 @@ import {
   type PartyNight,
   type PartyStallLive,
 } from '@nightpay/contracts';
+import { fillHours } from '../../common/time/hour-fill';
 import type { PartyWindow } from './party-windows';
 
 /**
@@ -17,7 +18,6 @@ import type { PartyWindow } from './party-windows';
  * (las reglas del mapa del dinero: las recargas son «cargado», nunca venta).
  */
 
-const HOUR_MS = 3_600_000;
 const MINUTE_MS = 60_000;
 /** Como mucho dos semanas de horas en la gráfica (las últimas). */
 export const MAX_PARTY_HOURS = 24 * 14;
@@ -110,16 +110,7 @@ function later(a: Date | null, b: Date | null): Date | null {
 export function hourlyOf(rows: readonly StallHourRow[], window: PartyWindow): PartyHour[] {
   const byHour = new Map<number, number>();
   for (const r of rows) byHour.set(r.hour, (byHour.get(r.hour) ?? 0) + r.cents);
-  if (byHour.size === 0) return [];
-  const hours = [...byHour.keys()];
-  const nowHour = Math.floor((window.to.getTime() - 1) / HOUR_MS);
-  const last = window.live ? Math.max(nowHour, ...hours) : Math.max(...hours);
-  const first = Math.max(Math.min(...hours), last - MAX_PARTY_HOURS + 1);
-  const out: PartyHour[] = [];
-  for (let h = first; h <= last; h += 1) {
-    out.push({ at: new Date(h * HOUR_MS).toISOString(), soldCents: byHour.get(h) ?? 0, open: window.live && h === nowHour });
-  }
-  return out;
+  return fillHours(byHour, window, MAX_PARTY_HOURS).map((h) => ({ at: h.at, soldCents: h.cents, open: h.open }));
 }
 
 export interface StallsInput {

@@ -364,6 +364,16 @@ export const ES: CustomerTexts = {
     reconnecting: 'Reconectando…',
     linkGone: 'Este enlace ya no vale. Pide uno nuevo en recepción.',
     activateAtReception: 'Para activar el pago con tu móvil o elegir tu PIN, pide en recepción el QR de activación.',
+    liveCode: {
+      button: 'Pagar o recargar en otro sistema',
+      hint: 'Un código para recargar en el cajero del local. Cambia solo cada minuto.',
+      loading: 'Preparando tu código…',
+      alt: 'Tu código para el lector',
+      warn: 'Enséñalo solo en el lector del local. No lo envíes a nadie ni le hagas captura.',
+      note: 'Cambia cada minuto y se apaga a los 5 minutos.',
+      hide: 'Ocultar el código',
+      ended: 'El código se ha apagado. Si lo necesitas, pulsa otra vez.',
+    },
     detail: {
       title: 'Detalle del pago',
       loading: 'Cargando…',

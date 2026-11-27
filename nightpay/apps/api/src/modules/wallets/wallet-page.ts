@@ -13,6 +13,7 @@ import type { TopUpOptions, TopUpProof } from './wallet-topup.service';
 import { TOPUP_CSS, TOPUP_JS, paidProofScript, paidProofSection, topUpCard, topUpOffNote } from './wallet-topup-view';
 import { SCAN_CSS, SCAN_JS, scanArea } from './wallet-scan';
 import { LOST_CSS, LOST_JS, lostButton, lostSheet } from './wallet-lost-view';
+import { LIVE_CODE_CSS, LIVE_CODE_JS, liveCodeCard } from './wallet-live-code-view';
 import { AVISO_CSS, AVISO_JS, avisoConfig, avisoRow, avisoSheet, manifestLink } from './charge-alert/charge-alert-view';
 import { CHARGE_ALERT_TEXT } from './charge-alert/charge-alert-text';
 import { WALLET_LIVE_JS } from './wallet-live';
@@ -49,6 +50,9 @@ import {
  * las dos vistas, «Últimos movimientos»: tres a la vista y «Ver todos», que
  * despliega el resto ahí mismo (tocar uno abre su «Detalle del pago»; uno
  * deshecho dice «Devuelto a tu saldo»).
+ * Entre las dos vistas y los movimientos, con la API de socios encendida y una
+ * plataforma conectada que alcanza el saldo, «Pagar o recargar en otro
+ * sistema»: el código del móvil (wallet-live-code-view.ts).
  * Después, «Más»: elegir PIN, juntar saldos (en hojas dentro de la
  * página: nada de confirm()/alert()) y la regla del saldo donde estaba «Me
  * voy» («El saldo no se devuelve: se queda para la próxima visita»; con una
@@ -157,11 +161,16 @@ function eur(cents: number, locale: string): string {
   return clientMoney(cents, locale);
 }
 
-/** Textos que necesita el JS de la página (los del desbloqueo, de pay-i18n). */
-function jsText(lang: PayLanguage): Record<string, unknown> {
+/**
+ * Textos que necesita el JS de la página (los del desbloqueo, de pay-i18n).
+ * Los del código del móvil, solo si sale (sin él, la página no cambia).
+ */
+function jsText(lang: PayLanguage, liveCode: boolean): Record<string, unknown> {
   const p = PAY_TEXT[lang];
+  const { liveCode: liveCodeText, ...wallet } = WALLET_TEXT[lang];
   return {
-    ...WALLET_TEXT[lang],
+    ...wallet,
+    ...(liveCode ? { liveCode: liveCodeText } : {}),
     unlock: p.unlock,
     unlockWaiting: p.unlockWaiting,
   };
@@ -202,6 +211,12 @@ export interface WalletPageOptions {
   chargeAlertKey?: string | null;
   /** El idioma que se le ofrece en la franja de arriba (idea 71); con OxioParty no sale. */
   suggest?: PayLanguage | null;
+  /**
+   * «Pagar o recargar en otro sistema» (wallet-live-code-view.ts): la API de
+   * socios encendida y una conexión que alcanza este saldo
+   * (WalletLiveCodeService.offered). Sin esto, el bloque no sale.
+   */
+  liveCode?: boolean;
 }
 
 /**
@@ -367,7 +382,7 @@ export function renderWalletPage(
     base,
     lang,
     locale: t.locale,
-    text: jsText(lang),
+    text: jsText(lang, options.liveCode === true),
     errors: clientErrorConfig(lang),
     state,
     gw,
@@ -380,13 +395,16 @@ export function renderWalletPage(
     ...(party ? { party: partyJsConfig(lang, party) } : {}),
     // «Aviso en cada cobro» (null: apagado).
     aviso: avisoConfig(lang, options.chargeAlertKey),
+    // «Pagar o recargar en otro sistema» (sin él, el bloque ni el JS salen).
+    ...(options.liveCode === true ? { liveCode: true } : {}),
   });
+  const liveCode = options.liveCode === true;
   const aviso = Boolean(options.chargeAlertKey);
   const h = escapeHtml;
   return `<!DOCTYPE html>
 <html lang="${t.htmlLang}"><head><meta charset="utf-8">${MANROPE_PRELOAD}<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="robots" content="noindex"><meta name="theme-color" content="${party ? PARTY_THEME_COLOR : '#091518'}"><title>${h(t.title)}</title>${aviso ? manifestLink(base) : ''}
-<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
+<style>${CLUB_BASE_CSS}${CHROME_CSS}${WALLET_CSS}${SCAN_CSS}${TOPUP_CSS}${LOST_CSS}${WELCOME_CSS}${aviso ? AVISO_CSS : ''}${liveCode ? LIVE_CODE_CSS : ''}${party ? PARTY_CSS : ''}</style></head><body><main class="w">
 ${party ? partyTopBar(lang, party) : topBar(lang, undefined, { suggest: options.suggest })}<h1 class="sr">${h(t.title)}</h1>
 <section class="hero" aria-labelledby="balanceLabel">
 <p id="balanceLabel">${h(state.venueName ? t.balanceOf.split('{venue}').join(state.venueName) : t.balance)}</p>
@@ -402,7 +420,7 @@ ${party ? partyActions(lang) : ''}${welcome && proof ? `${paidProofSection(lang,
 <ol class="steps" id="steps">${t.steps.map((s, i) => `<li data-i="${i}">${h(s)}</li>`).join('')}</ol>
 <p id="refundHow"></p>
 </section>
-${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${movesList(lang)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
+${viewTabs(lang)}${payView(lang, state, gw, options.fichaQr ?? null)}${topUpView(lang, options)}${liveCode ? liveCodeCard(lang) : ''}${movesList(lang)}${moreList(lang, aviso)}<p class="small">${h(t.saveHint)}</p>
 ${party ? `${partyStalls(lang, party.stalls)}${partyNote()}` : ''}</main>
 ${lostSheet(lang)}${party ? partySheets(lang) : ''}${aviso ? avisoSheet(lang) : ''}<dialog class="sheet" id="pinSheet" aria-labelledby="pinTitle">
 <h2 id="pinTitle">${h(t.pinTitle)}</h2><p id="pinWhy"></p>
@@ -494,7 +512,7 @@ function render(s){S=s;S.cards=s.cards||[];
   b.textContent=(m.amountCents>0?'+':'')+eur(m.amountCents);b.className=(m.returned?'gone':m.amountCents>0?'plus':'minus')+' num';
   if(m.detail){host=document.createElement('button');host.type='button';host.className='mvb';host.addEventListener('click',function(){detOpen(m);});li.appendChild(host);}
   host.appendChild(sw);host.appendChild(mt);host.appendChild(b);ul.appendChild(li);});
- lostRender(s);welcomeRender(s);lastRender(s);if(C.aviso)avisoRender(s);
+ lostRender(s);welcomeRender(s);lastRender(s);if(C.aviso)avisoRender(s);${liveCode ? 'liveCodeRender(s);' : ''}
  var can=topRender(s);
  $('payEmpty').hidden=!(can&&s.status==='DEPLETED');
  segShow(can||C.paid);${party ? 'partyRender(s);' : ''}movMore();}
@@ -580,7 +598,8 @@ ${SCAN_JS}
 ${TOPUP_JS}
 ${LOST_JS}
 ${aviso ? AVISO_JS : ''}
-${VIEWS_JS}
+${liveCode ? `${LIVE_CODE_JS}
+` : ''}${VIEWS_JS}
 ${party ? `${PARTY_JS}
 ` : ''}${welcome ? RECEIPT_JS : ''}${WELCOME_JS}
 if(!C.paid&&S.status==='DEPLETED'&&topCan(S))view='top';

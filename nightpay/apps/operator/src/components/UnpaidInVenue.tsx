@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Card } from '@nightpay/ui';
+import { Button, Card, FormError } from '@nightpay/ui';
 import { cancelPayment } from '@/lib/api';
 import { unpaidBank, unpaidLine, unpaidState, unpaidToShow, type UnpaidRow } from '@/lib/api-sin-pagar';
 import { offersCancel } from '@/lib/cancel-at-bank';
@@ -81,11 +81,7 @@ export function UnpaidInVenue({
           </div>
         );
       })}
-      {error ? (
-        <p role="alert" style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)' }}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
       <CancelCobroConfirm
         open={target !== null}
         atBank={target?.atBank ?? false}
