@@ -37,6 +37,7 @@ locales. Apagada de serie (`PARTNER_API_ENABLED=false`) hasta el PR 8.
 | 3 | [Identificar al cliente](guides/es/03-identificar-al-cliente.md) | [Identifying the customer](guides/en/03-identifying-the-customer.md) |
 | 4 | [Cargar saldo en un cajero](guides/es/04-cargar-saldo.md) | [Loading balance at an ATM](guides/en/04-loading-balance.md) |
 | 6 | [Cuadre](guides/es/06-cuadre.md) | [Reconciliation](guides/en/06-reconciliation.md) |
+| 7 | [Pruebas en la demo](guides/es/07-pruebas-en-la-demo.md) | [Testing on the demo](guides/en/07-testing-on-the-demo.md) |
 
-Los demás capítulos (empezar, errores, demo, salida) llegan con su entrega;
+Los demás capítulos (empezar, errores, salida) llegan con su entrega;
 hasta entonces, las guías completas del piloto están en `pilot/`.
