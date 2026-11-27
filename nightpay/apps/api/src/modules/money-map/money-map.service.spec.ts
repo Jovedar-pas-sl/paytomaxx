@@ -250,6 +250,53 @@ describe('GET /v1/admin/money-map?from&to', () => {
   });
 });
 
+describe('GET /v1/admin/money-map?fromAt&toAt (varias noches)', () => {
+  it('un periodo pasado: de fromAt a toAt, sin saldo vivo ni fondo de caja', async () => {
+    const { svc } = makeService();
+    const m = await svc.forQuery(TENANT, { fromAt: '2026-10-17T05:00:00.000Z', toAt: '2026-10-20T04:31:00.000Z' }, NOW);
+    expect(m.scope).toEqual({ kind: 'period' });
+    expect(m.from).toBe('2026-10-17T05:00:00.000Z');
+    expect(m.to).toBe('2026-10-20T04:31:00.000Z');
+    expect(m.frozen).toBe(false);
+    expect(m.where.liveSaldoCents).toBeNull();
+    expect(m.where.cashBox.openingFloatCents).toBeNull();
+  });
+
+  it('sin toAt (la más nueva sigue abierta): hasta ahora, con el saldo vivo', async () => {
+    const { svc } = makeService();
+    const m = await svc.forQuery(TENANT, { fromAt: '2026-10-22T05:00:00.000Z' }, NOW);
+    expect(m.from).toBe('2026-10-22T05:00:00.000Z');
+    expect(m.to).toBe(NOW.toISOString());
+    expect(m.where.liveSaldoCents).toBe(13_000);
+  });
+
+  it('toAt en el futuro: hasta ahora, con el saldo vivo', async () => {
+    const { svc } = makeService();
+    const m = await svc.forQuery(TENANT, { fromAt: '2026-10-22T05:00:00.000Z', toAt: '2026-10-26T05:00:00.000Z' }, NOW);
+    expect(m.to).toBe(NOW.toISOString());
+    expect(m.where.liveSaldoCents).toBe(13_000);
+  });
+
+  it('fromAt en el futuro: 400', async () => {
+    const { svc } = makeService();
+    await expect(svc.forQuery(TENANT, { fromAt: '2026-10-25T01:00:01.000Z' }, NOW)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('366 días y un minuto: 400; 366 días justos, sí', async () => {
+    const { svc } = makeService();
+    const to = T('2026-10-20T04:00:00Z');
+    const days366 = new Date(to.getTime() - 366 * 86_400_000);
+    const plusMinute = new Date(days366.getTime() - 60_000);
+    await expect(
+      svc.forQuery(TENANT, { fromAt: plusMinute.toISOString(), toAt: to.toISOString() }, NOW),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(svc.forQuery(TENANT, { fromAt: days366.toISOString(), toAt: to.toISOString() }, NOW)).resolves.toBeTruthy();
+    // Sin toAt, se cuenta hasta ahora.
+    const fromNow = new Date(NOW.getTime() - 366 * 86_400_000 - 60_000);
+    await expect(svc.forQuery(TENANT, { fromAt: fromNow.toISOString() }, NOW)).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 describe('local que no existe', () => {
   it('404', async () => {
     const { svc, tx } = makeService();
