@@ -46,6 +46,7 @@ import { enqueueOrphanReconcile } from '../queues/orphan-enqueue';
 import { GatewayRegistry } from '../gateways/gateway.registry';
 import { isTransientGatewayError } from '../gateways/gateway-errors';
 import { PeanpeAdapter } from '../gateways/peanpe.adapter';
+import { YAVIN_CANCEL_LINK_FAILED_EVENT, YAVIN_LINK_TTL_HOURS } from '../gateways/yavin.adapter';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../metrics/metrics.service';
 import { VENUE_PAUSE_SELECT, assertVenueNotPaused } from '../venues/venue-pause';
@@ -459,6 +460,12 @@ const AUTHORIZING_RECHECK_AFTER_MS = 15 * 60 * 1000;
 const AUTHORIZING_RECHECK_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cancelados con pedido en el banco que el repaso de cada 10 min vuelve a mirar: los de esta última media hora. */
 const CANCELED_RECHECK_WINDOW_MS = 30 * 60 * 1000;
+/**
+ * Cancelados de Yavin cuyo enlace Yavin no anuló (YAVIN_CANCEL_LINK_FAILED_EVENT):
+ * el enlace vive 72 h y el cliente puede pagarlo con el aviso perdido; se
+ * vuelven a mirar todo ese tiempo.
+ */
+const YAVIN_CANCELED_RECHECK_WINDOW_MS = YAVIN_LINK_TTL_HOURS * 60 * 60 * 1000;
 /** Como mucho tantos por repaso y tipo (el resto, en el siguiente). */
 const BANK_RECHECK_LIMIT = 50;
 /**
@@ -606,7 +613,11 @@ export class PaymentsService implements OnApplicationBootstrap {
          AND provider IS NOT NULL
          AND provider::text <> 'BTCPAY'
          AND "providerTxId" IS NOT NULL
-         AND "updatedAt" >= ${new Date(now.getTime() - CANCELED_RECHECK_WINDOW_MS)}
+         AND ("updatedAt" >= ${new Date(now.getTime() - CANCELED_RECHECK_WINDOW_MS)}
+              OR (provider::text = 'YAVIN'
+                  AND "updatedAt" >= ${new Date(now.getTime() - YAVIN_CANCELED_RECHECK_WINDOW_MS)}
+                  AND EXISTS (SELECT 1 FROM payment_events e
+                               WHERE e."paymentId" = payments.id AND e."eventType" = ${YAVIN_CANCEL_LINK_FAILED_EVENT})))
        ORDER BY "updatedAt" ASC, id ASC
        LIMIT ${CANCELED_RECHECK_CANDIDATES}
     `);

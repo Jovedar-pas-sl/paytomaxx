@@ -28,6 +28,8 @@ function stateToNumber(s: 'closed' | 'halfOpen' | 'open'): number {
 export const YAVIN_MIN_CENTS = 100;
 /** El enlace de Yavin vive 72 h (lo fija Yavin). */
 export const YAVIN_LINK_TTL_HOURS = 72;
+/** En el cobro cancelado: Yavin no anuló su enlace (sigue pagable hasta 72 h). */
+export const YAVIN_CANCEL_LINK_FAILED_EVENT = 'yavin.cancel_link_failed';
 const DEFAULT_BASE_URL = 'https://api.yavin.com';
 
 /** Código del 409 de una segunda devolución de un cobro de Yavin (las apps lo distinguen sin leer el texto). */

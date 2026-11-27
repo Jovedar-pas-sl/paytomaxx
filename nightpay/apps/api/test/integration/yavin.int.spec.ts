@@ -50,7 +50,7 @@ const redsysAuthorize = vi.fn(async () => ({
 }));
 const redsys = { provider: 'REDSYS', authorize: redsysAuthorize };
 const registry = { get: (p: string) => (p === 'YAVIN' ? yavin : redsys) };
-const orphanQueue = { getJob: async () => undefined, add: async () => undefined };
+const orphanQueue = { getJob: async () => undefined, add: async (..._args: unknown[]) => undefined };
 const payments = new PaymentsService(
   prisma as never,
   cls as never,
@@ -321,6 +321,43 @@ describe('Yavin: cancelar y devolver', () => {
     expect((await paymentOf(p.id)).status).toBe('CANCELED');
     expect(calls).toEqual([expect.objectContaining({ path: '/api/v5/ecommerce/cancel_link/', body: { cart_id: cartId }, secret: FAKE_KEY })]);
     expect(carts.get(cartId)!.status).toBe('cancelled');
+  });
+
+  it('cancel_link falla: queda apuntado y el repaso de cancelados lo vuelve a mirar las 72 h del enlace (no solo media hora)', async () => {
+    const failed = await newPayment();
+    const ok = await newPayment();
+    const { cartId } = await openWithYavin(failed);
+    await openWithYavin(ok);
+    await sys(async (tx) => {
+      const past = new Date(Date.now() - 3 * 60_000);
+      await tx.paymentAttempt.updateMany({ where: { paymentId: { in: [failed.id, ok.id] } }, data: { createdAt: past } });
+      await tx.paymentEvent.updateMany({ where: { paymentId: { in: [failed.id, ok.id] } }, data: { occurredAt: past } });
+    });
+    await inCtx(A, () => payments.cancel(ok.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    // Yavin no responde al anular el enlace del otro: el cobro se cancela igual.
+    globalThis.fetch = vi.fn(async () => json(503, {})) as never;
+    await inCtx(A, () => payments.cancel(failed.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    globalThis.fetch = fakeYavin as never;
+    expect((await paymentOf(failed.id)).status).toBe('CANCELED');
+    const marks = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: failed.id, eventType: 'yavin.cancel_link_failed' } }));
+    expect(marks.map((m) => m.payload)).toEqual([{ provider: 'YAVIN', cartId }]);
+    // Dos horas después (fuera de la media hora de siempre): solo el del enlace vivo.
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+    await sys((tx) => tx.payment.updateMany({ where: { id: { in: [failed.id, ok.id] } }, data: { updatedAt: twoHoursAgo } }));
+    const add = vi.spyOn(orphanQueue, 'add');
+    try {
+      await pub(() => payments.requeueBankChecks());
+      const queued = add.mock.calls.map((c) => (c[1] as { paymentId: string }).paymentId);
+      expect(queued).toContain(failed.id);
+      expect(queued).not.toContain(ok.id);
+      // Pasadas las 72 h, ya no.
+      add.mockClear();
+      await sys((tx) => tx.payment.update({ where: { id: failed.id }, data: { updatedAt: new Date(Date.now() - 73 * 3_600_000) } }));
+      await pub(() => payments.requeueBankChecks());
+      expect(add.mock.calls.map((c) => (c[1] as { paymentId: string }).paymentId)).not.toContain(failed.id);
+    } finally {
+      add.mockRestore();
+    }
   });
 
   it('una devolución sí; con una ya pedida o hecha, la segunda se bloquea con mensaje claro', async () => {
