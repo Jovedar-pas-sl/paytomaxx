@@ -12,6 +12,7 @@ import {
 import { PAID_STATES } from '../payments/pay-redirect';
 import type { PaymentMachineState } from '../payments/payment.machine';
 import { cardQrUrl } from '../payments/pay-qr-url';
+import { tipGoesToStaff } from '../payments/tip';
 
 /**
  * Lo que enseña la «Pantalla del cliente», calculado aquí con lo de la base
@@ -32,6 +33,10 @@ export interface ScreenPayment {
   captureMethod: string | null;
   /** Una recarga de saldo (recepción). */
   walletId: string | null;
+  /** La propina cobrada (va en el «Pagado»). */
+  tipCents: number;
+  /** A quién va la propina (operator, venue, shared, beneficiary; null: la de quien cobra). */
+  tipGoesTo: string | null;
 }
 
 /** El cobro del saldo (la ficha, su PIN o el QR del saldo suelto). */
@@ -42,6 +47,8 @@ export interface ScreenCharge {
   amountCents: number;
   expiresAt: Date;
   payToken: string | null;
+  /** La propina que eligió el cliente (va en el «Pagado»). */
+  tipCents: number;
 }
 
 export interface ScreenInput {
@@ -57,10 +64,11 @@ export interface ScreenInput {
   cleared: boolean;
   /**
    * Propinas: encendidas en el local y en el puesto de quien cobra (`on`), las
-   * sugeridas del local, si van enteras a quien cobra y la que eligió el
-   * cliente en la tablet (0: «Sin propina»).
+   * sugeridas del local, el rol de quien cobra (con `tipGoesTo` del cobro,
+   * dicen a quién va), si lo cobra el encargado a nombre de una compañera
+   * (`served`: suya) y la que eligió el cliente en la tablet (0: «Sin propina»).
    */
-  tip: { on: boolean; presets: TipPresetConfig; toStaff: boolean; chosenCents: number };
+  tip: { on: boolean; presets: TipPresetConfig; creatorRole: string | null; served?: boolean; chosenCents: number };
   pinKeypad: PinKeypadLayout;
   /** Hasta este importe la ficha paga sin PIN (Ajustes → Noche). */
   noPinMaxCents: number;
@@ -137,7 +145,9 @@ export function screenTipOf(input: ScreenInput, amountCents: number): CustomerSc
   const maxCents = maxTipCents(amountCents);
   const chosen = input.tip.chosenCents;
   const chosenCents = tipAllowed(chosen, presets, maxCents) ? chosen : 0;
-  return { presets, maxCents, chosenCents, toStaff: input.tip.toStaff };
+  // Como en /pay (idea 66): la regla del cobro con tarjeta o, sin ella, la de quien cobra. `shared` es del local.
+  const toStaff = tipGoesToStaff({ tipGoesTo: p?.tipGoesTo ?? null, creatorRole: input.tip.creatorRole, served: input.tip.served });
+  return { presets, maxCents, chosenCents, toStaff };
 }
 
 /**
@@ -161,8 +171,10 @@ export function screenViewOf(input: ScreenInput): CustomerScreenView {
   if (!p && !c) return { ...base, state: 'idle' };
   const key = displayKey(p?.id ?? null, c?.id ?? null);
 
-  // Pagado con tarjeta, o con la ficha (el cobro del saldo aceptado: la tarjeta se canceló).
-  if (cardPaid(p) || c?.status === 'ACCEPTED') return { ...base, state: 'paid', key };
+  // Pagado con tarjeta (lo vendido + la comisión + la propina), o con la ficha
+  // (el cobro del saldo aceptado: lo vendido + la propina; la tarjeta se canceló).
+  if (p && cardPaid(p)) return { ...base, state: 'paid', key, paidCents: p.amountCents + Math.max(0, p.serviceFeeCents) + p.tipCents };
+  if (c?.status === 'ACCEPTED') return { ...base, state: 'paid', key, paidCents: c.amountCents + c.tipCents };
 
   const openCard = p !== null && cardOpen(p, now);
   const openCharge = c !== null && chargeOpen(c, now);

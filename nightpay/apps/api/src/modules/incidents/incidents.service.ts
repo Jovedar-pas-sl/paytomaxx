@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@nightpay/db';
 import {
   APPROVAL_INCIDENT_MINUTES,
@@ -10,7 +10,6 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { isPartyEdition } from '../../config/edition';
 import { AuditService } from '../audit/audit.service';
-import { BackupMonitorService } from '../db-backups/backup-monitor.service';
 import { paymentBankHeldSql } from '../operators/bank-hold-sql';
 import {
   MIN_ACK_NOTE_LENGTH,
@@ -23,6 +22,8 @@ import {
   SENSITIVE_AUDIT_ACTIONS,
   receptionPayoutCapIncident,
   serviceDisputedIncident,
+  promoterCommissionPaidIncident,
+  PROMOTER_COMMISSION_PAID_ACTION,
   earningReverseFailedIncident,
   nightClosedPendingIncident,
   openIncidents,
@@ -32,7 +33,6 @@ import {
   posVoidedPaidIncident,
   walletCloseRequestedIncident,
   bankMismatchIncident,
-  backupIncidents,
   paymentAnomalyIncident,
   refundPendingIncident,
   approvalPendingIncident,
@@ -89,14 +89,11 @@ export const INCIDENT_QUERY_CONCURRENCY = 4;
 export class IncidentsService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
-  private readonly backups: BackupMonitorService | null;
 
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
-    @Optional() @Inject(BackupMonitorService) backups?: BackupMonitorService,
   ) {
-    this.backups = backups ?? null;
     this.prisma = prisma;
     this.audit = audit;
   }
@@ -168,7 +165,8 @@ export class IncidentsService {
            AND (a.action IN ('refund.earning_reverse_failed', 'wallet.credit_skipped_critical',
                              'pos.reception_limit_exceeded', 'wallet.cash_split_suspected',
                              'wallet.reception_payout_cap', 'wallet.card_blocked_by_client',
-                             'wallet.charge_disputed_by_client', ${SERVICE_DISPUTED_ACTION})
+                             'wallet.charge_disputed_by_client', ${SERVICE_DISPUTED_ACTION},
+                             ${PROMOTER_COMMISSION_PAID_ACTION})
                 OR (a.action = ANY(${[...SENSITIVE_AUDIT_ACTIONS]}::text[])
                     -- «No se cobró» no sube ningún saldo: no hace falta avisar.
                     AND COALESCE(a.payload ->> 'decision', 'AUTHORIZED') = 'AUTHORIZED'
@@ -178,7 +176,8 @@ export class IncidentsService {
                             WHERE k."tenantId" = a."tenantId"
                               AND k.kind IN ('earning_reverse_failed', 'wallet_credit_skipped', 'pos_reception_limit',
                                              'cash_split_suspected', 'reception_payout_cap', 'wallet_card_lost',
-                                             'wallet_charge_disputed', 'sensitive_action', 'service_disputed')
+                                             'wallet_charge_disputed', 'sensitive_action', 'service_disputed',
+                                             'promoter_commission_paid')
                               AND k."refId" = a.id::text)
            AND a."occurredAt" >= ${since}
          ORDER BY a."occurredAt" DESC
@@ -266,7 +265,7 @@ export class IncidentsService {
       () => this.prisma.$queryRaw<BankItemRow[]>`
         SELECT i.id, i.status, i.kind, s.source, i."bankAmountCents", i."oursAmountCents", i.reference,
                i."authCode", i."paymentId", i."occurredAt" AS "operationAt",
-               COALESCE(i."occurredAt", i."createdAt") AS "occurredAt"
+               COALESCE(i."occurredAt", i."createdAt") AS "occurredAt", i."createdAt" AS "detectedAt"
           FROM bank_statement_items i
           JOIN bank_statements s ON s.id = i."statementId"
           LEFT JOIN payments p ON p.id = i."paymentId"
@@ -420,6 +419,8 @@ export class IncidentsService {
                     ? walletChargeDisputedIncident(r)
                     : r.action === SERVICE_DISPUTED_ACTION
                       ? serviceDisputedIncident(r)
+                      : r.action === PROMOTER_COMMISSION_PAID_ACTION
+                      ? promoterCommissionPaidIncident(r)
                       : SENSITIVE_AUDIT_ACTIONS.includes(r.action)
                       ? sensitiveActionIncident(r)
                       : walletCreditSkippedIncident(r),
@@ -428,7 +429,11 @@ export class IncidentsService {
       ...nights.map(nightClosedPendingIncident),
       ...posMismatches.map(posChargeMismatchIncident),
       ...posUnmatched.map(posUnmatchedOpIncident),
-      ...posUnreconciled.map(posUnreconciledIncident),
+      // Sale a las 24 h del cobro: entonces se detecta (el aviso de Telegram mira esa hora).
+      ...posUnreconciled.map((r) => ({
+        ...posUnreconciledIncident(r),
+        detectedAt: new Date(r.occurredAt.getTime() + RECONCILE_WITHIN_HOURS * 60 * 60 * 1000).toISOString(),
+      })),
       ...posVoidedPaid.map(posVoidedPaidIncident),
       ...(await this.withBitcoinParts(walletsToClose)).map(walletCloseRequestedIncident),
       ...unassignedTopUps.map(walletTopUpUnassignedIncident),
@@ -439,9 +444,7 @@ export class IncidentsService {
       ...uniqueBy(anomalies.map(paymentAnomalyIncident), (i) => `${i.kind}:${i.refId}`),
       ...pendingRefunds.map((r) => refundPendingIncident(r, now)),
       ...pendingApprovals.map((r) => approvalPendingIncident(r, now)),
-      ...(this.backups
-        ? backupIncidents(await this.backups.verdict(now), now, process.env.NODE_ENV === 'production')
-        : []),
+      // Las copias de seguridad no van aquí (son de la plataforma, no de cada local): AlertsService.backupAlert.
     ];
     const open = openIncidents(all, new Set(acks.map((a) => ackKey(a.kind, a.refId))));
     // Los de dinero se cierran escribiendo qué se hizo (B11).

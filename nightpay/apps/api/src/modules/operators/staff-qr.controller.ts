@@ -24,7 +24,7 @@ import { signStaffToken, staffQrSecret, verifyStaffToken } from './staff-qr';
 const ResolveSchema = z.object({ token: z.string().trim().min(20).max(600) });
 
 /** Nombre que ve el camarero: el suyo o, sin él, lo de antes de la @ del correo. */
-function staffName(u: { displayName: string | null; email: string }): string {
+export function staffName(u: { displayName: string | null; email: string }): string {
   return u.displayName?.trim() || u.email.split('@')[0] || 'Chica';
 }
 

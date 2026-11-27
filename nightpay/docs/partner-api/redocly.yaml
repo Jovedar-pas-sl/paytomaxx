@@ -1,0 +1,11 @@
+# Reglas de Redocly para la referencia de la API de socios (job docs-socios de
+# .github/workflows/nightpay-ci.yml, con @redocly/cli 2.77.0 por pnpm dlx).
+# Las recomendadas, salvo las que chocan con el contrato (pilot/), que manda:
+# cada una con su motivo.
+extends:
+  - recommended
+
+rules:
+  # El contrato no lleva licencia: la API no es pública, se usa con el
+  # contrato de socio firmado.
+  info-license: off

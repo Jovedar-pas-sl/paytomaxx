@@ -806,3 +806,34 @@ export type AuditEventView = z.infer<typeof AuditEventViewSchema>;
 
 export const AuditEventPageSchema = pageOf(AuditEventViewSchema);
 export type AuditEventPage = z.infer<typeof AuditEventPageSchema>;
+
+// ─── Yavin por local (enlace de pago con QR) ─────────────────────────────
+// Solo con YAVIN_ENABLED en el servidor (si no, 404). La clave de API nunca
+// vuelve: solo si está puesta y desde cuándo.
+//   GET  /v1/superadmin/venues/:id/yavin          → YavinVenueStatus
+//   PUT  /v1/superadmin/venues/:id/yavin/key      SetYavinKeyDto (2FA) → YavinVenueStatus
+//   POST /v1/superadmin/venues/:id/yavin/use      SetYavinUseDto (2FA) → YavinVenueStatus
+//   POST /v1/superadmin/venues/:id/yavin/clear    StepUpWithReasonDto (2FA) → YavinVenueStatus
+//        (no borra la clave: la deja inactiva para operar los cobros ya hechos)
+
+export const YavinVenueStatusSchema = z.object({
+  /** Hay una clave de API de Yavin guardada (cifrada) y activa. */
+  configured: z.boolean(),
+  savedAt: IsoDate.nullable(),
+  /** El super-admin eligió usar Yavin en este local. */
+  selected: z.boolean(),
+  /** Yavin cobra en este local (clave + elegido + servidor encendido). */
+  inUse: z.boolean(),
+  /** La pasarela de siempre del local (BBVA/Redsys); null = no tiene. */
+  baseGateway: z.string().nullable(),
+});
+export type YavinVenueStatus = z.infer<typeof YavinVenueStatusSchema>;
+
+export const SetYavinKeySchema = z.object({
+  apiKey: z.string().trim().min(8, 'La clave de Yavin es más larga').max(300).regex(/^\S+$/, 'La clave no lleva espacios'),
+  totpCode: SuperAdminTotpCodeSchema,
+});
+export type SetYavinKeyDto = z.infer<typeof SetYavinKeySchema>;
+
+export const SetYavinUseSchema = z.object({ use: z.boolean(), totpCode: SuperAdminTotpCodeSchema });
+export type SetYavinUseDto = z.infer<typeof SetYavinUseSchema>;

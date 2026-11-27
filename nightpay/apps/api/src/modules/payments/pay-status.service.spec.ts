@@ -67,7 +67,7 @@ describe('«Comprobando el pago»: buscar el cobro sin abrir la puerta a cualqui
     const { service, tx } = serviceWith({ attempt: null });
     await service.byOrder('9829cKpMwwBX', NOW);
     expect(tx.payment.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { provider: { in: ['REDSYS', 'WIPAY'] }, providerTxId: '9829cKpMwwBX' } }),
+      expect.objectContaining({ where: { provider: { in: ['REDSYS', 'WIPAY', 'YAVIN'] }, providerTxId: '9829cKpMwwBX' } }),
     );
   });
 

@@ -21,6 +21,8 @@ type MoneyDetails = Record<'inflow' | 'topUps' | 'split' | 'cash' | 'owed' | 'ou
 export function moneyMapDetails(m: MoneyMap): MoneyDetails {
   const { inflow: i, split: s, where: w, outflow: o } = m;
   const when = moneyMapIsCurrent(m) ? 'ahora' : 'al corte';
+  // Cierre a ciegas: la encargada con la noche abierta no recibe el efectivo de la caja (no es 0: no se sabe aquí).
+  const cash = (cents: number | null): number | null => (w.cashHidden ? null : cents);
   return {
     serviceFee: serviceFeeDetail(m),
     inflow: {
@@ -30,7 +32,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: 'Tarjeta', cents: i.cardCents },
         { label: 'Apple Pay / Google Pay', cents: i.mobileWalletCents },
         { label: 'Datáfono', cents: i.posCents },
-        { label: 'Ventas en efectivo', cents: i.cashCents },
+        { label: 'Ventas en efectivo', cents: cash(i.cashCents) },
         { label: 'Consumos del saldo', cents: i.saldoCents },
       ],
     },
@@ -38,9 +40,9 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
       title: 'Detalle de recargas',
       note: 'Dinero que el cliente carga para gastar después. Es saldo del cliente, todavía no una venta.',
       rows: [
-        { label: 'Total recargado', cents: i.topUps.totalCents, count: i.topUps.count },
+        { label: 'Total recargado', cents: cash(i.topUps.totalCents), count: i.topUps.count },
         { label: 'Con tarjeta', cents: i.topUps.cardCents },
-        { label: 'En efectivo', cents: i.topUps.cashCents },
+        { label: 'En efectivo', cents: cash(i.topUps.cashCents) },
       ],
     },
     split: {
@@ -58,10 +60,10 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
       title: 'Detalle de caja y banco',
       note: 'Caja esperada: fondo + entradas − salidas. No sustituye el arqueo. Banco: cobros y recargas con tarjeta menos devoluciones; la fecha de abono se confirma con el banco.',
       rows: [
-        { label: 'Fondo inicial', cents: w.cashBox.openingFloatCents },
-        { label: 'Entradas en efectivo', cents: w.cashBox.inCents },
-        { label: 'Salidas en efectivo', cents: w.cashBox.outCents },
-        { label: 'Caja esperada', cents: w.cashBoxCents },
+        { label: 'Fondo inicial', cents: cash(w.cashBox.openingFloatCents) },
+        { label: 'Entradas en efectivo', cents: cash(w.cashBox.inCents) },
+        { label: 'Salidas en efectivo', cents: cash(w.cashBox.outCents) },
+        { label: 'Caja esperada', cents: cash(w.cashBoxCents) },
         { label: 'Cobrado por banco, neto de devoluciones', cents: w.bbvaCents },
         ...(w.bitcoinCents ? [{ label: 'Bitcoin, en la cartera del local', cents: w.bitcoinCents }] : []),
         // Fuera de la caja esperada: se cuenta en sus cajeros, contra «Movimientos» (solo si viene).
@@ -94,7 +96,7 @@ export function moneyMapDetails(m: MoneyMap): MoneyDetails {
         { label: 'Devuelto a tarjeta', cents: o.refunds.cardCents, count: o.refunds.cardCount },
         // De eso, lo que era venta (sin recargas ni comisión del servicio): lo que resta «¿Cuánto he ganado?».
         ...(o.refunds.salesCents ? [{ label: '…de ello, de ventas (se resta de lo ganado)', cents: o.refunds.salesCents }] : []),
-        { label: 'Devuelto en efectivo', cents: o.refunds.cashCents, count: o.refunds.cashCount },
+        { label: 'Devuelto en efectivo', cents: cash(o.refunds.cashCents), ...(w.cashHidden ? {} : { count: o.refunds.cashCount }) },
         { label: 'Comisiones calculadas', cents: o.commissionsCents },
       ],
     },
@@ -110,7 +112,7 @@ function serviceFeeDetail(m: MoneyMap): MoneyDetail | null {
     rows: [
       { label: 'En cobros con tarjeta o datáfono', cents: fee.salesCents },
       { label: 'En recargas del saldo', cents: fee.topUpsCents },
-      { label: '…de ellas, en efectivo (está en la caja)', cents: fee.cashCents },
+      { label: '…de ellas, en efectivo (está en la caja)', cents: m.where.cashHidden ? null : fee.cashCents },
       { label: 'Devuelta con las devoluciones', cents: -fee.refundedCents },
       { label: 'Se debe a OxioPay', cents: fee.owedCents },
     ],

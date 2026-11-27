@@ -28,6 +28,15 @@ describe('copias de seguridad', () => {
   });
 });
 
+describe('un fallo al consultar el almacenamiento', () => {
+  it('con la última copia buena reciente (recordada) → bien: un fallo de un minuto no es «sin copia»', () => {
+    const recent = new Date('2026-10-14T03:00:00Z');
+    expect(backupVerdict({ configured: true, lastBackupAt: recent, error: 'TimeoutError' }, now, 26)).toEqual({ kind: 'ok', lastBackupAt: recent });
+    const old = new Date('2026-10-13T06:00:00Z');
+    expect(backupVerdict({ configured: true, lastBackupAt: old, error: 'TimeoutError' }, now, 26)).toMatchObject({ kind: 'stale', error: 'TimeoutError' });
+  });
+});
+
 describe('aviso de copias en Incidencias', () => {
   it('sin copia: aviso que se quita solo, uno por día; sin vigilar: solo en producción y se puede revisar', () => {
     const stale = backupIncidents({ kind: 'stale', lastBackupAt: new Date('2026-10-12T02:00:00Z'), error: null }, now, true);

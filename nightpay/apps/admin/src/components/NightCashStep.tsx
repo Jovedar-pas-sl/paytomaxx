@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react';
 import { Button } from '@nightpay/ui';
-import type { NightCash } from '@nightpay/contracts';
+import type { NightCash, NightCashCountResult } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
 import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, countReady, diffLabel, parseCashInput, partnerCashBlock, type CashDraft } from '@/lib/night-close';
 import { OtpInput } from './OtpInput';
@@ -29,6 +29,8 @@ interface Props {
   floatCode: string;
   onFloatCode: (code: string) => void;
   floatCodeLockedUntil: number | null;
+  /** A ciegas (la encargada): lo que dijo el API con «Ver si cuadra» (si cuadra o la diferencia, sin lo esperado). */
+  blindCount?: NightCashCountResult | null;
 }
 
 /**
@@ -56,16 +58,28 @@ export function NightCashStep({
   floatCode,
   onFloatCode,
   floatCodeLockedUntil,
+  blindCount = null,
 }: Props) {
   const countedId = useId();
   const floatId = useId();
   const noteId = useId();
   const ackId = useId();
   const [editFloat, setEditFloat] = useState(false);
-  const outcome = cashOutcome(cash, draft);
+  // A ciegas (la encargada con la noche abierta): el API no manda ninguna cifra; si cuadra lo dice al contar.
+  const hidden = cash.cashHidden === true;
+  const local = cashOutcome(cash, draft);
+  const outcome = hidden
+    ? {
+        required: cash.countRequired ?? true,
+        floatChanged: blindCount?.reason === 'float-changed',
+        diffCents: blindCount?.diffCents ?? null,
+        countedCents: blindCount?.countedCents ?? null,
+      }
+    : local;
   const counted = parseCashInput(draft.countedText);
   const float = parseCashInput(draft.floatText);
-  const askFloat = cash.openingFloatCents === null || editFloat;
+  const floatRecorded = hidden ? cash.floatRecorded === true : cash.openingFloatCents !== null;
+  const askFloat = !floatRecorded || editFloat;
   // Tras «Ver si cuadra», lo contado y el fondo no se tocan: se vuelve a contar.
   const frozen = Boolean(disabled) || countDone;
   const diff = outcome.diffCents;
@@ -87,15 +101,15 @@ export function NightCashStep({
         <li>
           <span>Fondo de caja</span>
           <span className="np-num">
-            {cash.openingFloatCents === null ? 'sin apuntar' : formatEur(cash.openingFloatCents)}
-            {cash.openingFloatCents !== null && !editFloat ? (
+            {!floatRecorded ? 'sin apuntar' : hidden ? 'apuntado al abrir' : formatEur(cash.openingFloatCents ?? 0)}
+            {floatRecorded && !hidden && !editFloat ? (
               <button type="button" className="np-close-link" onClick={() => setEditFloat(true)} disabled={frozen}>
                 Corregir
               </button>
             ) : null}
           </span>
         </li>
-        {countDone ? <CashMoves cash={cash} /> : null}
+        {countDone && !hidden ? <CashMoves cash={cash} /> : null}
       </ul>
 
       {askFloat ? (
@@ -165,10 +179,12 @@ export function NightCashStep({
 
       {countDone ? (
         <dl className="np-cash-figures">
-          <div>
-            <dt>Debería haber</dt>
-            <dd>{formatEur(outcome.expectedCents)}</dd>
-          </div>
+          {hidden ? null : (
+            <div>
+              <dt>Debería haber</dt>
+              <dd>{formatEur(local.expectedCents)}</dd>
+            </div>
+          )}
           <div>
             <dt>Contado</dt>
             <dd>{outcome.countedCents === null ? '—' : formatEur(outcome.countedCents)}</dd>
@@ -186,7 +202,9 @@ export function NightCashStep({
           <p className="np-cash-blind-note">
             {firstCountCents !== null
               ? `Vuelves a contar: el primer recuento (${formatEur(firstCountCents)}) queda en el Z con el nuevo.`
-              : 'Se cuenta a ciegas: lo que debería haber sale al pulsar «Ver si cuadra».'}
+              : hidden
+                ? 'Se cuenta a ciegas: al pulsar «Ver si cuadra» te decimos si cuadra o cuánto falta o sobra. Cada recuento queda apuntado.'
+                : 'Se cuenta a ciegas: lo que debería haber sale al pulsar «Ver si cuadra».'}
           </p>
         </div>
       )}

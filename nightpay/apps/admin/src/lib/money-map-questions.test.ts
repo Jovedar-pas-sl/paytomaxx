@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SECTIONS, SECTION_CODES, type MoneyMap, type VenueSection } from '@nightpay/contracts';
 import { moneyMapQuestions } from './money-map-questions';
+import { moneyMapDetails } from './money-map-details';
 
 const SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
 const sp = (s: string) => s.replaceAll(String.fromCharCode(0xa0), ' ');
@@ -208,5 +209,26 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
       ['Comida', 15_700],
       ['Entradas', 30_000],
     ]);
+  });
+});
+
+describe('cierre a ciegas: la encargada con la noche abierta (where.cashHidden)', () => {
+  const blind = (): MoneyMap => map({ where: { ...map().where, cashBoxCents: 0, cashBox: { openingFloatCents: null, inCents: 0, outCents: 0 }, cashHidden: true } });
+
+  it('«La caja» no enseña ninguna cifra (ni 0 €): dice que se ve al cerrar', () => {
+    const c = card(blind(), 'caja');
+    expect(c.cents).toBeNull();
+    expect(c.caption).toMatch(/se ven al cerrar la noche/);
+    expect(c.action).toBe('close-cash');
+  });
+
+  it('en el detalle, el fondo, las entradas, las salidas y la caja esperada salen como no disponibles', () => {
+    const rows = moneyMapDetails(blind()).cash.rows;
+    for (const label of ['Fondo inicial', 'Entradas en efectivo', 'Salidas en efectivo', 'Caja esperada']) {
+      expect(rows.find((r) => r.label === label)?.cents).toBeNull();
+    }
+    expect(moneyMapDetails(blind()).topUps.rows.find((r) => r.label === 'En efectivo')?.cents).toBeNull();
+    // Sin ciegas (el dueño), como siempre.
+    expect(moneyMapDetails(map()).cash.rows.find((r) => r.label === 'Caja esperada')?.cents).toBe(50_000);
   });
 });

@@ -12,6 +12,7 @@ import {
   type InvitableStaff,
   type InvitationRules,
   type SaldoChargePartyExtras,
+  type StaffCardResolved,
 } from '@nightpay/contracts';
 import { SessionExpiredError, parseProblemDetails } from '@nightpay/api-client';
 import {
@@ -77,6 +78,8 @@ export interface CobroInput {
   pos?: boolean;
   /** Una por intento: un doble toque no crea dos cobros. */
   idempotencyKey?: string;
+  /** Local con BBVA y Yavin: la que eligió el camarero (REDSYS = «BBVA»). Sin ella, la decide el servidor. */
+  cardGateway?: CardGateway;
 }
 
 /** El cuerpo de POST /v1/payments: con datáfono, o con tarjeta y, enlazado, el del saldo (withSaldo). */
@@ -90,8 +93,32 @@ export function cobroBody(input: CobroInput): Record<string, unknown> {
   if (input.invitedStaffToken) body.invitedStaffToken = input.invitedStaffToken;
   if (input.invitedOperatorId) body.invitedOperatorId = input.invitedOperatorId;
   if (input.serviceStaffToken) body.serviceStaffToken = input.serviceStaffToken;
+  if (input.cardGateway && !input.pos) body.cardGateway = input.cardGateway;
   return body;
 }
+
+/** Las pasarelas de tarjeta entre las que elige el personal (la del banco, «BBVA», y Yavin). */
+export type CardGateway = 'REDSYS' | 'YAVIN';
+
+/**
+ * Entre qué pasarelas elige el personal al cobrar en este local. Con dos, dos
+ * botones; con una o ninguna, sin elección. Si no se puede saber (sin red, API
+ * de antes), sin elección: el servidor decide, como hoy.
+ */
+export async function fetchCardGateways(): Promise<CardGateway[]> {
+  try {
+    const res = await authedFetch('/v1/payments/card-gateways');
+    if (!res.ok) return [];
+    const body = (await res.json()) as { options?: unknown };
+    const options = Array.isArray(body.options) ? body.options.filter((o): o is CardGateway => o === 'REDSYS' || o === 'YAVIN') : [];
+    return options.length === 2 ? options : [];
+  } catch {
+    return [];
+  }
+}
+
+/** El nombre de cada botón (decisión del dueño). */
+export const CARD_GATEWAY_LABELS: Readonly<Record<CardGateway, string>> = { REDSYS: 'BBVA', YAVIN: 'Yavin' };
 
 export function createCobro(input: CobroInput): Promise<CobroCreado> {
   return call<CobroCreado>(
@@ -250,6 +277,15 @@ export function lookupNfc(card: string, uid: string | null): Promise<WalletLooku
 /** «Nerea reconocida»: de quién es el QR que acaba de leer el camarero. */
 export function resolveStaffQr(token: string): Promise<InvitableStaff> {
   return call<InvitableStaff>('/v1/operators/staff-qr/resolve', { method: 'POST', body: JSON.stringify({ token }) }, 'QR de la compañera');
+}
+
+/**
+ * Cobro por el encargado (fase 2): de quién es la ficha NFC que acaban de
+ * acercar (solo la original, viva y de este local). Trae su «Mi QR» firmado
+ * para cobrar a su nombre, como si se hubiera escaneado.
+ */
+export function resolveStaffCard(card: string, uid: string): Promise<StaffCardResolved> {
+  return call<StaffCardResolved>('/v1/operators/staff-card/resolve', { method: 'POST', body: JSON.stringify({ card, uid }) }, 'Ficha de la compañera');
 }
 
 /** Las chicas del local (si el local deja elegirla de la lista). */

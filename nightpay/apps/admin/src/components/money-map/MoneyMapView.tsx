@@ -152,8 +152,8 @@ export function QuestionCardView({ card, onAction, onOpen }: { card: QuestionCar
         )}
       </h3>
       <div className="np-mmq-row">
-        <span className="np-mmq-num" data-neg={card.cents < 0 || undefined}>
-          <Importe cents={card.cents} decimals="always" />
+        <span className="np-mmq-num" data-neg={(card.cents !== null && card.cents < 0) || undefined}>
+          {card.cents === null ? 'Al cerrar' : <Importe cents={card.cents} decimals="always" />}
         </span>
         {action && onAction && !onOpen ? (
           <Button variant="ghost" size="sm" onClick={() => onAction(action)}>

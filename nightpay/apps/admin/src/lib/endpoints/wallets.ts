@@ -94,9 +94,13 @@ export async function resetWalletPin(walletId: string, totpCode: string): Promis
 export interface WalletsAdminStats {
   activeCount: number;
   totalBalanceCents: number;
+  /** Las cifras de abajo: de la noche abierta (true) o desde el último cierre (false). */
+  nightOpen: boolean;
   todayTopUpsCents: number;
   todayConsumptionsCents: number;
   todayRefundsCents: number;
+  /** Cierre a ciegas: la encargada con la noche abierta recibe las recargas y lo devuelto sin el efectivo. */
+  cashHidden?: boolean;
   byCategory: Record<string, number>;
 }
 
@@ -196,7 +200,8 @@ export async function payoutWallet(
 export interface RecentCashTopUp {
   id: string;
   at: string;
-  amountCents: number;
+  /** null: la encargada con la noche abierta (cierre a ciegas), sin importes ni comisión. */
+  amountCents: number | null;
   /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). Un API de antes no la manda. */
   serviceFeeCents?: number;
   /** K7Q-•••: para reconocer al cliente. */

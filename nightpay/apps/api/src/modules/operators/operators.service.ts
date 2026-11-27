@@ -17,6 +17,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { isPartyEdition } from '../../config/edition';
 import { EmailService } from '../../common/email/email.service';
+import { idDocumentData, idDocumentView, openIdDocument } from './id-document';
+import { liveStaffCards, revokeLiveStaffCard } from './staff-cards.service';
 import { photoHashesOf } from '../profile/photo-hashes';
 import { AuditService } from '../audit/audit.service';
 import { RefreshTokenService } from '../auth/refresh-token.service';
@@ -87,6 +89,7 @@ import type {
   OxiocardView,
   Role,
   EarningView,
+  IdDocumentFull,
   PayoutAccountFull,
   PayoutAccountNotice,
   PayoutMetadata,
@@ -97,7 +100,7 @@ import type {
   SelfOnboardingSubmitDto,
   UpdateOperatorDto,
 } from '@nightpay/contracts';
-import { formatChargeRef, holderMatchesName, maskHolderName, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
+import { formatChargeRef, holderMatchesName, maskHolderName, maskIdDocumentNumber, maskPayoutAddress, payoutMetadataFor } from '@nightpay/contracts';
 import { eur } from '../../common/money/eur';
 
 const INVITE_TTL_HOURS = 24;
@@ -133,6 +136,11 @@ interface SelfOnboardingJwtPayload {
 /** Hash sha256 hex del token JWT. Persistimos el hash, no el token, en users.inviteToken. */
 function hashInviteToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** «12,5 %» (de puntos básicos). */
+function pctOf(bps: number): string {
+  return `${(bps / 100).toFixed(2).replace(/\.?0+$/, '').replace('.', ',')} %`;
 }
 
 /** El encargado no fija comisiones: la que mande se ignora (se aplica la del local). */
@@ -586,16 +594,34 @@ export class OperatorsService {
     });
 
     const photos = await photoHashesOf(this.prisma, tenantId, operators.map((o) => o.id));
+    // Su ficha NFC viva («Ficha nº 0522» en su hoja).
+    const cards = await this.prisma.asSystem((tx) => liveStaffCards(tx, tenantId, operators.map((o) => o.id)));
     const result: OperatorWithBalance[] = [];
     for (const op of operators) {
       const balance = await this.getBalance(op.id, tenantId);
       result.push({
         ...this.toPublicView(op as never),
         photoHash: photos.get(op.id) ?? null,
+        staffCard: cards.get(op.id) ?? null,
         balance,
       });
     }
     return result;
+  }
+
+  /**
+   * Su % propio más la comisión de la plataforma no pasa del 100 % (como
+   * «Reglas del local», commissionTotalsProblem): si no, el local pondría
+   * dinero en cada servicio. null/undefined: la del local (ya comprobada allí).
+   */
+  async assertCommissionFits(tenantId: string, bps: number | null | undefined): Promise<void> {
+    if (bps === null || bps === undefined) return;
+    const venue = await this.prisma.venue.findUnique({ where: { id: tenantId }, select: { platformCommissionBps: true } });
+    const platform = venue?.platformCommissionBps ?? 0;
+    if (bps + platform <= 10_000) return;
+    throw new BadRequestException(
+      `Su % (${pctOf(bps)}) más la comisión de la plataforma (${pctOf(platform)}) pasa del 100 %: el local pondría dinero en cada servicio. Como mucho, ${pctOf(10_000 - platform)}.`,
+    );
   }
 
   async createOperator(
@@ -606,6 +632,7 @@ export class OperatorsService {
   ): Promise<CreateOperatorResponse> {
     const email = dto.email.toLowerCase();
     const commission = commissionOnCreate(actorRole, dto.commissionBps);
+    await this.assertCommissionFits(tenantId, commission.commissionBps);
 
     // Validar email único
     const existing = await this.prisma.asSystem((tx) =>
@@ -1238,8 +1265,14 @@ export class OperatorsService {
           `Solo OWNER puede modificar: ${attemptedOwnerFields.join(', ')}`,
         );
       }
+      // Su documento: el encargado lo pone o lo cambia, pero quitarlo (se borra el cifrado) es del dueño.
+      if (dto.idDocument === null) throw new ForbiddenException('Solo el dueño puede quitar su documento.');
     }
 
+    // Darla de alta otra vez con el % que tenía también tiene que caber con la
+    // comisión de la plataforma de ahora (pudo subir mientras estaba de baja).
+    const reactivating = dto.active === true && operator.deletedAt !== null;
+    await this.assertCommissionFits(tenantId, dto.commissionBps ?? (reactivating ? operator.commissionBps : undefined));
     const data: Record<string, unknown> = {};
     if (dto.displayName !== undefined) data.displayName = dto.displayName;
     if (dto.commissionBps !== undefined) data.commissionBps = dto.commissionBps;
@@ -1279,6 +1312,9 @@ export class OperatorsService {
     const now = new Date();
     if (dto.legalName !== undefined) Object.assign(data, legalNameData(operator, dto.legalName));
     if (dto.birthDate !== undefined) data.birthDate = birthDateValue(dto.birthDate);
+    // Su documento, cifrado (o quitado); con la baja, se borra.
+    if (dto.idDocument !== undefined) Object.assign(data, idDocumentData(operatorId, dto.idDocument));
+    if (dto.active === false) Object.assign(data, idDocumentData(operatorId, null));
     if (dto.oxiocardStatus !== undefined) Object.assign(data, this.oxiocardStatusChange(operator.oxiocardStatus, dto.oxiocardStatus, now));
     if (dto.payoutHolderConfirmed) data.payoutHolderConfirmedAt = now;
     const minor = becomesMinor(operator.birthDate, dto.birthDate, now);
@@ -1296,6 +1332,8 @@ export class OperatorsService {
     if (minor) await this.minorBlocked(tenantId, operator, actorUserId, 'panel');
     // Baja: fuera al momento de la app (refresh y tokens de acceso ya emitidos).
     if (dto.active === false) await this.sessions.revokeAllForUser(operatorId);
+    // Baja: su ficha NFC deja de valer.
+    if (dto.active === false) await this.revokeStaffCardOnLeave(tenantId, operatorId, actorUserId);
     // Sale de las listas, pero se le sigue debiendo: que no se pierda de vista.
     if (dto.active === false && !operator.deletedAt) await this.flagLeftWithBalance(tenantId, operatorId, actorUserId, updated.displayName);
 
@@ -1316,6 +1354,22 @@ export class OperatorsService {
     }
 
     return this.toPublicView(updated);
+  }
+
+  /** Baja: su ficha NFC viva queda anulada (y en el registro). */
+  private async revokeStaffCardOnLeave(tenantId: string, operatorId: string, actorUserId: string): Promise<void> {
+    const number = await this.prisma.asSystem((tx) =>
+      revokeLiveStaffCard(tx, { tenantId, userId: operatorId, byUserId: actorUserId, reason: 'offboarded' }),
+    );
+    if (number === null) return;
+    await this.audit.log({
+      action: 'operator.staff_card_revoked',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operatorId,
+      payload: { number, reason: 'offboarded' },
+    });
   }
 
   /**
@@ -1453,6 +1507,35 @@ export class OperatorsService {
       payoutLabel: account.label,
       payoutMetadata: account.metadata,
     };
+  }
+
+  /**
+   * «Ver documento»: el DNI, NIE o pasaporte entero de la compañera para el
+   * dueño, que ya ha pasado su 2FA en el controlador. Queda en el registro, tapado.
+   */
+  async revealIdDocument(tenantId: string, operatorId: string, actorUserId: string): Promise<IdDocumentFull> {
+    const row = await this.prisma.user.findFirst({
+      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      select: { id: true, idDocumentType: true, idDocumentNumber: true },
+    });
+    if (!row) throw new NotFoundException('Compañera no encontrada');
+    let doc: ReturnType<typeof openIdDocument>;
+    try {
+      doc = openIdDocument(row);
+    } catch (err) {
+      this.logger.error(`No se puede abrir el documento de ${operatorId}: ${(err as Error).message}`);
+      throw new ServiceUnavailableException('No se puede leer el documento guardado: vuelve a ponerlo en Onboarding.');
+    }
+    if (!doc) throw new NotFoundException('Aún no tiene el documento puesto');
+    await this.audit.log({
+      action: 'operator.id_document_revealed',
+      tenantId,
+      actorId: actorUserId,
+      targetType: 'User',
+      targetId: operatorId,
+      payload: { type: doc.type, number: maskIdDocumentNumber(doc.number) },
+    });
+    return { userId: row.id, type: doc.type, number: doc.number };
   }
 
   /** «Tu cuenta de cobro ha cambiado» en su app: hasta que lo da por visto (tapada). */
@@ -1770,6 +1853,8 @@ export class OperatorsService {
       phone?: string | null;
       passportCountry?: string | null;
       passportLast4?: string | null;
+      idDocumentType?: string | null;
+      idDocumentNumber?: string | null;
       hasEmpadronamiento?: boolean;
       hasNie?: boolean;
       hasTie?: boolean;
@@ -1834,6 +1919,8 @@ export class OperatorsService {
       phone: u.phone ?? null,
       passportCountry: u.passportCountry ?? null,
       passportLast4: u.passportLast4 ?? null,
+      // Su documento, tapado (entero: revealIdDocument, el dueño con 2FA).
+      ...idDocumentView(u),
       hasEmpadronamiento: u.hasEmpadronamiento ?? false,
       hasNie: u.hasNie ?? false,
       hasTie: u.hasTie ?? false,
@@ -1870,6 +1957,10 @@ function maskedChanges(changes: Omit<UpdateOperatorDto, 'totpCode'>, method: str
   if (changes.payoutMetadata) out.payoutMetadata = maskedMetadata(changes.payoutMetadata);
   if (changes.legalName !== undefined) out.legalName = maskHolderName(changes.legalName);
   if (changes.birthDate !== undefined) out.birthDate = 'cambiada';
+  // El documento, nunca entero en el registro.
+  if (changes.idDocument !== undefined) {
+    out.idDocument = changes.idDocument ? { type: changes.idDocument.type, number: maskIdDocumentNumber(changes.idDocument.number) } : null;
+  }
   return out;
 }
 

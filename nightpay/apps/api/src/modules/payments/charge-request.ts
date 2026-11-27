@@ -17,7 +17,7 @@ import {
   type ChargeLineInput,
   type ChargeRights,
 } from '@nightpay/contracts';
-import { staffQrSecret, verifyStaffToken } from '../operators/staff-qr';
+import { staffQrSecret, verifyStaffToken, type StaffTokenWho } from '../operators/staff-qr';
 import { permissionDenied } from '../venues/staff-permission.guard';
 import { isInvitationLine, withInvitation } from './invitation-lines';
 import type { PrismaService } from '../../common/prisma/prisma.service';
@@ -109,7 +109,8 @@ export async function resolveChargeOrThrow(
  * ella. Sin QR, las líneas tal cual, salvo con la casilla «Las compañeras
  * cobran desde su móvil» apagada: el servicio lo cobra otra persona a su
  * nombre (403 sin el permiso; 400 SERVICE_OPERATOR_REQUIRED con él).
- * Fase 2: aquí entra también su ficha NFC.
+ * Fase 2: si acercan su ficha NFC, /operators/staff-card/resolve la comprueba
+ * (original, viva, de este local) y da este mismo «Mi QR» firmado.
  */
 async function serviceOperatorOf(
   prisma: PrismaService,
@@ -137,7 +138,7 @@ async function serviceOperatorOf(
   const who = raw ? verifyStaffToken(raw, Date.now(), staffQrSecret()) : null;
   // Una compañera de este local y sin baja (quien cobra nunca lo es: no tiene el permiso).
   const chica =
-    who && who.tenantId === input.tenantId
+    who && who.tenantId === input.tenantId && (await staffCardStillLive(prisma, who))
       ? await prisma.asSystem((tx) =>
           tx.user.findFirst({
             where: { id: who.userId, tenantId: input.tenantId, role: 'OPERATOR', deletedAt: null },
@@ -183,7 +184,7 @@ async function invitationOf(
     tx.venue.findUnique({ where: { id: input.tenantId }, select: { invitationRules: true } }),
   );
   const rules = invitationRulesOf(venue?.invitationRules);
-  const chicaId = await invitedChicaId(input, rules.requireQr);
+  const chicaId = await invitedChicaId(prisma, input, rules.requireQr);
   const chica = await prisma.asSystem((tx) =>
     tx.user.findFirst({
       where: { id: chicaId, tenantId: input.tenantId, role: 'OPERATOR', deletedAt: null },
@@ -206,6 +207,7 @@ async function invitationOf(
  * si el local no pide el QR (Ajustes → Invitaciones), la elegida de la lista.
  */
 async function invitedChicaId(
+  prisma: PrismaService,
   input: { tenantId: string; invitedStaffToken?: string | null; invitedOperatorId?: string | null },
   requireQr: boolean,
 ): Promise<string> {
@@ -216,8 +218,25 @@ async function invitedChicaId(
   const token = input.invitedStaffToken ? staffTokenFrom(input.invitedStaffToken) : null;
   if (!token) throw new BadRequestException(INVITATION_TOKEN_MISSING);
   const who = verifyStaffToken(token, Date.now(), staffQrSecret());
-  if (!who || who.tenantId !== input.tenantId) throw new BadRequestException(INVITATION_TOKEN_INVALID);
+  if (!who || who.tenantId !== input.tenantId || !(await staffCardStillLive(prisma, who))) {
+    throw new BadRequestException(INVITATION_TOKEN_INVALID);
+  }
   return who.userId;
+}
+
+/**
+ * Un «Mi QR» sacado de su ficha NFC vale mientras esa ficha siga viva: suya,
+ * de este local y sin anular (al sustituirla, la de antes queda anulada). Uno
+ * sacado de un QR antes de anularla no sirve para atribuirle servicios
+ * después. El «Mi QR» normal (sin ficha) no pasa por aquí.
+ */
+async function staffCardStillLive(prisma: PrismaService, who: StaffTokenWho): Promise<boolean> {
+  if (!who.staffCardId) return true;
+  const id = who.staffCardId;
+  const live = await prisma.asSystem((tx) =>
+    tx.staffCard.findFirst({ where: { id, tenantId: who.tenantId, userId: who.userId, revokedAt: null }, select: { id: true } }),
+  );
+  return live !== null;
 }
 
 export type LineWithBps = DraftLine & { operatorCommissionBps: number | null };

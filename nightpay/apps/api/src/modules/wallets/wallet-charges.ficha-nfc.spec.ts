@@ -110,6 +110,8 @@ function setup(o: { card?: Row | null; topUpAt?: Date } = {}) {
       pinFails: 0, pinLockedAt: null, pinFailedAt: null, pinSetById: null,
     }),
     walletCard: table('card', { uid: null, walletId: null, status: 'ISSUED', blockedAt: null, lastUsedAt: null, venueId: SALA }),
+    // Ninguna es la ficha de una compañera.
+    staffCard: table('staff'),
     walletChargeRequest: table('req', { walletId: null, decidedAt: null }),
     // El mapa del dinero: líneas de cada cobro y su referencia (C-0001).
     paymentLine: Object.assign(table('line'), { createMany: vi.fn(async () => ({ count: 0 })) }),

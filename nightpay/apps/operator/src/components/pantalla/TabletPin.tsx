@@ -39,6 +39,7 @@ export function TabletPin({
           amountCents={view.amountCents}
           detail="Pon el PIN de tu ficha"
           tipSetup={tipSetup}
+          tipToStaff={view.tip?.toStaff === true}
           reason={step.reason}
           onPin={async (pin, tipCents) => {
             try {

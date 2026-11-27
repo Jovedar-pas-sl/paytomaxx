@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { FormError, haptic, Icon, Modal } from '@nightpay/ui';
 import type { InvitationRules } from '@nightpay/contracts';
 import { fetchTerminals, newIdempotencyKey, type CreatedPayment, type MyNight, type OperatorUser } from '@/lib/api';
-import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchInvitationRules, type CobroInput } from '@/lib/api-cobro';
+import { cancelCard, cancelSaldo, createCobro, createSaldoCobro, fetchCardGateways, fetchInvitationRules, type CardGateway, type CobroInput } from '@/lib/api-cobro';
 import { tapOf } from '@/lib/carta-tiles';
 import {
   addedItemLabel,
@@ -117,6 +117,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const identity = useVenueIdentity();
   const [rules, setRules] = useState<InvitationRules | null>(null);
   const [terminals, setTerminals] = useState<Array<{ externalId: string }>>([]);
+  // Local con BBVA y Yavin: los dos botones para elegir en cada cobro con tarjeta (vacío: sin elección).
+  const [gateways, setGateways] = useState<CardGateway[]>([]);
   const [stage, setStage] = useState<Stage>({ kind: 'carta' });
   const [cuenta, setCuenta] = useState<Cuenta>(EMPTY_CUENTA);
   const [busy, setBusy] = useState(false);
@@ -152,6 +154,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
     fetchTerminals()
       .then((t) => !cancelled && setTerminals(t))
       .catch(() => undefined);
+    void fetchCardGateways().then((g) => !cancelled && setGateways(g));
     return () => {
       cancelled = true;
     };
@@ -179,6 +182,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   const who = whoLine(user.displayName, user.role);
   const name = user.displayName?.trim() || who;
   const nfc = methods.wallet && methods.nfc && nfcSupported();
+  // Los dos botones «BBVA» y «Yavin» solo con tarjeta y las dos pasarelas en el local.
+  const choose = methods.card && gateways.length === 2 ? gateways : null;
 
   /** Crea el cobro (único: tarjeta + saldo; o solo saldo si el local no cobra con tarjeta). */
   const open = useCallback(
@@ -274,14 +279,14 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
   }
 
   /** La cuenta → el cobro (true si se abrió). Con `chica`, a su nombre: Servicios va para ella. */
-  function cobrarCuenta(c: Cuenta = cuenta, chica?: Invitada): Promise<boolean> {
+  function cobrarCuenta(c: Cuenta = cuenta, chica?: Invitada, gateway?: CardGateway): Promise<boolean> {
     const totals = cuentaTotals(c);
     const sections = totals.bySection;
     const what = cuentaWhat(c);
     const top = [...sections].sort((a, b) => b.cents - a.cents)[0]?.section ?? 'VENUE_BAR';
     return start({
       // B1: sin propina al crear; la elige el cliente al pagar.
-      input: { lines: chargeLinesOf(c), ...(chica ? { serviceStaffToken: chica.token } : {}) },
+      input: { lines: chargeLinesOf(c), ...(chica ? { serviceStaffToken: chica.token } : {}), ...(gateway ? { cardGateway: gateway } : {}) },
       fromCuenta: true,
       cuenta: c,
       view: {
@@ -305,6 +310,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         lines: ticketLinesOf(c),
         who: name,
         pinChip: chica ? `${labelOf(ctx, 'CHICA_SERVICE')} · ${chica.name}` : `${labelOf(ctx, top)} · ${name}`,
+        tipToStaff: Boolean(chica),
         invitation: null,
       },
     });
@@ -534,6 +540,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           cuenta={stage.cuenta}
           chica={stage.chica}
           onQr={() => void cobrarYApuntar(stage.cuenta, (c) => cobrarCuenta(c, stage.chica), setCuenta)}
+          gateways={choose}
+          onGateway={(g) => void cobrarYApuntar(stage.cuenta, (c) => cobrarCuenta(c, stage.chica, g), setCuenta)}
           onPos={methods.pos ? () => void cobrarPos(stage.cuenta, stage.chica) : undefined}
           onOtra={() => {
             setError(null);
@@ -567,6 +575,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
           onAdd={backToCarta}
           onBack={backToCarta}
           onCobrar={() => void cobrarCuenta()}
+          gateways={choose}
+          onGateway={(g) => void cobrarCuenta(cuenta, undefined, g)}
           onPos={methods.pos ? () => void cobrarPos() : undefined}
           busy={busy}
           error={error}
@@ -660,7 +670,8 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
               go({ kind: 'otro' });
             }}
             onVerCuenta={() => go({ kind: 'cuenta' })}
-            onCobrar={() => void cobrarCuenta()}
+            // Con BBVA y Yavin, a «La cuenta», donde se elige con cuál.
+            onCobrar={() => (choose ? go({ kind: 'cuenta' }) : void cobrarCuenta())}
             undo={undo}
             onUndo={undoLast}
             busy={busy}

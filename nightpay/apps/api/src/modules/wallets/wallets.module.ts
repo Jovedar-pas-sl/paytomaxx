@@ -40,6 +40,7 @@ import { WalletEventsModule } from '../wallet-events/wallet-events.module';
 import { PublicWalletEventsController } from './public-wallet-events.controller';
 import { WalletWelcomeService } from '../home-topup/wallet-welcome.service';
 import { CobroDetailModule } from '../money-map/cobro-detail.module';
+import { MoneyMapModule } from '../money-map/money-map.module';
 import { ChargeAlertModule } from './charge-alert/charge-alert.module';
 import { ChargeDisputeService } from './charge-alert/charge-dispute.service';
 import { PublicChargeAlertController } from './charge-alert/charge-alert.controller';
@@ -53,7 +54,8 @@ import { PublicWalletLiveCodeController } from './public-wallet-live-code.contro
   // CobroDetailModule: el detalle de un pago en la página del saldo (GET /w/:token/movements/:kind/:id).
   // WalletLiveCodeModule: el código del móvil (POST /w/:token/live-code) y sus anulaciones.
   // ChargeAlertModule: «Aviso en cada cobro» (también lo usa la API de socios: «Carga anulada»).
-  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, WalletLiveCodeModule, ChargeAlertModule],
+  // MoneyMapModule: desde dónde cuenta «esta noche» el resumen de Saldos (currentWindow).
+  imports: [PrismaModule, AuditModule, AuthModule, WalletEventsModule, CobroDetailModule, WalletLiveCodeModule, ChargeAlertModule, MoneyMapModule],
   // WalletTopUpService: «Recargar» desde /w (usa PaymentsService con ModuleRef).
   providers: [
     WalletContactService,

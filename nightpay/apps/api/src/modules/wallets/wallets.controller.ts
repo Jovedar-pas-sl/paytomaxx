@@ -20,6 +20,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { ZodValidationPipe } from '../../common/pipes/zod.pipe';
 import { WalletsService } from './wallets.service';
+import { blindWalletStats, blindsCash } from '../nights/blind-cash';
+import { MoneyMapService } from '../money-map/money-map.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 import { WalletViewGuard } from './wallet-view.guard';
 
@@ -120,15 +122,21 @@ export class WalletsController {
 @UseGuards(RolesGuard)
 export class AdminWalletsController {
   private readonly wallets: WalletsService;
+  private readonly moneyMap: MoneyMapService;
 
-  constructor(@Inject(WalletsService) wallets: WalletsService) {
+  constructor(@Inject(WalletsService) wallets: WalletsService, @Inject(MoneyMapService) moneyMap: MoneyMapService) {
     this.wallets = wallets;
+    this.moneyMap = moneyMap;
   }
 
+  /** Las cifras de «esta noche»: desde donde cuenta su Z, como el mapa del dinero en directo. */
   @Get('stats')
   @Roles('OWNER', 'MANAGER')
-  async stats(@Tenant() tenantId: string) {
-    return this.wallets.getAdminStats(tenantId);
+  async stats(@CurrentUser() user: JwtPayload) {
+    const window = await this.moneyMap.currentWindow(user.tenantId);
+    const stats = await this.wallets.getAdminStats(user.tenantId, window);
+    // Cierre a ciegas: la encargada con la noche abierta, sin las recargas ni lo devuelto en efectivo.
+    return blindsCash(user.role, window.open) ? blindWalletStats(stats) : stats;
   }
 
   @Get()

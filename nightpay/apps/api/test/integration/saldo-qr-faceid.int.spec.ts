@@ -725,7 +725,7 @@ describe('terminar una devolución del saldo pedida antes (Postgres real)', () =
 
   it('#58 estadísticas: lo devuelto hoy (tarjeta y efectivo, solo hechas) y el resto se ven también con RLS forzado', async () => {
     const walletsSvc = new WalletsService(prisma as never, audit as never);
-    const stats = await inVenue(A, () => walletsSvc.getAdminStats(A));
+    const stats = await inVenue(A, () => walletsSvc.getAdminStats(A, { from: new Date(0), open: false }));
     const [{ total }] = await sys((tx) =>
       tx.$queryRaw<Array<{ total: bigint }>>`
         SELECT COALESCE(SUM("amountCents"),0)::bigint AS total FROM wallet_payouts

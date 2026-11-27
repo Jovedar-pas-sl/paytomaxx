@@ -18,6 +18,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // Pago con QR: la página, el POST hacia el banco, el formulario, la vuelta
   // del banco y el justificante.
   { path: 'pay/result', method: RequestMethod.GET },
+  // Vuelta del cliente desde la página de Yavin (redirige a /pay/result).
+  { path: 'pay/yavin/return', method: RequestMethod.GET },
   { path: 'pay/:token', method: RequestMethod.GET },
   { path: 'pay/:token', method: RequestMethod.POST },
   { path: 'pay/:token/receipt', method: RequestMethod.GET },
@@ -64,6 +66,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   { path: 'w/card/:token/view', method: RequestMethod.POST },
   // «Ver mi saldo» desde las pantallas que acaban (my-balance.ts): Face ID y a su saldo.
   { path: 'w/mine/challenge', method: RequestMethod.POST },
+  // Su página (la puerta «Ver mi saldo» de la portada, idea 73).
+  { path: 'w/mine', method: RequestMethod.GET },
   { path: 'w/mine', method: RequestMethod.POST },
   { path: 'w/:token/view/challenge', method: RequestMethod.POST },
   { path: 'w/:token/view', method: RequestMethod.POST },

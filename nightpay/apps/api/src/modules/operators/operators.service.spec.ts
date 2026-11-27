@@ -69,6 +69,8 @@ function makeOps(opts: MakeOptions = {}) {
       // Días de espera del local: null = PAYOUT_HOLD_DAYS.
       findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: null }),
     },
+    // Su ficha NFC (cobro por el encargado, fase 2): sin ficha viva.
+    staffCard: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
   };
   Object.assign(prisma, {
     asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
@@ -834,5 +836,40 @@ describe('Aviso en su app: «Tu cuenta de cobro ha cambiado»', () => {
       where: { id: 'op-1', tenantId: 't-1', role: 'OPERATOR' },
       data: { payoutNoticeSeenAt: expect.any(Date) },
     });
+  });
+});
+
+describe('OperatorsService — el % propio de la compañera y la comisión de la plataforma no pasan del 100 %', () => {
+  beforeEach(() => vi.clearAllMocks());
+  const platform10 = (prisma: { venue: { findUnique: ReturnType<typeof vi.fn> } }) =>
+    prisma.venue.findUnique.mockResolvedValue({ payoutHoldDays: null, platformCommissionBps: 1000 });
+
+  it('alta: plataforma 10 % + Ana 95 % → no se guarda (el local pondría 5 € por servicio)', async () => {
+    const { svc, prisma } = makeOps({ operator: null });
+    platform10(prisma as never);
+    await expect(
+      svc.createOperator('t-1', 'u-owner', { email: 'ana@example.com', displayName: 'Ana', commissionBps: 9500 }, 'OWNER'),
+    ).rejects.toThrow(/pasa del 100 %/);
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('cambiar su %: 95 % no; 90 % (justo el 100 %) sí', async () => {
+    const { svc, prisma } = makeOps();
+    platform10(prisma as never);
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { commissionBps: 9500 })).rejects.toThrow(/pasa del 100 %/);
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    await expect(svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { commissionBps: 9000 })).resolves.toBeDefined();
+  });
+
+  it('darla de alta otra vez con su 95 % (la plataforma subió al 10 % mientras estaba de baja): no; con 90 %, sí', async () => {
+    const gone = makeOps({ operator: { commissionBps: 9500, deletedAt: new Date('2026-10-01T00:00:00Z') } });
+    platform10(gone.prisma as never);
+    await expect(gone.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true })).rejects.toThrow(/pasa del 100 %/);
+    expect(gone.prisma.user.update).not.toHaveBeenCalled();
+    // Con un % que cabe en la misma petición, sí.
+    await expect(gone.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true, commissionBps: 9000 })).resolves.toBeDefined();
+    const fits = makeOps({ operator: { commissionBps: 9000, deletedAt: new Date('2026-10-01T00:00:00Z') } });
+    platform10(fits.prisma as never);
+    await expect(fits.svc.updateOperator('t-1', 'op-1', 'u-owner', 'OWNER', { active: true })).resolves.toBeDefined();
   });
 });

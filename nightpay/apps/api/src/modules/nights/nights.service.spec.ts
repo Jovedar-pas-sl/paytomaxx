@@ -110,6 +110,8 @@ function makeService(
     closedCount?: number;
     check?: NightCloseCheck;
     moneyMap?: { compute: ReturnType<typeof vi.fn> };
+    /** El primer «Ver si cuadra» a ciegas que quedó en el registro. */
+    firstCount?: number;
   } = {},
 ) {
   const totp = { isEnabled: vi.fn().mockResolvedValue(true), assertForUser: vi.fn().mockResolvedValue(undefined) };
@@ -119,6 +121,10 @@ function makeService(
       findFirst: vi.fn().mockResolvedValue(opts.open === undefined ? night() : opts.open),
       findMany: vi.fn().mockResolvedValue(opts.open ? [opts.open] : []),
       updateMany: vi.fn().mockResolvedValue({ count: opts.closedCount ?? 1 }),
+    },
+    // «Ver si cuadra» a ciegas: el primero del registro (si no se dice, ninguno).
+    auditEvent: {
+      findFirst: vi.fn().mockResolvedValue(opts.firstCount === undefined ? null : { payload: { countedCents: opts.firstCount } }),
     },
     $queryRaw: vi.fn().mockResolvedValue(opts.pending ?? []),
   };
@@ -226,7 +232,7 @@ describe('cerrar la noche', () => {
 
   it('el fondo apuntado al abrir no se cambia al cerrar para cuadrar la caja: bloquea sin el 2FA del dueño', async () => {
     const recorded = { ...NO_CASH, openingFloatCents: 20_000, expectedCents: 20_000 };
-    const { svc, prisma, totp } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }) });
+    const { svc, prisma, totp } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }), firstCount: 5000 });
     const typed = { openingFloatCents: 5000, cashCountedCents: 5000 };
     // El encargado teclea un fondo más bajo: bloquea (aunque así «cuadraría»).
     const err = await svc.close('t-1', manager, 'night-1', typed).catch((e: unknown) => e);
@@ -247,7 +253,7 @@ describe('cerrar la noche', () => {
 
   it('teclear el mismo fondo que se apuntó al abrir no es cambiarlo', async () => {
     const recorded = { ...NO_CASH, openingFloatCents: 20_000, expectedCents: 20_000 };
-    const { svc, prisma } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }) });
+    const { svc, prisma } = makeService({ open: night({ openingFloatCents: 20_000 }), check: check({ cash: recorded }), firstCount: 20_000 });
     await svc.close('t-1', manager, 'night-1', { openingFloatCents: 20_000, cashCountedCents: 20_000 });
     expect(closedData(prisma).zReport.caja).toMatchObject({ openingFloatCents: 20_000, recordedFloatCents: 20_000 });
   });
@@ -285,9 +291,9 @@ describe('cerrar la noche', () => {
     expect(closedData(prisma)).toMatchObject({ pendingAtClose: 1, closeNote: 'BBVA lo confirma mañana' });
   });
 
-  it('«Volver a contar»: el primer recuento va al Z y al registro con el último', async () => {
+  it('«Volver a contar» (el dueño): el primer recuento va al Z y al registro con el último', async () => {
     const { svc, prisma, audit } = makeService({ check: check({ cash: CASH }) });
-    await svc.close('t-1', manager, 'night-1', { cashCountedCents: 6000, cashFirstCountedCents: 5500 });
+    await svc.close('t-1', { userId: 'own-1', role: 'OWNER' }, 'night-1', { cashCountedCents: 6000, cashFirstCountedCents: 5500 });
     expect(closedData(prisma).zReport.caja).toMatchObject({ countedCents: 6000, firstCountedCents: 5500, diffCents: 0 });
     expect(audit.log).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'night.closed', payload: expect.objectContaining({ cash: expect.objectContaining({ countedCents: 6000, firstCountedCents: 5500 }) }) }),
@@ -295,7 +301,7 @@ describe('cerrar la noche', () => {
   });
 
   it('con efectivo: sin contar no se cierra; contado y cuadrado, la caja va al Z y a la noche', async () => {
-    const { svc, prisma } = makeService({ check: check({ cash: CASH }) });
+    const { svc, prisma } = makeService({ check: check({ cash: CASH }), firstCount: 6000 });
     const err = await svc.close('t-1', manager, 'night-1').catch((e: unknown) => e);
     expect((err as ConflictException).getResponse()).toMatchObject({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] });
 
@@ -315,10 +321,11 @@ describe('cerrar la noche', () => {
     });
   });
 
-  it('contado ≠ esperado: hay que confirmarlo y la diferencia queda congelada', async () => {
+  it('contado ≠ esperado (el dueño): hay que confirmarlo y la diferencia queda congelada', async () => {
+    const owner = { userId: 'own-1', role: 'OWNER' };
     const { svc, prisma, audit } = makeService({ check: check({ cash: CASH }) });
-    await expect(svc.close('t-1', manager, 'night-1', { cashCountedCents: 4750 })).rejects.toThrow(/Faltan 12,50 €/);
-    await svc.close('t-1', manager, 'night-1', {
+    await expect(svc.close('t-1', owner, 'night-1', { cashCountedCents: 4750 })).rejects.toThrow(/Faltan 12,50 €/);
+    await svc.close('t-1', owner, 'night-1', {
       cashCountedCents: 4750,
       acknowledged: ['efectivo'],
       cashNote: 'cambio mal dado',
@@ -332,9 +339,31 @@ describe('cerrar la noche', () => {
     );
   });
 
+  it('la encargada no prueba cifras al cerrar: sin «Ver si cuadra» no cierra contando, y el 409 no dice la diferencia', async () => {
+    // Sin ningún recuento en el registro: no se cierra con una cifra (ni se aprende nada de ella).
+    const none = makeService({ check: check({ cash: CASH }) });
+    const err = await none.svc.close('t-1', manager, 'night-1', { cashCountedCents: 4750, cashFirstCountedCents: 6000 }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).getResponse()).toMatchObject({ code: 'NIGHT_CLOSE_COUNT_FIRST' });
+    expect(JSON.stringify((err as ConflictException).getResponse())).not.toMatch(/12,50|Faltan|Sobran/);
+    expect(none.prisma.venueNight.updateMany).not.toHaveBeenCalled();
+
+    // Con su «Ver si cuadra» (6000) y otra cifra al cerrar: el 409 no dice si faltan o sobran, ni cuánto.
+    const { svc, prisma } = makeService({ check: check({ cash: CASH }), firstCount: 6000 });
+    for (const probe of [4750, 7250]) {
+      const refused = await svc.close('t-1', manager, 'night-1', { cashCountedCents: probe }).catch((e: unknown) => e);
+      expect(refused).toBeInstanceOf(ConflictException);
+      const body = JSON.stringify((refused as ConflictException).getResponse());
+      expect(body).not.toMatch(/12,50|Faltan|Sobran/);
+    }
+    // El primer recuento del Z es el del registro, no el que mande el panel.
+    await svc.close('t-1', manager, 'night-1', { cashCountedCents: 4750, cashFirstCountedCents: 4750, acknowledged: ['efectivo'] });
+    expect(closedData(prisma).zReport.caja).toMatchObject({ countedCents: 4750, firstCountedCents: 6000 });
+  });
+
   it('salió efectivo sin fondo apuntado: hay que decirlo al cerrar', async () => {
     const noFloat = { ...CASH, openingFloatCents: null, expectedCents: -14_000 };
-    const { svc, prisma } = makeService({ check: check({ cash: noFloat }) });
+    const { svc, prisma } = makeService({ check: check({ cash: noFloat }), firstCount: 0 });
     await expect(svc.close('t-1', manager, 'night-1', { cashCountedCents: 0 })).rejects.toThrow(/fondo/);
     await svc.close('t-1', manager, 'night-1', { openingFloatCents: 14_000, cashCountedCents: 0 });
     expect(closedData(prisma)).toMatchObject({ openingFloatCents: 14_000, cashExpectedCents: 0, cashDiffCents: 0 });

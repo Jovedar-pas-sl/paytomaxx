@@ -122,6 +122,11 @@ export interface MoneyMapWhere {
   cashBoxCents: number;
   cashBox: { openingFloatCents: number | null; inCents: number; outCents: number };
   /**
+   * Cierre a ciegas: la encargada con la noche abierta no recibe la caja esperada
+   * (va a 0, como el efectivo que la forma y el total sin él). Sin el campo: se ve.
+   */
+  cashHidden?: boolean;
+  /**
    * «En cajeros de otras plataformas»: el efectivo que cobraron los cajeros de
    * la API de socios (no está en la caja de recepción). Suma una sola vez al
    * total. Solo sale si no es 0 (puede ser negativo: una noche con solo una

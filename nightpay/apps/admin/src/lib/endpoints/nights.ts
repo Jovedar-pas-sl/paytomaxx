@@ -1,6 +1,6 @@
 // Noches e informe Z (Fase 1D), y el cierre en pasos con el arqueo de caja.
 
-import type { CloseNightDto, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
+import type { CloseNightDto, NightCashCountDto, NightCashCountResult, NightCloseCheck, NightCloseStep } from '@nightpay/contracts';
 import { ApiError, errorFromBody } from '../api-errors';
 import { apiError, authedFetch } from '../http';
 import { stepsFromBody } from '../night-close';
@@ -157,6 +157,8 @@ export interface NightView {
   z: NightZ;
   /** `provider` BTCPAY: paga con bitcoin (sin banco). Un API de antes no lo trae. */
   pending: Array<{ id: string; status: string; amountCents: number; createdAt: string; captureMethod: string | null; provider?: string | null }>;
+  /** Cierre a ciegas: la encargada, con la noche abierta, no recibe el fondo ni el efectivo de la caja. */
+  cashHidden?: boolean;
   /** Lo pagado hora a hora, solo con la noche abierta (`at` en UTC; la de ahora, `open`). Un API de antes no lo trae: sin gráfico. */
   hourly?: Array<{ at: string; chargedCents: number; open: boolean }>;
 }
@@ -200,6 +202,13 @@ export async function openNight(input: { openingFloatCents?: number } = {}): Pro
 /** Los pasos para cerrar la noche abierta. */
 export async function fetchCloseCheck(): Promise<NightCloseCheck> {
   const res = await authedFetch('/v1/nights/current/close-check');
+  if (!res.ok) throw await apiError(res);
+  return res.json();
+}
+
+/** «Ver si cuadra» a ciegas (la encargada): el API dice si cuadra o la diferencia, sin lo esperado. */
+export async function countCash(input: NightCashCountDto): Promise<NightCashCountResult> {
+  const res = await authedFetch('/v1/nights/current/cash-count', { method: 'POST', body: JSON.stringify(input) });
   if (!res.ok) throw await apiError(res);
   return res.json();
 }

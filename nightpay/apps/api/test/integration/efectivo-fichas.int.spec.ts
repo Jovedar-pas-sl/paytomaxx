@@ -15,7 +15,7 @@ import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { CloseCheckService } from '../../src/modules/nights/close-check.service';
-import { NightsService } from '../../src/modules/nights/nights.service';
+import { CASH_COUNT_ACTION, NightsService } from '../../src/modules/nights/nights.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
 import { fichasCounts } from '../../src/modules/wallets/fichas-counts';
@@ -49,6 +49,15 @@ function seed<T>(fn: (tx: Parameters<Parameters<PrismaService['asSystem']>[0]>[0
     cls.set('ctx', { traceId: 't-seed' });
     return prisma.asSystem(fn);
   });
+}
+
+/** El «Ver si cuadra» de la encargada, ya en el registro: sin él no cierra contando. */
+function cashCounted(tenantId: string, actorId: string, nightId: string, countedCents: number) {
+  return seed((tx) =>
+    tx.auditEvent.create({
+      data: { action: CASH_COUNT_ACTION, tenantId, actorId, targetType: 'VenueNight', targetId: nightId, payload: { countedCents } },
+    }),
+  );
 }
 
 const r = randomUUID().slice(0, 6);
@@ -217,10 +226,11 @@ describe('tope legal del efectivo y anulación (Postgres real)', () => {
     const csvRows = await reports.recargasEfectivo(caja.id, { from: new Date(Date.now() - 3_600_000), to: new Date(Date.now() + 60_000) });
     expect(csvRows.map((x) => x.amountCents)).toEqual([5_000, 94_999, -94_999, 4_499]);
     // Recientes para anular (las anuladas, marcadas).
-    const recent = await inVenue(caja.id, () => cash.recent(caja.id));
+    const recent = await inVenue(caja.id, () => cash.recent(caja.id, { role: 'OWNER' }));
     expect(recent.find((x) => x.id === mal.topUpId)).toMatchObject({ voided: true });
     expect(recent.find((x) => x.id === ok.topUpId)).toMatchObject({ voided: false, amountCents: 5_000 });
 
+    await cashCounted(caja.id, caja.manager, before.id, 9_499);
     const closed = await inVenue(caja.id, () =>
       nights.close(caja.id, { userId: caja.manager, role: 'MANAGER' }, before.id, {
         cashCountedCents: 9_499,
@@ -230,6 +240,31 @@ describe('tope legal del efectivo y anulación (Postgres real)', () => {
     );
     expect(closed.z.caja).toMatchObject({ walletCashTopUpsCount: 2, walletCashTopUpsCents: 9_499, expectedCents: 9_499, diffCents: 0 });
     expect(closed.z.summary).toMatchObject({ walletCashTopUpsCount: 2, walletCashTopUpsCents: 9_499 });
+  });
+
+  it('la encargada con la noche abierta: las recargas para anular, sin importes; anula sin que un 409 se los diga', async () => {
+    await inVenue(caja.id, () => nights.open(caja.id, caja.manager, 0));
+    const w = await newWallet(caja, 3_000);
+    const mal = await topUpCode(caja, w.code, 30_000);
+    const seen = await inVenue(caja.id, () => cash.recent(caja.id, { role: 'MANAGER' }));
+    expect(seen.length).toBeGreaterThan(0);
+    for (const row of seen) {
+      expect(row.amountCents).toBeNull();
+      expect(row).not.toHaveProperty('serviceFeeCents');
+    }
+    expect(JSON.stringify(seen)).not.toMatch(/30000|3000/);
+    // El dueño, como siempre: con los importes.
+    const owner = await inVenue(caja.id, () => cash.recent(caja.id, { role: 'OWNER' }));
+    expect(owner.find((x) => x.id === mal.topUpId)).toMatchObject({ amountCents: 30_000, serviceFeeCents: 0 });
+    // Una comisión inventada: al dueño, 409 con lo que sale de la caja; a la encargada, nada que probar.
+    await expect(
+      inVenue(caja.id, () => cash.voidTopUp(ownerActor(caja), mal.topUpId, { reason: 'Era 30 €', totpCode: '123456', serviceFeeCents: 777 })),
+    ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'SERVICE_FEE_CHANGED' }) });
+    const out = await inVenue(caja.id, () =>
+      cash.voidTopUp(managerActor(caja), mal.topUpId, { reason: 'Era 30 €', totpCode: '123456', serviceFeeCents: 777 }),
+    );
+    // Lo que sale de la caja se sabe al anular (con su 2FA), una a una.
+    expect(out).toMatchObject({ amountCents: 30_000, balanceCents: 3_000 });
   });
 
   it('saldos nuevos en efectivo seguidos de la misma persona por más de 1.000 €: sale en Incidencias', async () => {
@@ -369,6 +404,7 @@ describe('cierre de la noche: la caja y los fondos (Postgres real)', () => {
     const all = ['cobros', 'datafonos', 'saldo', 'efectivo', 'chicas', 'incidencias', 'z'] as const;
     const typed = { openingFloatCents: 5_000, cashCountedCents: 10_000, acknowledged: [...all], note: 'prueba' };
     await afterDbClock();
+    await cashCounted(norte.id, norte.manager, night.id, 10_000);
     await expect(inVenue(norte.id, () => nights.close(norte.id, { userId: norte.manager, role: 'MANAGER' }, night.id, typed))).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'NIGHT_CLOSE_BLOCKED', missing: ['efectivo'] }),
     });
@@ -392,6 +428,7 @@ describe('cierre de la noche: la caja y los fondos (Postgres real)', () => {
       }),
     );
     await afterDbClock();
+    await cashCounted(rojo.id, rojo.manager, night.id, 0);
     const err = await inVenue(rojo.id, () =>
       nights.close(rojo.id, { userId: rojo.manager, role: 'MANAGER' }, night.id, {
         cashCountedCents: 0,

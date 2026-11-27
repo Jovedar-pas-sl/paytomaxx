@@ -4,7 +4,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { Button, Card, FormError, Input, Modal } from '@nightpay/ui';
 import { fetchRecentCashTopUps, voidCashTopUp, type RecentCashTopUp } from '@/lib/api';
 import { ApiError, totpRetryState } from '@/lib/api-errors';
-import { cashVoidBody, cashVoidDoneText, cashVoidOutText, cashVoidProblem } from '@/lib/cash-void';
+import { cashVoidBody, cashVoidDoneText, cashVoidProblem, cashVoidRowText } from '@/lib/cash-void';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
 import { useLockActive } from '@/lib/use-lock';
@@ -63,7 +63,7 @@ export function RecentCashTopUps() {
         {(rows ?? []).map((r) => (
           <li key={r.id} style={rowStyle}>
             <span className="np-num" style={{ fontWeight: 700 }}>
-              {formatEur(r.amountCents)}
+              {r.amountCents === null ? cashVoidRowText(r) : formatEur(r.amountCents)}
             </span>
             {r.serviceFeeCents ? (
               <span style={mutedStyle} className="np-num">
@@ -141,11 +141,18 @@ function VoidModal({
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}
       >
-        <p style={{ margin: 0 }}>
-          Recarga de <strong className="np-num">{formatEur(topUp.amountCents)}</strong> al saldo {topUp.codeHint}. Al
-          anularla, salen de la caja <strong className="np-num">{cashVoidOutText(topUp)}</strong> y el saldo baja{' '}
-          {formatEur(topUp.amountCents)} (solo si aún lo tiene).
-        </p>
+        {topUp.amountCents === null ? (
+          <p style={{ margin: 0 }}>
+            Recarga en efectivo al saldo {topUp.codeHint}. Con la noche abierta no se enseña el importe: al anularla,
+            te decimos lo que sale de la caja (solo si el saldo aún lo tiene).
+          </p>
+        ) : (
+          <p style={{ margin: 0 }}>
+            Recarga de <strong className="np-num">{formatEur(topUp.amountCents)}</strong> al saldo {topUp.codeHint}. Al
+            anularla, salen de la caja <strong className="np-num">{cashVoidRowText(topUp)}</strong> y el saldo baja{' '}
+            {formatEur(topUp.amountCents)} (solo si aún lo tiene).
+          </p>
+        )}
         <Input
           label="Por qué se anula"
           value={reason}
@@ -172,7 +179,7 @@ function VoidModal({
             Volver
           </Button>
           <Button variant="danger" size="lg" type="submit" loading={submitting} disabled={locked}>
-            Anular {formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}
+            {topUp.amountCents === null ? 'Anular la recarga' : <>Anular {formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}</>}
           </Button>
         </div>
       </form>

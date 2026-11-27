@@ -164,6 +164,107 @@
   color: var(--np-text-dim);
 }
 
+/* El inglés debajo de cada texto (idea 70): en su línea, peso 500 y más
+   suave. De la escala: 14 px y crece con la pantalla (nunca bajo 14). */
+.en {
+  display: block;
+  font-weight: 500;
+  font-size: var(--np-fs-14);
+  font-size: clamp(var(--np-fs-14), 2vmin, 3vmin);
+  color: var(--np-text-mute);
+}
+
+/* ─── Dos precios (idea 70: «Comisión del servicio» solo con tarjeta) ──── */
+
+/* Igual de grandes y sin palabras de descuento; la comisión con su importe
+   debajo, antes de elegir. Apilados (apaisado: el QR deja ~490 px; y en 360);
+   lado a lado solo en vertical y con sitio. Sin gap en flex ni clamp sin
+   respaldo (Chrome 64). */
+.prices {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+}
+
+.priceBlock {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.priceBlock + .priceBlock {
+  margin-top: 0.75rem;
+}
+
+.priceLabel {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  font-size: var(--np-fs-18);
+  font-size: clamp(var(--np-fs-18), 3vmin, 4.5vmin);
+  line-height: 1.2;
+  font-family: var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+.price {
+  display: block;
+  font-family: var(--np-font-num);
+  font-weight: 700;
+  font-size: var(--np-fs-40);
+  font-size: clamp(var(--np-fs-40), 11vmin, 20vmin);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.feeNote {
+  margin: 0;
+  font-weight: 600;
+  font-size: var(--np-fs-16);
+  font-size: clamp(var(--np-fs-16), 2.4vmin, 3.5vmin);
+  line-height: 1.3;
+  font-family: var(--np-font-sans);
+  color: var(--np-text-mute);
+}
+
+/* Apaisado (el QR a la derecha): apilados, cada uno en una fila (su nombre a
+   la izquierda, el importe a la derecha) para que quepa con la propina. */
+@media (min-aspect-ratio: 5/4) {
+  .priceBlock {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* Los dos igual de grandes, algo menos que en vertical: caben con la propina y la ficha. */
+  .price {
+    font-size: clamp(var(--np-fs-40), 9vmin, 16vmin);
+  }
+
+  .priceLabel {
+    margin: 0 1rem 0 0;
+  }
+}
+
+@media (min-width: 35em) and (max-aspect-ratio: 5/4) {
+  .prices {
+    flex-direction: row;
+  }
+
+  .priceBlock {
+    flex: 1 1 0;
+  }
+
+  .priceBlock + .priceBlock {
+    margin-top: 0;
+    margin-left: 1rem;
+  }
+}
+
 .hint {
   margin: clamp(0.5rem, 2vmin, 1.5rem) 0 0;
   display: flex;
@@ -180,8 +281,11 @@
 }
 
 .qrPlate {
-  /* Placa blanca: el margen claro del QR (negro sobre blanco también a oscuras). */
-  width: min(78vw, 46vh);
+  /* Placa blanca: el margen claro del QR (negro sobre blanco también a oscuras).
+     40vh (antes 46): cabe con el inglés debajo de cada texto y los dos precios (idea 70).
+     Primero sin min(): Chrome 64 no lo entiende. */
+  width: 40vh;
+  width: min(78vw, 40vh);
   padding: clamp(0.75rem, 2.4vmin, 1.5rem);
   background: #ffffff;
   border-radius: var(--np-r-lg);
@@ -189,7 +293,8 @@
 }
 
 .paying {
-  width: min(78vw, 46vh);
+  width: 40vh;
+  width: min(78vw, 40vh);
   aspect-ratio: 1;
   display: grid;
   place-items: center;
@@ -241,14 +346,18 @@
 }
 
 .tipBtn {
-  min-height: 3.5rem;
+  min-height: 4.5rem;
   min-width: 6rem;
   padding: 0.5rem 1.25rem;
   border-radius: var(--np-r-md);
   border: 1px solid var(--np-border-hi, var(--np-border));
   background: var(--np-surface);
   color: var(--np-text);
-  font: 600 clamp(var(--np-fs-18), 2.8vmin, 3.6vmin) / 1.1 var(--np-font-sans);
+  font-weight: 600;
+  font-size: var(--np-fs-18);
+  font-size: clamp(var(--np-fs-18), 2.8vmin, 3.6vmin);
+  line-height: 1.1;
+  font-family: var(--np-font-sans);
   cursor: pointer;
   transition:
     background var(--np-d-fast, 120ms) var(--np-ease, ease-out),
@@ -271,6 +380,23 @@
   border-color: var(--np-text);
 }
 
+/* Debajo de los euros, el total con esa propina (idea 66). */
+.tipTotal {
+  display: block;
+  margin-top: 0.2rem;
+  font-weight: 500;
+  font-size: var(--np-fs-16);
+  font-size: clamp(var(--np-fs-16), 2.2vmin, 3vmin);
+  color: var(--np-text-mute);
+}
+
+/* En la elegida (crema), lo suave sigue su tinta. */
+.tipBtn[data-on='1'] .tipTotal,
+.tipBtn[data-on='1'] .en {
+  color: inherit;
+  opacity: 0.8;
+}
+
 .tipBtn:disabled {
   cursor: progress;
   opacity: 0.7;
@@ -280,6 +406,17 @@
   margin: 0;
   font: 400 var(--np-fs-14) / 1.3 var(--np-font-sans);
   color: var(--np-text-dim);
+}
+
+/* La línea es de 14: su inglés, igual (nunca bajo 14). */
+.tipNote .en {
+  font-size: 100%;
+}
+
+/* En los botones de propina, el inglés como el total. */
+.tipBtn .en {
+  font-size: var(--np-fs-16);
+  font-size: clamp(var(--np-fs-16), 2.2vmin, 3vmin);
 }
 
 /* ─── «Otra» propina: teclado grande ──────────────────────────────────── */
@@ -425,6 +562,30 @@
   margin: 0;
   font: 600 clamp(var(--np-fs-18), 3.6vmin, 5vmin) / 1.3 var(--np-font-sans);
   opacity: 0.85;
+}
+
+/* Lo pagado (con tarjeta: con la comisión y la propina). */
+.paidAmount {
+  font-family: var(--np-font-num);
+  font-weight: 700;
+  font-size: var(--np-fs-40);
+  font-size: clamp(var(--np-fs-40), 9vmin, 14vmin);
+  line-height: 1;
+}
+
+/* Sobre el color de «Pagado», el inglés en su tinta; bajo la palabra gigante, más pequeño. */
+.paid .en {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.paidWord .en {
+  font-size: var(--np-fs-28);
+  font-size: clamp(var(--np-fs-28), 6vmin, 9vmin);
+  line-height: 1.2;
+  letter-spacing: 0;
+  /* Por debajo de la «g» de «Pagado». */
+  margin-top: 0.4em;
 }
 
 /* ─── Emparejar ──────────────────────────────────────────────────────── */

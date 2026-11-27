@@ -43,6 +43,7 @@ import {
   type TopUpVenueState,
 } from '../wallets/wallet-topup-rules';
 import { rateLimitIpKey } from '../../common/http/client-ip';
+import { BASE_GATEWAY_WHERE } from '../gateways/card-gateway';
 import {
   HOME_TOPUP_DAY_S,
   HOME_TOPUP_IP_DAY_MAX,
@@ -505,7 +506,7 @@ export class HomeTopUpService {
     venue: { id: string; name: string; paymentMethods: unknown; nightSettings?: unknown; homeTopUpGiftsEnabled?: boolean } & VenuePauseState &
       Partial<VenueServiceFeeRow>,
   ): Promise<HomeVenue> {
-    const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, active: true } });
+    const gateways = await tx.gatewayCredential.count({ where: { tenantId: venue.id, ...BASE_GATEWAY_WHERE } });
     // Uno del local que no sea el datáfono de recepción: sus topes son de lo cobrado allí.
     const terminal = await tx.terminal.findFirst({
       where: { tenantId: venue.id, active: true },

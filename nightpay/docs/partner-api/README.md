@@ -33,11 +33,12 @@ locales. Apagada de serie (`PARTNER_API_ENABLED=false`) hasta el PR 8.
 
 | Nº | Español | English |
 |---|---|---|
+| 0 | [Índice](guides/es/00-indice.md) | [Index](guides/en/00-index.md) |
+| 1 | [Empieza: tres llamadas en la demo](guides/es/01-empieza.md) | [Get started: three calls on the demo](guides/en/01-get-started.md) |
 | 2 | [Claves y seguridad](guides/es/02-claves-y-seguridad.md) | [Keys and security](guides/en/02-keys-and-security.md) |
 | 3 | [Identificar al cliente](guides/es/03-identificar-al-cliente.md) | [Identifying the customer](guides/en/03-identifying-the-customer.md) |
 | 4 | [Cargar saldo en un cajero](guides/es/04-cargar-saldo.md) | [Loading balance at an ATM](guides/en/04-loading-balance.md) |
+| 5 | [Errores y reintentos](guides/es/05-errores-y-reintentos.md) | [Errors and retries](guides/en/05-errors-and-retries.md) |
 | 6 | [Cuadre](guides/es/06-cuadre.md) | [Reconciliation](guides/en/06-reconciliation.md) |
 | 7 | [Pruebas en la demo](guides/es/07-pruebas-en-la-demo.md) | [Testing on the demo](guides/en/07-testing-on-the-demo.md) |
-
-Los demás capítulos (empezar, errores, salida) llegan con su entrega;
-hasta entonces, las guías completas del piloto están en `pilot/`.
+| 8 | [Antes de salir](guides/es/08-antes-de-salir.md) | [Before going live](guides/en/08-before-going-live.md) |

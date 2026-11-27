@@ -130,6 +130,48 @@ describe('Modo práctica: el cobro llega a PAGADO y a NO PAGADO', () => {
   });
 });
 
+describe('Modo práctica: solo la ficha y el código de práctica (los de verdad, 422 como en la barra)', () => {
+  const REAL_CARD = { card: 'TOKEN-DE-UNA-FICHA-DE-VERDAD-123', uid: '04A1B2C3D4E5F6' };
+  const post = (path: string, body: unknown) => authedFetch(path, { method: 'POST', body: JSON.stringify(body) });
+
+  it('recepción: una ficha de verdad no da la de práctica ni se «carga» (el cliente no se iría sin saldo)', async () => {
+    expect((await post('/v1/reception/desk', REAL_CARD)).status).toBe(422);
+    expect((await post('/v1/reception/desk', { code: 'K7Q-4M2' })).status).toBe(422);
+    const cash = await post('/v1/reception/cash', { amountCents: 5000, idempotencyKey: 'k', wallet: REAL_CARD });
+    expect(cash.status).toBe(422);
+    expect((await (await post('/v1/wallet-charges/cards/lookup', REAL_CARD)).json()).detail).toMatch(/práctica/);
+    // La de práctica, como siempre.
+    expect((await post('/v1/reception/desk', { code: 'PRA-CTI' })).status).toBe(200);
+    expect((await post('/v1/reception/cash', { amountCents: 500, idempotencyKey: 'k2', wallet: { code: 'PRA-CTI' } })).status).toBe(201);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('recepción: recargar con tarjeta un saldo de verdad elegido antes de entrar en práctica → 422, sin «cargado»', async () => {
+    const realWallet = '3f6c1d2e-8a9b-4c7d-9e0f-1a2b3c4d5e6f';
+    const card = await post('/v1/payments', { amountCents: 2000, terminalExternalId: 'T1', idempotencyKey: 'k3', wallet: { walletId: realWallet } });
+    expect(card.status).toBe(422);
+    expect((await card.json()).detail).toMatch(/práctica/);
+    // Ni en efectivo con su id.
+    expect((await post('/v1/reception/cash', { amountCents: 500, idempotencyKey: 'k4', wallet: { walletId: realWallet } })).status).toBe(422);
+    // Un saldo nuevo o el de práctica, como siempre.
+    expect((await post('/v1/payments', { amountCents: 2000, idempotencyKey: 'k5', wallet: { create: true } })).status).toBe(201);
+    expect((await post('/v1/payments', { amountCents: 2000, idempotencyKey: 'k6', wallet: { walletId: 'PRACT-WALLET' } })).status).toBe(201);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('barra: un código de verdad con el PIN 1234 no da «PAGADO»', async () => {
+    const created = await createCobro({ lines: LINES });
+    const chargeId = created.saldo!.chargeId;
+    const wrong = await payByPin(chargeId, { code: 'K7Q-4M2' }, PRACTICE_PIN).catch((e: unknown) => e);
+    expect(wrong).toBeInstanceOf(CobroApiError);
+    expect((wrong as CobroApiError).status).toBe(422);
+    expect((await authedFetch('/v1/wallet-charges/lookup/K7Q-4M2')).status).toBe(422);
+    // Con el código de práctica, sí.
+    expect((await payByPin(chargeId, { code: 'PRA-CTI' }, PRACTICE_PIN)).status).toBe('ACCEPTED');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
 describe('Modo práctica: la franja, el menú y los botones', () => {
   it('la franja solo se pinta en práctica, con su frase', () => {
     expect(renderToStaticMarkup(<PracticeBandView on={false} />)).toBe('');

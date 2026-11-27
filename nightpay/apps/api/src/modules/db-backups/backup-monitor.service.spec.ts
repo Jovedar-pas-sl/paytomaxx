@@ -57,4 +57,15 @@ describe('vigilante de copias', () => {
     vi.spyOn(S3Client.prototype, 'send').mockRejectedValueOnce(denied);
     expect(await makeMonitor().verdict(now)).toMatchObject({ kind: 'stale', error: 'AccessDenied' });
   });
+
+  it('la consulta tiene tiempo máximo y, si falla, recuerda la última copia buena (no avisa por un fallo de un minuto)', async () => {
+    const send = vi
+      .spyOn(S3Client.prototype, 'send')
+      .mockResolvedValueOnce({ Contents: [{ LastModified: new Date('2026-10-14T03:00:00Z') }], IsTruncated: false } as never)
+      .mockRejectedValueOnce(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
+    const monitor = makeMonitor();
+    expect(await monitor.verdict(now)).toMatchObject({ kind: 'ok' });
+    expect((send.mock.calls[0]![1] as { abortSignal?: AbortSignal } | undefined)?.abortSignal).toBeInstanceOf(AbortSignal);
+    expect(await monitor.verdict(new Date(now.getTime() + 11 * 60_000))).toEqual({ kind: 'ok', lastBackupAt: new Date('2026-10-14T03:00:00Z') });
+  });
 });

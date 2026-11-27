@@ -247,11 +247,12 @@ function staffSetup(opts: { target: Record<string, unknown>; activeSuperAdmins: 
   const stepUp = { verify: vi.fn().mockResolvedValue(undefined) };
   const audit = { write: vi.fn().mockResolvedValue(undefined) };
   const refreshTokens = { revokeAllForUser: vi.fn().mockResolvedValue(0) };
+  const operators = { assertCommissionFits: vi.fn().mockResolvedValue(undefined) };
   const svc = new SuperAdminStaffService(
     prisma as never,
     stepUp as never,
     audit as never,
-    {} as never,
+    operators as never,
     refreshTokens as never,
     {} as never,
     {} as never,
@@ -259,7 +260,7 @@ function staffSetup(opts: { target: Record<string, unknown>; activeSuperAdmins: 
     {} as never,
     {} as never,
   );
-  return { svc, tx, audit, refreshTokens };
+  return { svc, tx, audit, refreshTokens, operators };
 }
 
 describe('SuperAdminStaffService — nunca sin super-admins', () => {
@@ -295,6 +296,19 @@ describe('SuperAdminStaffService — nunca sin super-admins', () => {
     });
     await expect(waiter.svc.setSuperAdmin(actor, 'u-9', { ...dto, enabled: true })).rejects.toThrow(/Solo un dueño/);
     expect(waiter.tx.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SuperAdminStaffService — «Dar de alta otra vez» a una compañera', () => {
+  it('con el tope de comisión: si su % + la plataforma pasa del 100 %, no se da de alta', async () => {
+    const { svc, tx, operators } = staffSetup({
+      target: { id: 'op-1', tenantId: 'v-1', role: 'OPERATOR', isSuperAdmin: false, deletedAt: new Date('2026-10-01T00:00:00Z'), commissionBps: 9500 },
+      activeSuperAdmins: ['sa-1'],
+    });
+    operators.assertCommissionFits.mockRejectedValueOnce(new BadRequestException('pasa del 100 %'));
+    await expect(svc.enable(actor, 'op-1', { reason: 'vuelve', totpCode: '123456' })).rejects.toThrow(/pasa del 100 %/);
+    expect(operators.assertCommissionFits).toHaveBeenCalledWith('v-1', 9500);
+    expect(tx.user.update).not.toHaveBeenCalled();
   });
 });
 

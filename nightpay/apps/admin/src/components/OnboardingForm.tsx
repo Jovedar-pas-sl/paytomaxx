@@ -15,6 +15,7 @@ import { formatDateTime } from '@/lib/dates';
 import { changedFields } from '@/lib/diff';
 import { minorNow } from '@/lib/payout-account-view';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { IdDocumentBox } from './IdDocumentBox';
 import { Notice } from './Notice';
 
 interface Props {
@@ -396,8 +397,15 @@ export function OnboardingForm({ operator, isOwner, onSaved }: Props) {
           onChange={(e) => setPassportLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
           placeholder="8742"
           maxLength={4}
-          hint="Solo últimos 4 — no guardes el número completo por privacidad."
+          hint="Solo los 4 últimos. El documento entero va abajo, cifrado."
           disabled={submitting}
+        />
+        <IdDocumentBox
+          operatorId={operator.id}
+          type={operator.idDocumentType ?? null}
+          masked={operator.idDocumentMasked ?? null}
+          isOwner={isOwner}
+          onSaved={onSaved}
         />
       </div>
 

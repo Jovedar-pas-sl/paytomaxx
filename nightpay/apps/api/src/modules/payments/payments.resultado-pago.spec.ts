@@ -337,7 +337,7 @@ describe('getResultView — el cliente vuelve del banco a /pay/result', () => {
     await expect(service.getResultView('ORD-2')).resolves.toMatchObject({ paymentId: PAYMENT_ID, attemptStatus: 'APPROVED' });
     // Solo Redsys (Ds_Order) y Cecabank/Wipay (Num_operacion) vuelven a /pay/result?op=.
     expect(prisma.paymentAttempt.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { provider: { in: ['REDSYS', 'WIPAY'] }, providerTxId: 'ORD-2' } }),
+      expect.objectContaining({ where: { provider: { in: ['REDSYS', 'WIPAY', 'YAVIN'] }, providerTxId: 'ORD-2' } }),
     );
   });
 
