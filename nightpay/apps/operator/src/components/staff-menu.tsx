@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState, type CSSProperties, type ReactNode } from 'react';
-import { Modal, useInstall } from '@nightpay/ui';
+import { Sheet, useInstall } from '@nightpay/ui';
 import { GUIA_PATH } from '../lib/guia';
 import { useOpenCharges, type OpenCharges } from '../lib/open-charges';
 import { setPractice, usePractice } from '../lib/practice';
@@ -185,7 +185,7 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
     {device.sheet}
     <PasskeySheet open={passkeys} onClose={() => setPasskeys(false)} />
     <CustomerDisplaySheet open={display} onClose={() => setDisplay(false)} />
-    <Modal open={open} onClose={onClose} title="Menú">
+    <Sheet open={open} onClose={onClose} title="Menú" footer={<LogoutMenuItem onLogout={onLogout} />}>
       <div className={styles.list}>
         <MenuOption
           title="Mi perfil"
@@ -215,9 +215,8 @@ export function StaffMenu({ open, onClose, onLogout }: { open: boolean; onClose:
         <PracticeMenuItem onClose={onClose} />
         <InstallMenuItem />
         <GuiaMenuLink />
-        <LogoutMenuItem onLogout={onLogout} />
       </div>
-    </Modal>
+    </Sheet>
     </>
   );
 }

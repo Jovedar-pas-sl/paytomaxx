@@ -138,12 +138,12 @@ describe('en una pantalla de 360×720', () => {
   });
 
   it('el menú del logo: «Este aparato» y «Salir» el último, aparte y en rojo sin llenar', () => {
-    for (const f of ['../components/staff-menu.tsx', '../components/cobrar/CobrarFlow.tsx']) {
-      const src = read(f);
-      expect(src).toContain('{device.item}');
-      expect(src.indexOf('<LogoutMenuItem')).toBeGreaterThan(src.indexOf('<GuiaMenuLink />'));
-    }
+    for (const f of ['../components/staff-menu.tsx', '../components/cobrar/CobrarFlow.tsx']) expect(read(f)).toContain('{device.item}');
+    const inicio = read('../components/cobrar/CobrarFlow.tsx');
+    expect(inicio.indexOf('<LogoutMenuItem')).toBeGreaterThan(inicio.indexOf('<GuiaMenuLink />'));
     const menu = read('../components/staff-menu.tsx');
+    // Entrega 4B: en el menú de Recepción, «Salir» va en el pie fijo de la hoja (después de toda la lista).
+    expect(menu).toContain('footer={<LogoutMenuItem onLogout={onLogout} />}');
     expect(menu).toContain("color: 'var(--np-danger-text)'");
     expect(menu).not.toMatch(/variant="danger"/);
   });
