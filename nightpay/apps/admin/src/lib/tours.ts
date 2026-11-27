@@ -14,6 +14,15 @@ export interface TourDef {
 }
 
 export const TOURS = {
+  resumen: {
+    screen: 'panel-resumen',
+    steps: [
+      { target: 'resumen-noche', title: 'Esta noche', text: 'Lo pagado desde que abriste la noche, hora a hora.' },
+      { target: 'resumen-mapa', title: 'Tu dinero', text: 'Lo ganado, la caja y lo que debes. Toca una para abrir el mapa.' },
+      { target: 'resumen-atencion', title: 'Pide tu atención', text: 'Lo que tienes que decidir o revisar.' },
+      { target: 'resumen-cobros', title: 'Últimos cobros', text: 'Toca uno para ver su detalle.' },
+    ],
+  },
   payments: {
     screen: 'panel-cobros',
     steps: [
@@ -204,6 +213,7 @@ export type TourKey = keyof typeof TOURS;
 
 /** El tutorial de cada pestaña del panel (las que no salen aquí no llevan «?»). */
 export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
+  resumen: TOURS.resumen,
   payments: TOURS.payments,
   money: TOURS.money,
   incidents: TOURS.incidents,
