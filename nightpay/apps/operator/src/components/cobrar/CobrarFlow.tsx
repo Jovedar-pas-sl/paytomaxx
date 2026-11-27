@@ -305,6 +305,7 @@ export function CobrarFlow({ user, onCobroDone, onLogout, night, miQrOpen = fals
         lines: ticketLinesOf(c),
         who: name,
         pinChip: chica ? `${labelOf(ctx, 'CHICA_SERVICE')} · ${chica.name}` : `${labelOf(ctx, top)} · ${name}`,
+        tipToStaff: Boolean(chica),
         invitation: null,
       },
     });

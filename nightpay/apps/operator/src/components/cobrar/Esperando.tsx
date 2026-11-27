@@ -115,6 +115,8 @@ export interface CobroAbierto {
   who: string;
   /** «Servicios · Lola» (el chip del PIN). */
   pinChip: string;
+  /** El encargado cobra a nombre de una compañera: la propina va para ella (como dicen /s y la tablet). */
+  tipToStaff?: boolean;
   /** «Copa con invitación»: a quién y cómo se reparte. */
   invitation?: { chica: string; cells: ReadonlyArray<{ label: string; cents: number }> } | null;
 }
@@ -638,7 +640,7 @@ export function Esperando({ cobro, onNew, onRetry, retrying = false, retryError 
           amountCents={cobro.totalCents}
           tipSetup={pinTip}
           // Idea 66: a quién va (como en /s: de la chica que cobra; si no, del local) y si la marcó la pantalla de la barra.
-          tipToStaff={getUser()?.role === 'OPERATOR'}
+          tipToStaff={cobro.tipToStaff === true || getUser()?.role === 'OPERATOR'}
           presetFromScreen={pinTip !== basePinTip}
           detail={pinDetail(cobro.what, pin.walletCode, pin.via)}
           reason={pin.reason}

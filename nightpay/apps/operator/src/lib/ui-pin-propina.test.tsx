@@ -124,6 +124,9 @@ describe('PIN: la propina elegida en la pantalla de la barra', () => {
     expect(tablet).toMatch(/tipToStaff=\{view\.tip\?\.toStaff === true\}/);
     const esperando = read('../components/cobrar/Esperando.tsx');
     expect(esperando).toMatch(/presetFromScreen=\{pinTip !== basePinTip\}/);
-    expect(esperando).toMatch(/tipToStaff=\{getUser\(\)\?\.role === 'OPERATOR'\}/);
+    expect(esperando).toMatch(/tipToStaff=\{cobro\.tipToStaff === true \|\| getUser\(\)\?\.role === 'OPERATOR'\}/);
+    // El encargado que cobra a nombre de una compañera: la propina es de ella, no «del local».
+    const flow = read('../components/cobrar/CobrarFlow.tsx');
+    expect(flow).toMatch(/tipToStaff: Boolean\(chica\)/);
   });
 });
