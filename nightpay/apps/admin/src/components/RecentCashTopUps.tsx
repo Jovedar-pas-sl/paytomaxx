@@ -179,7 +179,7 @@ function VoidModal({
             Volver
           </Button>
           <Button variant="danger" size="lg" type="submit" loading={submitting} disabled={locked}>
-            {topUp.amountCents === null ? 'Anular la recarga' : `Anular ${formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}`}
+            {topUp.amountCents === null ? 'Anular la recarga' : <>Anular {formatEur(topUp.amountCents + (topUp.serviceFeeCents ?? 0))}</>}
           </Button>
         </div>
       </form>
