@@ -6,7 +6,7 @@ import { haptic, Icon } from '@nightpay/ui';
 import { formatEur } from '@/lib/money';
 import { onInviteArrived, takePendingInvite } from '@/lib/invite-link';
 import { resolveStaffCard, resolveStaffQr } from '@/lib/api-cobro';
-import { nfcSupported, readCard } from '@/lib/nfc';
+import { nfcHub, nfcSupported, readCard } from '@/lib/nfc';
 import { rejectedQr, shouldResolveQr, statusOf, type RejectedQr } from '@/lib/qr-scan';
 import { staffCardTap, type ScanTexts } from '@/lib/servicio';
 import { puestoChip, type CobrarContext } from './cobrar-context';
@@ -176,18 +176,29 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
   );
 
   // Su ficha NFC (Android): cada ficha acercada se comprueba en el servidor (original, viva, de este local).
+  // Chrome solo deja empezar a leer dentro de un toque: con el permiso NFC ya
+  // dado arranca sola; si no (o si se rechazó), «Leer su ficha» la arranca en
+  // la misma pulsación y se puede volver a intentar.
   const nfcOn = Boolean(texts.nfcHint) && nfcSupported();
-  useEffect(() => {
-    if (!nfcOn) return undefined;
+  const nfcCtrl = useRef<AbortController | null>(null);
+  const [nfcTap, setNfcTap] = useState(false);
+  const listenNfc = useCallback(() => {
+    nfcCtrl.current?.abort();
     const ctrl = new AbortController();
+    nfcCtrl.current = ctrl;
+    setNfcTap(false);
     void (async () => {
       while (!ctrl.signal.aborted) {
         let read: Awaited<ReturnType<typeof readCard>>;
         try {
+          // Sin await antes: dentro del toque, el permiso se pide con él.
           read = await readCard(ctrl.signal);
         } catch (err) {
-          // Cancelado al salir; sin permiso o sin NFC, queda el QR.
-          if (!ctrl.signal.aborted && alive.current) setProblem((err as Error).message);
+          // Cancelado al salir; sin permiso o sin NFC, queda el QR y «Leer su ficha» para reintentar.
+          if (!ctrl.signal.aborted && alive.current) {
+            setProblem((err as Error).message);
+            setNfcTap(true);
+          }
           return;
         }
         if (done.current || !alive.current) continue;
@@ -199,8 +210,22 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
         await accept(tap.raw, () => resolveStaffCard(tap.card, tap.uid), () => undefined);
       }
     })();
-    return () => ctrl.abort();
-  }, [nfcOn, accept]);
+  }, [accept]);
+  useEffect(() => {
+    if (!nfcOn) return undefined;
+    let cancelled = false;
+    const hub = nfcHub();
+    void (hub ? hub.startIfAllowed() : Promise.resolve(false)).then((allowed) => {
+      if (cancelled) return;
+      if (allowed) listenNfc();
+      else setNfcTap(true);
+    });
+    return () => {
+      cancelled = true;
+      nfcCtrl.current?.abort();
+      nfcCtrl.current = null;
+    };
+  }, [nfcOn, listenNfc]);
 
   // Leído con la cámara del móvil (abre otra pestaña): llega aquí solo.
   useEffect(() => {
@@ -299,6 +324,11 @@ export function EscanearChica({ ctx, who, title, priceCents, onChica, onList, on
           <p role="alert" className={`${styles.seen} ${styles.seenBad}`}>
             {problem}
           </p>
+        ) : null}
+        {nfcOn && nfcTap && !seen ? (
+          <button type="button" className={`${styles.btn} ${styles.ghost}`} onClick={listenNfc}>
+            Leer su ficha
+          </button>
         ) : null}
       </div>
       <div className={styles.camFoot}>
