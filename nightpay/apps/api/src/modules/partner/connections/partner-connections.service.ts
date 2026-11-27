@@ -112,12 +112,19 @@ export class PartnerConnectionsService {
         include: VIEW_INCLUDE,
         orderBy: { createdAt: 'desc' },
       });
-      const foreign = await tx.auditEvent.findMany({
-        where: { tenantId: user.tenantId, action: PARTNER_AUDIT.foreignIp, occurredAt: { gte: new Date(now.getTime() - FOREIGN_IPS_DAYS * DAY_MS) } },
-        orderBy: { occurredAt: 'desc' },
-        select: { targetId: true, ip: true, occurredAt: true },
-        take: 500,
-      });
+      // Las últimas IP ajenas de cada conexión, como mucho FOREIGN_IPS_MAX: una no tapa las de otra.
+      const since = new Date(now.getTime() - FOREIGN_IPS_DAYS * DAY_MS);
+      const foreign: Array<{ targetId: string | null; ip: string | null; occurredAt: Date }> = [];
+      for (const row of rows) {
+        foreign.push(
+          ...(await tx.auditEvent.findMany({
+            where: { tenantId: user.tenantId, action: PARTNER_AUDIT.foreignIp, targetId: row.id, ip: { not: null }, occurredAt: { gte: since } },
+            orderBy: { occurredAt: 'desc' },
+            select: { targetId: true, ip: true, occurredAt: true },
+            take: FOREIGN_IPS_MAX,
+          })),
+        );
+      }
       const partners = user.role === 'OWNER' ? await tx.partner.findMany({ where: { status: 'ACTIVE' }, orderBy: { name: 'asc' } }) : [];
       return {
         emailEnabled: this.email.isEnabled(),

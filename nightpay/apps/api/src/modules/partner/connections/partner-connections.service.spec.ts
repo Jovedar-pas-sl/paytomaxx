@@ -24,7 +24,8 @@ function matches(row: Row, where: Row): boolean {
  * withTenant se aplica solo si la transacción acaba bien.
  */
 function fakeDb() {
-  const state: { connections: Row[] } = {
+  const state: { connections: Row[]; foreign: Row[] } = {
+    foreign: [],
     connections: [
       {
         id: CONN,
@@ -81,7 +82,11 @@ function fakeDb() {
         venue: {
           findUnique: vi.fn(async () => ({ name: 'Local Demo Centro', businessId: 'eeeeeeee-0000-0000-0000-000000000001', business: { name: 'Empresa Demo S.L.', taxId: 'B00000000' } })),
         },
-        auditEvent: { findMany: vi.fn(async () => []) },
+        auditEvent: {
+          findMany: vi.fn(async ({ where, take }: { where: Row; take?: number }) =>
+            state.foreign.filter((e) => matches(e, { targetId: where.targetId, ip: where.ip }) || where.targetId === undefined).slice(0, take),
+          ),
+        },
         partnerConnection: {
           findFirst: vi.fn(async ({ where }: { where: Row }) => draft.find((c) => matches(c, where)) ?? null),
           findMany: vi.fn(async () => draft),
@@ -243,5 +248,21 @@ describe('por correo: si no sale, no se pierde la clave', () => {
     expect(out.claim.delivered).toBe(true);
     expect(state.connections[0]!.keyHash).not.toBe('a'.repeat(64));
     expect(state.connections[0]!.keyClaimSealed).toEqual(expect.any(String));
+  });
+});
+
+describe('las IP ajenas de cada conexión', () => {
+  it('cinco por conexión: muchas de una no tapan las de otra', async () => {
+    const { prisma, state } = fakeDb();
+    const other = 'cccccccc-0000-0000-0000-000000000002';
+    state.connections.push({ ...state.connections[0]!, id: other, partnerId: 'bbbbbbbb-0000-0000-0000-000000000002' });
+    const at = new Date('2026-11-27T09:00:00Z');
+    // Más recientes primero: 600 de la primera y, detrás, una de la segunda.
+    for (let i = 0; i < 600; i++) state.foreign.push({ targetId: CONN, ip: `198.51.100.${i % 250}`, occurredAt: at });
+    state.foreign.push({ targetId: other, ip: '192.0.2.77', occurredAt: new Date('2026-11-26T09:00:00Z') });
+    const out = await service(prisma, { log: vi.fn(), logInTx: vi.fn() }).overview(owner);
+    const byId = new Map(out.connections.map((c) => [c.id, c]));
+    expect(byId.get(other)!.foreignIps).toEqual([{ ip: '192.0.2.77', at: '2026-11-26T09:00:00.000Z' }]);
+    expect(byId.get(CONN)!.foreignIps).toHaveLength(5);
   });
 });
