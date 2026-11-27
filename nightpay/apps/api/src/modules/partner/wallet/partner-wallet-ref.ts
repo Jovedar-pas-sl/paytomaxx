@@ -379,8 +379,20 @@ export class PartnerWalletRefs {
     }
   }
 
-  /** Una ficha con otro número de serie: un registro (y su Incidencia) por conexión, ficha y día. */
+  /**
+   * Una ficha con otro número de serie: un registro (y su Incidencia) por
+   * conexión, ficha y día. Si falla, la respuesta no cambia (ficha_copy_suspected).
+   */
   private async cardCopySuspected(auth: PartnerAuth, cardId: string, wallet: ScopedWallet): Promise<void> {
+    try {
+      await this.logCardCopySuspected(auth, cardId, wallet);
+    } catch (err) {
+      // Solo el tipo: el mensaje de un error de la base podría llevar la consulta.
+      this.logger.warn(`API de socios: ficha copiada sin registrar (${(err as Error).name})`);
+    }
+  }
+
+  private async logCardCopySuspected(auth: PartnerAuth, cardId: string, wallet: ScopedWallet): Promise<void> {
     if (!(await this.firstToday('copy', auth.connection.id, cardId))) return;
     await this.audit.log({
       action: PARTNER_WALLET_AUDIT.cardCopySuspected,

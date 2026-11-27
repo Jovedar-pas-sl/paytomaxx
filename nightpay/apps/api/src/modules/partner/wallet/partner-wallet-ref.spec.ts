@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import { WALLET_REF_DETAIL } from '@nightpay/contracts';
-import { classifyWalletRef, walletReachable } from './partner-wallet-ref';
+import { PartnerHttpException } from '../http/partner-problem';
+import { PartnerWalletRefs, classifyWalletRef, walletReachable } from './partner-wallet-ref';
 
 /**
  * La forma del `qr` (A2 del encargo y `Qr` del contrato): pura, sin lanzar
@@ -135,5 +136,39 @@ describe('walletReachable: el alcance de una clave', () => {
   it('un regalo (saldo de otro local sin grupo) → no; el mismo local sin sociedad → no', () => {
     expect(walletReachable({ tenantId: 'A2', walletGroup: null }, { businessId: 'X' }, conn)).toBe(false);
     expect(walletReachable({ tenantId: 'A', walletGroup: 'G' }, { businessId: null }, { ...conn, businessId: 'X' })).toBe(false);
+  });
+});
+
+describe('PartnerWalletRefs: una ficha copiada', () => {
+  const TENANT = 'aaaaaaaa-0000-0000-0000-000000000001';
+  const WALLET = 'bbbbbbbb-0000-0000-0000-000000000001';
+  const auth = { connection: { id: 'cccccccc-0000-0000-0000-000000000001', tenantId: TENANT, partner: { name: 'Cajeros Demo' } }, keyHint: 'oxp_test_…aaaa' };
+
+  function refs(audit: { log: ReturnType<typeof vi.fn> }) {
+    const tx = {
+      $queryRaw: vi.fn(async () => [{ mergedIntoId: null }]),
+      walletCard: { findUnique: vi.fn(async () => ({ id: 'card-1', status: 'ISSUED', walletId: WALLET, uid: '04AABBCCDD' })) },
+      clientWallet: {
+        findUnique: vi.fn(async () => ({ id: WALLET, tenantId: TENANT, walletGroup: null, balanceCents: 1000, status: 'ACTIVE', blockedAt: null, shortCode: null })),
+      },
+      venue: { findUnique: vi.fn(async () => ({ businessId: 'eeeeeeee-0000-0000-0000-000000000001', walletGroup: null })) },
+    };
+    const prisma = { asSystem: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)) };
+    const redis = { set: vi.fn(async () => 'OK') };
+    return new PartnerWalletRefs(prisma as never, {} as never, {} as never, audit as never, redis as never);
+  }
+
+  it('si el registro falla, el cajero recibe igual ficha_copy_suspected (no un 500)', async () => {
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const audit = { log: vi.fn(async () => Promise.reject(new Error('SELECT secreto de audit_events'))) };
+    const err = await refs(audit)
+      .resolve(auth as never, { qr: 'https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001', nfc_uid: '04:11:22:33:44' } as never)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PartnerHttpException);
+    expect((err as PartnerHttpException).code).toBe('ficha_copy_suspected');
+    expect(audit.log).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('(Error)'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('secreto'));
+    warn.mockRestore();
   });
 });
