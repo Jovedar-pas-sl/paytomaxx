@@ -1,0 +1,24 @@
+{
+  "link": "https://demo-operator.oxiopay.example/?ficha=",
+  "other_uid": "04FFFFFFFFFFFF",
+  "fixtures": {
+    "active": { "token": "demo-ficha-active-0001", "uid": null, "balanceCents": 5000, "by_link": { "status": 200 }, "by_code": { "status": 200 } },
+    "empty": { "token": "demo-ficha-empty-00001", "uid": null, "balanceCents": 0, "by_link": { "status": 200 }, "by_code": { "status": 200 } },
+    "ficha_uid": { "token": "demo-ficha-uid-0000001", "uid": "04A1B2C3D4E5F6", "balanceCents": 5000, "by_link": { "status": 200 }, "by_code": { "status": 200 }, "other_uid": { "status": 409, "code": "ficha_copy_suspected" } },
+    "blocked": { "token": "demo-ficha-blocked-001", "uid": null, "balanceCents": 5000, "by_link": { "status": 409, "code": "wallet_blocked" }, "by_code": { "status": 409, "code": "wallet_blocked" } },
+    "closed": { "token": "demo-ficha-closed-0001", "uid": null, "balanceCents": 0, "by_link": { "status": 409, "code": "wallet_closed" }, "by_code": { "status": 409, "code": "wallet_closed" } },
+    "lost_ficha": { "token": "demo-ficha-lost-000001", "uid": null, "balanceCents": 5000, "by_link": { "status": 409, "code": "ficha_lost" }, "by_code": { "status": 200 } },
+    "ficha_blocked": { "token": "demo-ficha-fblocked-01", "uid": null, "balanceCents": 5000, "by_link": { "status": 409, "code": "ficha_blocked" }, "by_code": { "status": 200 } },
+    "other_group": { "token": "demo-ficha-othergroup1", "uid": null, "balanceCents": 5000, "by_link": { "status": 404, "code": "wallet_not_found" }, "by_code": { "status": 404, "code": "wallet_not_found" } },
+    "other_company": { "token": "demo-ficha-othercomp01", "uid": null, "balanceCents": 5000, "by_link": { "status": 404, "code": "wallet_not_found" }, "by_code": { "status": 404, "code": "wallet_not_found" } }
+  },
+  "samples": [
+    { "qr": "https://demo-api.oxiopay.example/c/demoGoogleWalletPass00000000000000000000001", "status": 422, "code": "wallet_ref_not_accepted", "reason": "wallet_pass" },
+    { "qr": "https://demo-api.oxiopay.example/w/demoPrivateLink000000001", "status": 422, "code": "wallet_ref_not_accepted", "reason": "private_link" },
+    { "qr": "NPF:K7Q4M2:demoReceptionProof0001", "status": 422, "code": "wallet_ref_not_accepted", "reason": "reception_qr" },
+    { "qr": "K7Q4M2", "status": 422, "code": "wallet_ref_not_accepted", "reason": "short_code" },
+    { "qr": "https://demo-api.oxiopay.example/pay/demoChargeLink000000000000000001", "status": 422, "code": "wallet_ref_not_accepted", "reason": "charge_link" },
+    { "qr": "https://demo-api.oxiopay.example/w/a/demoActivationLink000001", "status": 422, "code": "wallet_ref_not_accepted", "reason": "other_link" },
+    { "qr": "https://example.org/carta", "status": 422, "code": "wallet_ref_unrecognized" }
+  ]
+}
