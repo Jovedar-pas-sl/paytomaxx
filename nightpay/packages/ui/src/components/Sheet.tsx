@@ -30,6 +30,12 @@ interface SheetProps {
 
 /** Hojas abiertas, de abajo arriba: Esc, Tab y el foco solo los atiende la de encima. */
 let openModals: readonly symbol[] = [];
+/**
+ * El scroll de la página como estaba antes de abrir la primera hoja: se para
+ * al abrir la primera y se devuelve solo al cerrar la última (cerrar dos
+ * apiladas a la vez, en cualquier orden, no la deja bloqueada).
+ */
+let overflowBeforeModals = '';
 
 const FOCUSABLE = [
   'a[href]',
@@ -208,6 +214,10 @@ export function Sheet({ open, onClose, title, children, footer, wide = 'dialog',
 /** Mientras está abierta: foco dentro, Esc cierra, scroll de fondo parado. Devuelve el "deshacer". */
 function trapFocus(panel: HTMLElement, close: () => void, previous: HTMLElement | null): () => void {
   const id = Symbol('modal');
+  if (openModals.length === 0) {
+    overflowBeforeModals = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
   openModals = [...openModals, id];
   const isTop = () => openModals[openModals.length - 1] === id;
   // Un autoFocus de dentro manda; si no, el foco va a la ventana (se lee el título).
@@ -228,14 +238,12 @@ function trapFocus(panel: HTMLElement, close: () => void, previous: HTMLElement 
 
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('focusin', onFocusIn);
-  const prevOverflow = document.body.style.overflow;
-  document.body.style.overflow = 'hidden';
 
   return () => {
     document.removeEventListener('keydown', onKeyDown);
     document.removeEventListener('focusin', onFocusIn);
-    document.body.style.overflow = prevOverflow;
     openModals = openModals.filter((m) => m !== id);
+    if (openModals.length === 0) document.body.style.overflow = overflowBeforeModals;
     if (previous?.isConnected) previous.focus();
   };
 }
