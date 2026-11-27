@@ -21,6 +21,7 @@ function card(over: Partial<ScreenPayment> = {}): ScreenPayment {
     walletId: null,
     tipCents: 0,
     tipGoesTo: null,
+    gateway: 'REDSYS',
     ...over,
   };
 }
@@ -205,6 +206,18 @@ describe('pantalla del cliente: qué enseña', () => {
     });
     expect(screenViewOf(input({ payment: card({ walletId: 'w1' }) }))).toMatchObject({ tip: null });
     expect(screenViewOf(input({ payment: card({ captureMethod: 'POS_EXTERNAL' }) }))).toMatchObject({ tip: null });
+  });
+
+  it('con una pasarela que no cobra propinas (Yavin, o sin pasarela): sin propina, ni en «Con tarjeta» ni en el QR (como /pay)', () => {
+    for (const gateway of ['YAVIN', 'PEANPE', null]) {
+      const view = screenViewOf(
+        input({
+          payment: card({ serviceFeeCents: 330, gateway }),
+          tip: { on: true, presets: {}, creatorRole: 'OPERATOR', chosenCents: 500 },
+        }),
+      );
+      expect(view).toMatchObject({ tip: null, totalCents: 3300, cardAmountCents: 3630, qrUrl: 'https://api.oxio.test/pay/tok-qr-123' });
+    }
   });
 
   it('solo saldo con propina: el QR del saldo la lleva (?tip=) y el total la suma', () => {

@@ -21,6 +21,7 @@ import {
 import { Prisma } from '@nightpay/db';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { cardGatewayFor } from '../gateways/card-gateway';
 import { publicBaseUrls } from '../payments/pay-qr-url';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { servedOperators } from '../payments/charge-store';
@@ -266,7 +267,7 @@ export class CustomerDisplayService {
 
   /** Lo que enseña la tablet ahora. */
   async screen(display: DisplaySession, now = new Date()): Promise<CustomerScreenView> {
-    const { venue, payment, charge } = await this.prisma.asSystem(async (tx) => ({
+    const { venue, payment: found, charge } = await this.prisma.asSystem(async (tx) => ({
       venue: await tx.venue.findUniqueOrThrow({
         where: { id: display.tenantId },
         select: { name: true, paymentMethods: true, nightSettings: true, postRules: true, displayLine1: true, displayLine2: true },
@@ -286,6 +287,8 @@ export class CustomerDisplayService {
               walletId: true,
               tipCents: true,
               tipGoesTo: true,
+              provider: true,
+              cardGateway: true,
             },
           })
         : null,
@@ -296,6 +299,16 @@ export class CustomerDisplayService {
           })
         : null,
     }));
+    // La pasarela que cobrará la tarjeta (como en /pay: la del cobro o, si aún no ha ido al banco, la del local).
+    const payment = found
+      ? {
+          ...found,
+          gateway:
+            found.provider && found.provider !== 'BTCPAY'
+              ? found.provider
+              : await this.prisma.asSystem((tx) => cardGatewayFor(tx, { ...found, tenantId: display.tenantId })),
+        }
+      : null;
     const methods = paymentMethodsOf(venue.paymentMethods);
     const night = nightSettingsOf(venue.nightSettings);
     // Cobrado por el encargado a nombre de una compañera (#68): la propina es de ella, como en /pay.
