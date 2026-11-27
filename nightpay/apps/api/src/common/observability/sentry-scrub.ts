@@ -68,6 +68,11 @@ const SECRET_BODY_KEYS: ReadonlySet<string> = new Set([
   'description',
   // …y el motivo de una anulación (solo en sus columnas y el panel).
   'reason',
+  // El documento de la compañera (DNI/NIE/pasaporte): el objeto entero y su número.
+  'iddocument',
+  'number',
+  // La clave de Yavin (pasarela de tarjeta) al guardarla en el local.
+  'apikey',
 ]);
 /**
  * Y cualquiera que lo parezca: newPassword, accessToken, pinConfirm,
