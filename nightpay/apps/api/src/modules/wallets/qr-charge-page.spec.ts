@@ -197,6 +197,27 @@ describe('pagar con el saldo escaneando el QR del personal', () => {
       expect(old).toContain('<b aria-hidden="true">Sin propina</b>');
     });
 
+    it('idea 66 (parte B): la que traía el cobro (solo la escribe la pantalla de la barra) sale con su aviso; la del ?tip= de /pay, sin él', () => {
+      const NOTICE = 'En la pantalla elegiste 5 € de propina. Puedes cambiarla o quitarla.';
+      const nb = (html: string): string => html.replace(/[\u00a0\u202f]/g, ' ');
+      const screen = nb(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW));
+      expect(screen).toContain(`<legend>¿Quieres dejar propina?</legend><p class="tipscreen" id="tipScreen">${NOTICE}</p><div class="tipgrid">`);
+      // Desde /pay con la misma (el QR de la pantalla lleva ?tip=): la misma, con su aviso.
+      expect(nb(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW, { tipFromPay: 500 }))).toContain(NOTICE);
+      // La del ?tip= de /pay sin nada en el cobro, o otra distinta de la del cobro: sin aviso.
+      expect(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3300, tip }, NOW, { tipFromPay: 500 })).not.toContain('id="tipScreen"');
+      expect(renderQrChargePage('tok-1', 'es', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW, { tipFromPay: 200 })).not.toContain(
+        'id="tipScreen"',
+      );
+      // En los cuatro idiomas.
+      expect(renderQrChargePage('tok-1', 'en', { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW)).toContain(
+        'You chose a €5 tip on the screen. You can change or remove it.',
+      );
+      for (const lang of ['fr', 'pt'] as const) {
+        expect(renderQrChargePage('tok-1', lang, { ...view, amountCents: 3800, tip: { ...tip, previousCents: 500 } }, NOW)).toContain('id="tipScreen"');
+      }
+    });
+
     it('sin propinas (local o puesto) no hay nada que elegir: se paga lo que dice el cobro', () => {
       const html = renderQrChargePage('tok-1', 'es', { ...view, tip: null }, NOW);
       expect(html).not.toContain('<fieldset class="tips">');

@@ -26,7 +26,7 @@ import { WalletPasskeysService } from '../wallets/wallet-passkeys.service';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PAID_STATES, confirmationCode, withChosenTip, type CheckoutChoice, type PayRedirect } from './pay-redirect';
 import { detectPayDevice, type PayDevice } from './pay-device';
-import { payErrorKeyOf, type PayLanguage } from './pay-i18n';
+import { PAY_TEXT, payErrorKeyOf, type PayLanguage } from './pay-i18n';
 import { PAY_LANGUAGES, customerLanguage, suggestedLanguage } from './customer-lang';
 import {
   payHref,
@@ -41,8 +41,11 @@ import {
   renderErrorPage,
   renderPaidPage,
   renderProcessingPage,
+  renderNoticePage,
   renderReceiptPage,
   renderResultView,
+  receiptMailState,
+  type ReceiptMailState,
 } from './public-pay.pages';
 import { walletClaimCookieName, walletClaimSetCookie } from './wallet-claim';
 import { MIN_RETRY_S, PayPageFilter } from './pay-page.filter';
@@ -76,6 +79,8 @@ const PAY_STATUS_BY_TOKEN = {
 } as const;
 const PAY_STATUS_BY_ORDER = { ...PAY_STATUS_BY_TOKEN, perKey: { query: 'op', max: 120 } } as const;
 import { checkedPin } from '../wallets/client-pin';
+import { EmailService } from '../../common/email/email.service';
+import { RECEIPT_EMAIL_MAX, receiptEmail } from './receipt-email';
 
 /** Formulario de la página de pago. `method` vacío = sin preferencia. */
 const CheckoutFormSchema = z.object({
@@ -86,6 +91,19 @@ const CheckoutFormSchema = z.object({
     .transform((m) => (m === 'wallet' || m === 'card' ? m : null)),
   lang: z.enum(PAY_LANGUAGES as unknown as [PayLanguage, ...PayLanguage[]]).optional(),
 });
+
+/**
+ * El justificante por correo (idea 68): una sola dirección (zod; llamarlo
+ * `email` hace que sentry-scrub.ts lo tape) y el idioma de la página.
+ */
+const ReceiptEmailSchema = z.object({ email: z.string().trim().max(254).email() });
+
+/**
+ * Justificante por correo: 20 envíos cada 10 min desde una IP (la wifi del
+ * local es una sola IP), sin dejar pasar si Redis no responde (cada uno es un
+ * correo de verdad). Pasado, la página que espera (PayPageFilter).
+ */
+const RECEIPT_EMAIL_LIMIT = { max: 20, windowSec: 600, scope: 'pay-receipt-email' } as const;
 
 export { walletClaimCookieName } from './wallet-claim';
 
@@ -103,7 +121,10 @@ export { walletClaimCookieName } from './wallet-claim';
  *  - GET  /pay/result?op=…     → vuelta del banco (URLOK/URLKO): estado REAL
  *                                leído de la base de datos; el `status` de la
  *                                URL se ignora (cualquiera puede escribirlo).
- *  - GET  /pay/:token/receipt  → justificante, solo si está pagado.
+ *  - GET  /pay/:token/receipt  → justificante, solo si está pagado (los 4
+ *                                últimos dígitos, solo al navegador que pagó).
+ *  - POST /pay/:token/receipt/email → el justificante por correo (solo quien
+ *                                pagó, con el correo configurado; 303 de vuelta).
  *  - GET  /pay/:token/status   → el estado del pago en JSON para «Comprobando
  *  - GET  /pay/result/status?op=…  el pago» (pay-status.ts; sin caché).
  *
@@ -120,6 +141,7 @@ export class PublicPayController {
   private readonly passkeys: WalletPasskeysService;
   private readonly redsysReturn: RedsysReturnService;
   private readonly status: PayStatusService | null;
+  private readonly email: EmailService | null;
 
   constructor(
     @Inject(PaymentsService) payments: PaymentsService,
@@ -128,6 +150,7 @@ export class PublicPayController {
     @Inject(WalletPasskeysService) passkeys: WalletPasskeysService,
     @Inject(RedsysReturnService) redsysReturn: RedsysReturnService,
     @Inject(PayStatusService) status?: PayStatusService,
+    @Inject(EmailService) email?: EmailService,
   ) {
     this.payments = payments;
     this.config = config;
@@ -135,6 +158,7 @@ export class PublicPayController {
     this.passkeys = passkeys;
     this.redsysReturn = redsysReturn;
     this.status = status ?? null;
+    this.email = email ?? null;
   }
 
   /** «Comprobando el pago» por la vuelta del banco: el estado en JSON, sin caché. */
@@ -244,6 +268,8 @@ export class PublicPayController {
     @Query('lang') langQuery: string | undefined,
     @Headers('cookie') cookies: string | undefined,
     @Res() res: FastifyReply,
+    // Lo que pasó con el último envío por correo (303 del POST): solo se pinta, no reenvía nada.
+    @Query('correo') mailQuery?: string,
   ): Promise<void> {
     const lang = this.language(res, langQuery, cookies);
     const receipt = await this.payments.getReceipt(token);
@@ -251,11 +277,86 @@ export class PublicPayController {
       sendHtml(res, 404, renderErrorPage('notFound', lang));
       return;
     }
+    // Quien pagó (la cookie del intento APROBADO, nunca la del saldo): ve los 4
+    // últimos dígitos y puede pedírselo por correo. Cualquier otro, sin datos personales.
+    const viewerPaid = this.hasWalletClaim(res, token, receipt.approvedClaimHash ?? null);
+    const { approvedClaimHash: _claim, cardLast4, ...rest } = receipt;
+    const shown = { ...rest, cardLast4: viewerPaid ? (cardLast4 ?? null) : null };
+    const emailOn = viewerPaid && this.emailEnabled();
+    // El formulario del correo vuelve a esta página con su Origin (no «null»): same-origin, nunca a otra web.
+    res.header('Referrer-Policy', 'same-origin');
     sendHtml(
       res,
       200,
-      renderReceiptPage(receipt, { lang, statementName: this.statementName(), backHref: payHref(token, lang) }),
+      renderReceiptPage(shown, {
+        lang,
+        statementName: this.statementName(),
+        backHref: payHref(token, lang),
+        emailAction: emailOn ? `${payBase(token)}/receipt/email` : null,
+        mail: emailOn ? receiptMailState(mailQuery) : null,
+      }),
     );
+  }
+
+  /**
+   * «Enviármelo por correo» (idea 68), un formulario normal (también sin JS):
+   * vuelve (303) al justificante con ?correo=enviado|error|tope|mal. Nada se
+   * envía (403) desde otra web (la cookie es SameSite=None), sin pagar o sin la
+   * cookie del intento aprobado. La dirección no se guarda: solo se usa para
+   * este envío; queda apuntado que se envió (para el tope de 3). Si el correo
+   * falla, la página sigue (dice que no se pudo).
+   */
+  @Public()
+  @Post(':token/receipt/email')
+  @IpRateLimit(RECEIPT_EMAIL_LIMIT)
+  @UseFilters(new PayPageFilter())
+  async emailReceipt(
+    @Param('token') token: string,
+    @Body() body: unknown,
+    @Headers('cookie') cookies: string | undefined,
+    @Headers('host') host: string | undefined,
+    @Headers('origin') origin: string | undefined,
+    @Headers('sec-fetch-site') fetchSite: string | undefined,
+    @Res() res: FastifyReply,
+  ): Promise<void> {
+    const form = (body && typeof body === 'object' ? body : {}) as { email?: unknown; lang?: unknown };
+    const lang = this.language(res, PAY_LANGUAGES.includes(form.lang as PayLanguage) ? form.lang : undefined, cookies);
+    const back = (state: ReceiptMailState): void =>
+      redirectTo(res, `${payBase(token)}/receipt?lang=${lang}&correo=${state}`);
+    const receipt = fromOurPage(origin, host, fetchSite) ? await this.payments.getReceipt(token) : null;
+    if (!receipt || !this.hasWalletClaim(res, token, receipt.approvedClaimHash ?? null)) {
+      sendHtml(res, 403, renderNoticePage(lang, PAY_TEXT[lang].receipt.emailForbidden, 'warn', `${payBase(token)}/receipt?lang=${lang}`));
+      return;
+    }
+    if (!this.emailEnabled()) {
+      back('error');
+      return;
+    }
+    const parsed = ReceiptEmailSchema.safeParse({ email: form.email });
+    if (!parsed.success) {
+      back('mal');
+      return;
+    }
+    try {
+      if ((await this.payments.receiptEmailsSent(receipt.paymentId)) >= RECEIPT_EMAIL_MAX) {
+        back('tope');
+        return;
+      }
+      const mail = receiptEmail(receipt, lang);
+      const sent = await this.email!.send({ to: parsed.data.email, ...mail });
+      if (!sent.delivered) {
+        back('error');
+        return;
+      }
+      // Solo cuenta lo que Resend aceptó. Si el apunte falla, el correo ya salió: «Enviado» igual.
+      await this.payments.recordReceiptEmailed(receipt.paymentId, lang).catch((err: unknown) => {
+        this.logger.warn(`/pay/${token.slice(0, 4)}…: justificante enviado sin apuntar: ${(err as Error).message}`);
+      });
+      back('enviado');
+    } catch (err) {
+      this.logger.warn(`/pay/${token.slice(0, 4)}…: justificante por correo sin enviar: ${(err as Error).message}`);
+      back('error');
+    }
   }
 
   @Public()
@@ -684,6 +785,15 @@ export class PublicPayController {
     return !(raw === false || raw === 'false' || raw === '0');
   }
 
+  /** El correo (Resend) configurado: sin él, «Enviármelo por correo» ni sale. */
+  private emailEnabled(): boolean {
+    try {
+      return this.email?.isEnabled() === true;
+    } catch {
+      return false;
+    }
+  }
+
   private statementName(): string | null {
     const name = this.config.get<string>('PAY_STATEMENT_NAME')?.trim();
     return name ? name : null;
@@ -715,6 +825,16 @@ function sendHtml(res: FastifyReply, status: number, html: string): void {
     // Android: que mande el modelo y la versión en las peticiones siguientes (al pagar).
     .header('Accept-CH', CLIENT_HINTS_ACCEPT_CH)
     .send(html);
+}
+
+/**
+ * Un formulario de nuestra página (el justificante por correo): con Origin,
+ * el de este dominio; sin él (o «null»), Sec-Fetch-Site same-origin. Otra web
+ * no puede enviarlo aunque el navegador lleve la cookie del pago (SameSite=None).
+ */
+function fromOurPage(origin: string | undefined, host: string | undefined, fetchSite: string | undefined): boolean {
+  if (origin && origin !== 'null') return sameHost(origin, host);
+  return fetchSite === 'same-origin';
 }
 
 /** La petición viene de nuestra propia página (Origin "null" o de otra web, no). */

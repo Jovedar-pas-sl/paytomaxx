@@ -84,6 +84,12 @@ describe('páginas del cliente fuera de /v1', () => {
     );
   });
 
+  it('el justificante por correo (idea 68): POST /pay/:token/receipt/email, sin /v1', () => {
+    const fastify = app.getHttpAdapter().getInstance();
+    expect(routes.map((r) => `${RequestMethod[r.method]} ${r.path}`)).toContain('POST pay/:token/receipt/email');
+    expect(fastify.hasRoute({ method: 'POST', url: '/pay/:token/receipt/email' })).toBe(true);
+  });
+
   it('cada ruta @Public de pay, w y s se sirve sin /v1', () => {
     const fastify = app.getHttpAdapter().getInstance();
     const prefixed = routes

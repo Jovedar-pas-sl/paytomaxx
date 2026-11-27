@@ -42,6 +42,8 @@ interface Setup {
   authorize?: (input: Row) => Promise<Row>;
   /** La conexión del local a BTCPay (null = sin conectar). */
   btcpay?: Row | null;
+  /** El último apunte `display.tip` del cobro (la propina elegida en la pantalla de la barra). */
+  screenTip?: Row | null;
 }
 
 function paymentRow(o: Row = {}): Row {
@@ -105,6 +107,7 @@ function makeService(setup: Setup = {}) {
     venue: { findUnique: vi.fn(async () => setup.venue ?? { pausedAt: null, business: null, paymentMethods: null }) },
     walletCashTopUp: { findFirst: vi.fn(async () => null) },
     btcpayStore: { findUnique: vi.fn(async () => setup.btcpay ?? null) },
+    paymentEvent: { findFirst: vi.fn(async () => (setup.screenTip ? { payload: setup.screenTip } : null)) },
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       locks.push(Prisma.sql(strings, ...values));
       return [{ ok: 1 }];
@@ -269,6 +272,27 @@ describe('getPayPage — lo que ve el cliente al escanear el QR', () => {
       attempts: [{ providerTxId: 'ORD-1', status: 'DENIED', createdAt: secondsAgo(200) }],
     });
     await expect(service.getPayPage(QR)).resolves.toEqual({ kind: 'closed', reason: 'expired' });
+  });
+
+  it('idea 66 (parte B): la última propina elegida en la pantalla de la barra (apunte display.tip) va en la vista, para marcar solo esa', async () => {
+    const { service, db } = makeService({ screenTip: { tipCents: 500 } });
+    await expect(service.getPayPage(QR)).resolves.toMatchObject({ kind: 'choose', screenTipCents: 500 });
+    expect(db.paymentEvent.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { paymentId: PAYMENT_ID, eventType: 'display.tip' }, orderBy: { id: 'desc' } }),
+    );
+    // Sin apunte, o con «Sin propina» elegida, nada.
+    for (const screenTip of [null, { tipCents: 0 }, { tipCents: 'x' }]) {
+      expect(await makeService({ screenTip }).service.getPayPage(QR)).not.toHaveProperty('screenTipCents');
+    }
+    // Sin propinas en el cobro (otra pasarela) ni se mira.
+    const paytef = makeService({ provider: 'PAYTEF', screenTip: { tipCents: 500 } });
+    expect(await paytef.service.getPayPage(QR)).not.toHaveProperty('screenTipCents');
+    expect(paytef.db.paymentEvent.findFirst).not.toHaveBeenCalled();
+    // Si no se puede leer, la página sale igual (nada marcado) y queda en el log.
+    const broken = makeService({ screenTip: { tipCents: 500 } });
+    broken.db.paymentEvent.findFirst.mockRejectedValueOnce(new Error('base caída'));
+    expect(await broken.service.getPayPage(QR)).toMatchObject({ kind: 'choose' });
+    expect(broken.logger.warn).toHaveBeenCalled();
   });
 
   it('token desconocido → 404', async () => {

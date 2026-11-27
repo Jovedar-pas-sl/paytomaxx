@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import {
   CUSTOMER_DISPLAY_CODE_LENGTH,
@@ -25,6 +26,7 @@ import { chargeRightsFor } from '../venues/charge-rights';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { PinRequiredException } from '../wallets/wallet-nopin';
 import { displayKey, screenViewOf, tipAllowed } from './customer-screen';
+import { DISPLAY_TIP_EVENT } from './display-tip-event';
 import { followedRooms, nightClosedSince, pairingExpiresAt, type DisplaySession } from './display-auth';
 import { formatDisplayCode, newDisplayCode, newDisplayToken, normalizeDisplayCode, sha256 } from './display-code';
 
@@ -321,8 +323,9 @@ export class CustomerDisplayService {
 
   /**
    * El cliente elige su propina en la tablet (0: «Sin propina»): una de las
-   * sugeridas u «Otra», y solo en el cobro que enseña. Va en el QR (?tip=) y,
-   * si hay cobro del saldo, en él: la ficha (en la tablet o en el móvil del
+   * sugeridas u «Otra», y solo en el cobro que enseña. Va en el QR (?tip=),
+   * apuntada en el cobro con tarjeta (`display.tip`: /pay la marca solo si
+   * coincide) y, si hay cobro del saldo, en él: la ficha (en la tablet o en el móvil del
    * camarero) paga lo vendido + esa propina. Con propina, la ficha pide
    * SIEMPRE el PIN (409 PIN_REQUIRED, motivo `tip`), aunque esté por debajo del tope.
    */
@@ -338,6 +341,20 @@ export class CustomerDisplayService {
         data: { tipCents: dto.tipCents },
       });
       if (saved.count === 0) throw notCurrent();
+      // Cobro con tarjeta (su QR lleva ?tip=): un apunte por cambio, para que
+      // la página de pago la marque solo si de verdad se eligió aquí. Con solo
+      // el saldo, no: queda en su cobro y la confirman el PIN o el Face ID.
+      if (display.paymentId && view.tip !== null) {
+        await tx.paymentEvent.create({
+          data: {
+            paymentId: display.paymentId,
+            tenantId: display.tenantId,
+            eventType: DISPLAY_TIP_EVENT,
+            payload: { tipCents: dto.tipCents },
+            traceId: randomUUID(),
+          },
+        });
+      }
       // El cobro con ficha, mientras nadie lo esté pagando (sin saldo atado aún).
       if (display.chargeId) {
         await tx.walletChargeRequest.updateMany({

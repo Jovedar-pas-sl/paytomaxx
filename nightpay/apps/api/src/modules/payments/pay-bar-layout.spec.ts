@@ -115,6 +115,13 @@ describe('barra de pagar pegada abajo', () => {
     expect(five.match(/<label[^>]*><input type="radio" name="tip"/g)).toHaveLength(5);
   });
 
+  it('con el aviso de la pantalla de la barra (parte B), en pantallas bajas la pregunta solo la oye el lector: el aviso ya dice que es la propina (medido: así el TOTAL sigue sobre la barra en 390×844)', () => {
+    expect(TIP_BUTTONS_CSS).toContain(
+      '@media screen and (max-height:900px){.tips.scr legend{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.tips.scr .tipscreen{margin-top:0}}',
+    );
+    expect(TIP_BUTTONS_CSS).toContain('.tipscreen{margin:-.2rem 0 .6rem;font-size:.875rem;color:var(--fg);text-align:center}');
+  });
+
   it('a quién va la propina se dice siempre: «Va entera para el personal» o «Es para el local»', () => {
     expect(body({ tipToStaff: true })).toContain('<p class="tipnote">Va entera para el personal</p>');
     expect(body({ tipToStaff: false })).toContain('<p class="tipnote">Es para el local</p>');

@@ -59,6 +59,8 @@ import { linesWithOperatorBps, resolveChargeOrThrow, type LineWithBps } from './
 import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf, servedOperators } from './charge-store';
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
+import { DISPLAY_TIP_EVENT } from '../customer-display/display-tip-event';
+import { RECEIPT_EMAILED_EVENT } from './receipt-email';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -1138,7 +1140,9 @@ export class PaymentsService implements OnApplicationBootstrap {
     const payment = await this.findPayable(qrToken);
     const settled = settledPayView(payment);
     if (settled) return settled;
-    if (payment.status !== 'AUTHORIZING') return this.withStaffPhoto(choosePayPage(payment), payment.staffUserId);
+    if (payment.status !== 'AUTHORIZING') {
+      return this.withStaffPhoto(await this.withScreenTip(choosePayPage(payment), payment.id), payment.staffUserId);
+    }
     // Factura de bitcoin abierta: su página (QR y cuenta atrás), no la del banco.
     if (payment.provider === 'BTCPAY') return { kind: 'bitcoin' };
     // Otras pasarelas: se reenvía lo guardado, como antes.
@@ -1158,7 +1162,34 @@ export class PaymentsService implements OnApplicationBootstrap {
       paymentUpdatedAt: payment.updatedAt,
     });
     // Denegado o abandonado: puede volver a elegir (p. ej. tarjeta en vez de Apple Pay).
-    return decision === 'retry' ? this.withStaffPhoto(choosePayPage(payment), payment.staffUserId) : retryOutcome(decision);
+    return decision === 'retry'
+      ? this.withStaffPhoto(await this.withScreenTip(choosePayPage(payment), payment.id), payment.staffUserId)
+      : retryOutcome(decision);
+  }
+
+  /**
+   * La última propina que el cliente eligió en la «Pantalla del cliente» de la
+   * barra para este cobro (apunte `display.tip`, lo escribe setTip() de
+   * customer-display): con ella, withChosenTip() marca la del ?tip= del QR.
+   * Sin propinas en el cobro no se mira. Si no se puede leer, la página sale
+   * como siempre (nada marcado).
+   */
+  private async withScreenTip(view: PayRedirect, paymentId: string): Promise<PayRedirect> {
+    if (view.kind !== 'choose' || view.tipMaxCents <= 0) return view;
+    try {
+      const last = await this.prisma.asSystem((tx) =>
+        tx.paymentEvent.findFirst({
+          where: { paymentId, eventType: DISPLAY_TIP_EVENT },
+          orderBy: { id: 'desc' },
+          select: { payload: true },
+        }),
+      );
+      const cents = (last?.payload as { tipCents?: unknown } | null | undefined)?.tipCents;
+      return typeof cents === 'number' && Number.isInteger(cents) && cents > 0 ? { ...view, screenTipCents: cents } : view;
+    } catch (err) {
+      this.logger.warn(`Propina de la pantalla sin leer (payment=${paymentId}): ${(err as Error).message}`);
+      return view;
+    }
   }
 
   /**
@@ -1513,6 +1544,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           authCode: true,
           cardBrand: true,
+          // Los 4 últimos (solo los ve el navegador que pagó: lo decide el controlador).
+          cardLast4: true,
           providerTxId: true,
           walletId: true,
           // A quién se pagó y lo pedido.
@@ -1524,7 +1557,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       const charged = await tx.paymentAttempt.findFirst({
         where: { paymentId: payment.id, status: 'APPROVED' },
         orderBy: { createdAt: 'asc' },
-        select: { providerTxId: true, payMethod: true },
+        select: { providerTxId: true, payMethod: true, claimHash: true },
       });
       return {
         paymentId: payment.id,
@@ -1540,7 +1573,34 @@ export class PaymentsService implements OnApplicationBootstrap {
         order: charged?.providerTxId ?? payment.providerTxId,
         venueName: payment.venue?.name ?? null,
         concept: payment.serviceName ?? null,
+        cardLast4: payment.cardLast4 ?? null,
+        approvedClaimHash: charged?.claimHash ?? null,
       };
+    });
+  }
+
+  /**
+   * Cuántas veces se ha enviado ya el justificante de este cobro por correo
+   * (los apuntes `receipt.emailed`: solo los que Resend aceptó). Tope: 3.
+   */
+  async receiptEmailsSent(paymentId: string): Promise<number> {
+    return this.prisma.asSystem((tx) => tx.paymentEvent.count({ where: { paymentId, eventType: RECEIPT_EMAILED_EVENT } }));
+  }
+
+  /** Apunta un justificante enviado por correo (sin la dirección: solo el idioma). */
+  async recordReceiptEmailed(paymentId: string, lang: string): Promise<void> {
+    await this.prisma.asSystem(async (tx) => {
+      const p = await tx.payment.findUnique({ where: { id: paymentId }, select: { tenantId: true } });
+      if (!p) return;
+      await tx.paymentEvent.create({
+        data: {
+          paymentId,
+          tenantId: p.tenantId,
+          eventType: RECEIPT_EMAILED_EVENT,
+          payload: { lang },
+          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
+        },
+      });
     });
   }
 

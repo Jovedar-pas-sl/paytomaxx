@@ -67,6 +67,7 @@ export function legalDocsEn(o: LegalOwner): LegalDocs {
             'Your phone number, only if you give it to us, to help you recover your balance if you lose your card.',
             'If you top up from home: the same as for a payment, plus a cookie that remembers on your phone the balances you topped up.',
             'If you make a reservation: your name, your phone number and the notes you write when booking.',
+            'If you ask for the receipt by email: your email address, only to send it to you (Resend sends it). We do not store it in OxioPay.',
             'If you turn on “Notify me of every charge” in your balance (it is optional): the details your browser gives us to send you notifications (its notification address and keys) and the language of the notification.',
             'Technical data: IP address, browser type and security logs.',
           ],

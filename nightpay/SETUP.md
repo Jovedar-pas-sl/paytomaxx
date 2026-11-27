@@ -158,10 +158,11 @@ $created | ConvertTo-Json -Depth 5
 Devuelve `id`, `qrToken`, `qrUrl`, `qrPngDataUrl` (el QR en PNG) y `qrExpiresAt`
 (el QR caduca a los 5 min: pasa a `EXPIRED` solo, con BullMQ).
 
-`qrUrl` es `NEXT_PUBLIC_WEB_CLIENT_URL/pay/<token>` (en local,
-http://localhost:4101/pay/<token>); la web del cliente redirige a la página de
-pago del API (http://localhost:4100/pay/<token>), que es la de verdad: importe,
-propina y botones. Al pulsar «Pagar» se abre el pago en la pasarela activa del
+`qrUrl` es `NEXT_PUBLIC_API_URL/pay/<token>` (en local,
+http://localhost:4100/pay/<token>): la página de pago del API, directa (sin
+pasar por la web del cliente, que solo redirige los QR viejos): importe,
+propina y botones. Con datáfono, el QR abre la app del personal
+(`NEXT_PUBLIC_OPERATOR_URL/?pos=<id>`). Al pulsar «Pagar» se abre el pago en la pasarela activa del
 local y el cliente va a la página del banco; el cobro pasa a pagado cuando llega
 el aviso firmado del banco al API (`/v1/webhooks/…`; Redsys lo manda a
 `NEXT_PUBLIC_API_URL/v1/webhooks/redsys`, así que desde el banco de verdad solo

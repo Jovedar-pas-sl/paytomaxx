@@ -16,11 +16,34 @@ export interface SendEmailResult {
   reason?: string;
 }
 
+/** Lo más que se espera a Resend: una llamada colgada no deja colgada la página que la pidió. */
+const SEND_TIMEOUT_MS = 10_000;
+
+/**
+ * La dirección para el registro, nunca entera: «m***@g***.com» (la primera
+ * letra de cada parte y el final del dominio). Sin arroba, «***».
+ */
+export function maskEmail(address: string): string {
+  const at = address.lastIndexOf('@');
+  if (at <= 0) return '***';
+  const local = address.slice(0, at);
+  const domain = address.slice(at + 1);
+  const dot = domain.lastIndexOf('.');
+  const tld = dot > 0 ? domain.slice(dot) : '';
+  return `${local[0]}***@${domain ? `${domain[0]}***` : '***'}${tld}`;
+}
+
+/** Cualquier dirección dentro de un texto (la respuesta de Resend puede repetirla), enmascarada. */
+function maskEmailsIn(text: string): string {
+  return text.replace(/[^\s"'<>@,;:()[\]]+@[^\s"'<>@,;:()[\]]+/g, (m) => maskEmail(m));
+}
+
 /**
  * Email abstraction. Inyectable como token EmailService.
  *
  * - Si `RESEND_API_KEY` está set → usa la API HTTP de Resend (sin SDK,
- *   solo fetch para no añadir dependencia más).
+ *   solo fetch para no añadir dependencia más), 10 s como mucho.
+ * - La dirección va enmascarada en el registro (maskEmail): nunca entera.
  * - Si no → modo NoOp: loguea y devuelve `delivered: false`. El caller
  *   (createOperator) trata `delivered: false` como señal de que debe
  *   mostrar el inviteUrl al admin para envío manual via WhatsApp.
@@ -42,7 +65,7 @@ export class EmailService {
 
   async send(input: SendEmailInput): Promise<SendEmailResult> {
     if (!this.apiKey) {
-      this.logger.log(`[NoOp] Email skipped to=${input.to} subject="${input.subject}"`);
+      this.logger.log(`[NoOp] Email skipped to=${maskEmail(input.to)} subject="${input.subject}"`);
       return { ok: true, delivered: false, reason: 'RESEND_API_KEY not set' };
     }
 
@@ -60,25 +83,26 @@ export class EmailService {
           html: input.html,
           text: input.text,
         }),
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
       });
 
       if (!res.ok) {
         const body = await res.text();
         this.logger.warn(
-          `Resend send failed status=${res.status} body=${body.slice(0, 200)} to=${input.to}`,
+          `Resend send failed status=${res.status} body=${maskEmailsIn(body.slice(0, 200))} to=${maskEmail(input.to)}`,
         );
         return { ok: false, delivered: false, reason: `resend-${res.status}` };
       }
 
-      this.logger.log(`Email sent via Resend to=${input.to} subject="${input.subject}"`);
+      this.logger.log(`Email sent via Resend to=${maskEmail(input.to)} subject="${input.subject}"`);
       return { ok: true, delivered: true };
     } catch (err) {
       // Logueamos stack completo (no solo .message) para diagnosticar failures
       // de red, DNS, certificados, etc. en producción.
       const errorObj = err instanceof Error ? err : new Error(String(err));
       this.logger.error(
-        `Resend send error to=${input.to}: ${errorObj.message}`,
-        errorObj.stack,
+        `Resend send error to=${maskEmail(input.to)}: ${maskEmailsIn(errorObj.message)}`,
+        errorObj.stack ? maskEmailsIn(errorObj.stack) : undefined,
       );
       return { ok: false, delivered: false, reason: 'exception' };
     }

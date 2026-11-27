@@ -202,6 +202,8 @@ iv=setInterval(tick,1000);tick();
 // Face ID preparado ya: al tocar "Pagar" sale al momento.
 var go=pkPrepare(C.base+'/challenge');
 function paid(r){stop('');$('ask').hidden=true;
+ // La franja de idioma (idea 71) nunca queda encima del «Pagado».
+ var sug=document.querySelector?document.querySelector('nav.sug'):null;if(sug&&sug.parentNode)sug.parentNode.removeChild(sug);
  var t=Date.now();el.setAttribute('data-at',String(t));el.setAttribute('data-now',String(t));el.classList.remove('stale');
  el.querySelector('[data-title]').textContent=T.paidTitle;el.querySelector('[data-amount]').textContent=eur(r.amountCents);
  if(typeof r.balanceCents==='number'){var line=document.createElement('p');line.className='pline';line.textContent=T.left.split('{amount}').join(eur(r.balanceCents));el.querySelector('[data-lines]').appendChild(line);}

@@ -9,8 +9,9 @@ import type { QrChargeTipView } from './wallet-charges.service';
  * nada marcado, con los mismos botones y textos que la página de pago con
  * tarjeta (payments/tip-buttons.ts). «Sin propina», las sugeridas del local
  * para el importe y «Otra» (euros enteros, hasta el máximo). Sale marcada solo
- * la que ya eligió en /pay (?tip=) o la que traía un cobro de antes (puesta
- * por el personal), que se puede quitar. Con el saldo no hay comisión del
+ * la que ya eligió en /pay (?tip=) o la que traía el cobro (la que eligió en
+ * la pantalla de la barra: solo la escribe setTip() de customer-display, y
+ * entonces sale con su aviso), que se puede quitar. Con el saldo no hay comisión del
  * servicio: el total de cada botón es el importe más su propina.
  */
 
@@ -57,6 +58,8 @@ export function saldoTipFieldset(lang: PayLanguage, tip: QrChargeTipView, initia
     // Otra cantidad (de /pay) que no es un botón: en «Otra», si son euros enteros.
     otherEuros: initial !== null && !isButton && initial % 100 === 0 ? initial / 100 : null,
     toStaff: tip.toStaff,
+    // La que traía el cobro solo la escribe la pantalla de la barra (setTip): se le avisa.
+    fromScreen: tip.previousCents > 0 && initial === tip.previousCents,
   });
 }
 

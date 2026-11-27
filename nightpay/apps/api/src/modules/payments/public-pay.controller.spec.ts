@@ -48,6 +48,10 @@ function makeController(opts: {
   statusCtx?: PayStatusContext | null;
   /** Reservados: el enlace de la reserva del pago. */
   manageToken?: string | null;
+  /** El correo (Resend): configurado o no, y lo que contesta. */
+  email?: { enabled?: boolean; send?: () => Promise<unknown> };
+  /** Justificantes ya enviados por correo de este cobro. */
+  emailsSent?: number;
 }) {
   const payments = {
     getResultView: vi.fn().mockResolvedValue(opts.view ?? null),
@@ -59,6 +63,12 @@ function makeController(opts: {
     getReceipt: vi.fn().mockResolvedValue(opts.receipt ?? null),
     getCheckoutForm: vi.fn().mockResolvedValue(opts.checkoutForm ?? null),
     reservationManageToken: vi.fn().mockResolvedValue(opts.manageToken ?? null),
+    receiptEmailsSent: vi.fn().mockResolvedValue(opts.emailsSent ?? 0),
+    recordReceiptEmailed: vi.fn().mockResolvedValue(undefined),
+  };
+  const email = {
+    isEnabled: vi.fn(() => opts.email?.enabled ?? false),
+    send: vi.fn(opts.email?.send ?? (async () => ({ ok: true, delivered: true }))),
   };
   const settings: Record<string, string | undefined> = {
     PAY_STATEMENT_NAME: opts.statementName,
@@ -72,10 +82,19 @@ function makeController(opts: {
     byOrder: vi.fn().mockResolvedValue(opts.statusCtx ?? null),
   };
   return {
-    controller: new PublicPayController(payments as never, config as never, {} as never, {} as never, redsysReturn as never, status as never),
+    controller: new PublicPayController(
+      payments as never,
+      config as never,
+      {} as never,
+      {} as never,
+      redsysReturn as never,
+      status as never,
+      email as never,
+    ),
     payments,
     redsysReturn,
     status,
+    email,
   };
 }
 
@@ -1021,6 +1040,312 @@ describe('GET /pay/:token/receipt — justificante', () => {
     const out = fakeReply();
     await big.controller.receipt('qr-token-1', 'es', undefined, out.reply);
     expect(String(out.sent.body).split(String.fromCharCode(160)).join(' ')).toContain('12.345,60 €');
+  });
+});
+
+describe('justificante (parte B): los 4 últimos dígitos solo para el navegador que pagó (idea 62)', () => {
+  const PAYER = 'p'.repeat(43);
+  const payerHash = createHash('sha256').update(PAYER).digest('hex');
+  const cookie = (value: string): string => `${walletClaimCookieName('', 'qr-token-1')}=${value}`;
+  const RECEIPT: PayReceiptView = {
+    paymentId: PAYMENT_ID,
+    amountCents: 3_300,
+    serviceFeeCents: 200,
+    tipCents: 0,
+    currency: 'EUR',
+    authorizedAt: new Date('2026-10-13T21:41:00Z'),
+    authCode: '047215',
+    cardBrand: '1',
+    payMethod: 'card',
+    order: '1234ABCD5678',
+    venueName: 'Sala Aurora',
+    cardLast4: '1234',
+    approvedClaimHash: payerHash,
+  };
+  const open = async (receipt: PayReceiptView, cookieHeader?: string): Promise<string> => {
+    const { controller } = makeController({ receipt });
+    const { reply, sent } = fakeReply(cookieHeader);
+    await controller.receipt('qr-token-1', 'es', cookieHeader, reply);
+    expect(sent.status).toBe(200);
+    return sent.body!.replace(/[\u00a0\u202f]/g, ' ');
+  };
+
+  it('con la cookie del intento aprobado: «Visa ··1234 · Tarjeta», sin «Este justificante no contiene datos personales.»', async () => {
+    const html = await open(RECEIPT, cookie(PAYER));
+    expect(html).toContain('<dt>Método</dt><dd>Visa ··1234 · Tarjeta</dd>');
+    expect(html).not.toContain('Este justificante no contiene datos personales.');
+  });
+
+  it('sin cookie, con otra o con la del saldo (walletClaimHash, nunca esa): sin dígitos y con la frase de siempre', async () => {
+    const other = 'o'.repeat(43);
+    for (const [receipt, header] of [
+      [RECEIPT, undefined],
+      [RECEIPT, cookie(other)],
+      [{ ...RECEIPT, approvedClaimHash: null }, cookie(PAYER)],
+    ] as const) {
+      const html = await open(receipt, header);
+      expect(html).toContain('<dt>Método</dt><dd>Visa · Tarjeta</dd>');
+      expect(html).not.toContain('1234</dd>');
+      expect(html).not.toMatch(/··[0-9]/);
+      expect(html).toContain('Este justificante no contiene datos personales.');
+    }
+  });
+
+  it('nunca más de 4 dígitos (ni algo que no lo sea), aunque los tuviera el cobro', async () => {
+    for (const cardLast4 of ['41111234', '12a4', '']) {
+      const html = await open({ ...RECEIPT, cardLast4 }, cookie(PAYER));
+      expect(html).not.toMatch(/··/);
+      expect(html).not.toContain('41111234');
+      expect(html).toContain('Este justificante no contiene datos personales.');
+    }
+  });
+});
+
+describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', () => {
+  const PAYER = 'p'.repeat(43);
+  const payerHash = createHash('sha256').update(PAYER).digest('hex');
+  const COOKIE = `${walletClaimCookieName('', 'qr-token-1')}=${PAYER}`;
+  const RECEIPT: PayReceiptView = {
+    paymentId: PAYMENT_ID,
+    amountCents: 3_300,
+    serviceFeeCents: 200,
+    tipCents: 0,
+    currency: 'EUR',
+    authorizedAt: new Date('2026-10-13T21:41:00Z'),
+    authCode: '047215',
+    cardBrand: '1',
+    payMethod: 'card',
+    order: '1234ABCD5678',
+    venueName: 'Sala <Aurora>',
+    concept: '2× Gin tonic · Nachos',
+    cardLast4: '1234',
+    approvedClaimHash: payerHash,
+  };
+  const nb = (s: string): string => s.replace(/[\u00a0\u202f]/g, ' ');
+  const page = async (o: { cookie?: string; enabled?: boolean; correo?: string; lang?: string } = {}) => {
+    const { controller } = makeController({ receipt: RECEIPT, email: { enabled: o.enabled ?? true } });
+    const { reply, sent } = fakeReply(o.cookie);
+    await controller.receipt('qr-token-1', o.lang ?? 'es', o.cookie, reply, o.correo);
+    return { html: nb(sent.body!), sent };
+  };
+
+  it('«Compartir» (48 px) va oculto y el JS lo enseña solo con navigator.share; comparte el enlace y «Justificante de 35,00 €»', async () => {
+    const { html } = await page();
+    expect(html).toContain('<button class="btn alt noprint" type="button" id="share" hidden>Compartir</button>');
+    const js = scripts(html).join('\n');
+    expect(js).toContain('if(s&&navigator.share){s.hidden=false;');
+    expect(js).toContain('navigator.share({title:C.text,text:C.text,url:u})');
+    expect(js).toContain('Justificante de 35,00 €');
+    for (const code of scripts(html)) expect(() => new Function(code)).not.toThrow();
+  });
+
+  it('el correo, solo a quien pagó y con el correo configurado: campo «Tu correo» (16 px, 52 de alto), «Enviar» (48) y para qué se usa', async () => {
+    const { html, sent } = await page({ cookie: COOKIE });
+    expect(html).toContain('<details class="mail noprint" id="mail"><summary class="btn alt">Enviármelo por correo</summary>');
+    expect(html).toContain('<form method="post" action="/pay/qr-token-1/receipt/email" id="mailForm" novalidate>');
+    expect(html).toContain('<input type="hidden" name="lang" value="es">');
+    expect(html).toContain('<label for="email">Tu correo</label>');
+    expect(html).toMatch(/<input id="email" name="email" type="email" [^>]*maxlength="254" required aria-describedby="mailWhy">/);
+    expect(html).toContain('<button class="btn" type="submit" id="mailSend">Enviar</button>');
+    expect(html).toContain('<p class="small" id="mailWhy">Solo lo usamos para enviarte este justificante.</p>');
+    expect(html).toContain('.mail input{width:100%;min-height:3.25rem;');
+    expect(html).toContain('font-size:1rem}');
+    expect(html).toContain('.mail .btn{min-height:3rem}');
+    // El JS apaga «Enviar» al pulsar (sin JS, el formulario va igual).
+    expect(scripts(html).join('\n')).toContain("f.addEventListener('submit',function(){var b=document.getElementById('mailSend');if(b){b.disabled=true;");
+    // Que el formulario lleve su Origin (no «null»): misma web, nunca a otra.
+    expect(sent.headers['Referrer-Policy']).toBe('same-origin');
+    // Sin correo configurado, o sin ser quien pagó: ni sale.
+    expect((await page({ cookie: COOKIE, enabled: false })).html).not.toContain('id="mail"');
+    expect((await page({ enabled: true })).html).not.toContain('id="mail"');
+    expect((await page({ cookie: `${walletClaimCookieName('', 'qr-token-1')}=${'o'.repeat(43)}` })).html).not.toContain('id="mail"');
+  });
+
+  it('?correo=enviado|error|tope lo dice (role=status); mal, bajo el campo y abierto; recargar no reenvía nada', async () => {
+    const cases = {
+      enviado: 'Enviado. Mira tu correo.',
+      error: 'No se ha podido enviar. Inténtalo otra vez.',
+      tope: 'Ya te lo enviamos tres veces. Usa «Compartir».',
+    } as const;
+    for (const [correo, text] of Object.entries(cases)) {
+      const { controller, email, payments } = makeController({ receipt: RECEIPT, email: { enabled: true } });
+      const { reply, sent } = fakeReply(COOKIE);
+      await controller.receipt('qr-token-1', 'es', COOKIE, reply, correo);
+      expect(nb(sent.body!)).toContain(`<p class="mailmsg noprint" role="status">${text}</p>`);
+      expect(email.send).not.toHaveBeenCalled();
+      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+    }
+    const { html } = await page({ cookie: COOKIE, correo: 'mal' });
+    expect(html).toContain('<details class="mail noprint" id="mail" open>');
+    expect(html).toContain('aria-describedby="mailErr mailWhy" aria-invalid="true">');
+    expect(html).toContain('<p class="err" id="mailErr" role="alert">Escribe bien tu correo.</p>');
+    // Cualquier otra cosa, nada.
+    expect((await page({ cookie: COOKIE, correo: '<b>' })).html).not.toContain('role="status"');
+  });
+
+  it('en los cuatro idiomas', async () => {
+    for (const [lang, text] of [
+      ['en', 'Email it to me'],
+      ['fr', 'Me l’envoyer par e-mail'],
+      ['pt', 'Enviar-me por e-mail'],
+    ] as const) {
+      expect((await page({ cookie: COOKIE, lang })).html).toContain(text);
+    }
+  });
+});
+
+describe('POST /pay/:token/receipt/email — el justificante por correo', () => {
+  const PAYER = 'p'.repeat(43);
+  const payerHash = createHash('sha256').update(PAYER).digest('hex');
+  const COOKIE = `${walletClaimCookieName('', 'qr-token-1')}=${PAYER}`;
+  const RECEIPT: PayReceiptView = {
+    paymentId: PAYMENT_ID,
+    amountCents: 3_300,
+    serviceFeeCents: 200,
+    tipCents: 0,
+    currency: 'EUR',
+    authorizedAt: new Date('2026-10-13T21:41:00Z'),
+    authCode: '047215',
+    cardBrand: '1',
+    payMethod: 'card',
+    order: '1234ABCD5678',
+    venueName: 'Sala <Aurora>',
+    concept: '2× Gin tonic · Nachos',
+    cardLast4: '1234',
+    approvedClaimHash: payerHash,
+  };
+  const HOST = 'api.oxio.es';
+  const post = async (o: {
+    body?: unknown;
+    cookie?: string | null;
+    origin?: string;
+    fetchSite?: string;
+    receipt?: PayReceiptView | null;
+    enabled?: boolean;
+    send?: () => Promise<unknown>;
+    emailsSent?: number;
+  }) => {
+    const made = makeController({
+      receipt: o.receipt === undefined ? RECEIPT : o.receipt,
+      email: { enabled: o.enabled ?? true, ...(o.send ? { send: o.send } : {}) },
+      emailsSent: o.emailsSent,
+    });
+    const cookie = o.cookie === null ? undefined : (o.cookie ?? COOKIE);
+    const { reply, sent } = fakeReply(cookie);
+    await made.controller.emailReceipt(
+      'qr-token-1',
+      o.body ?? { email: 'maria@gmail.com', lang: 'es' },
+      cookie,
+      HOST,
+      'origin' in o ? o.origin : `https://${HOST}`,
+      o.fetchSite,
+      reply,
+    );
+    return { ...made, sent };
+  };
+
+  it('desde su justificante: se envía (asunto sin el local), queda apuntado con el idioma y vuelve (303) con «enviado»', async () => {
+    const { sent, email, payments } = await post({});
+    expect(sent.status).toBe(303);
+    expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=enviado');
+    expect(email.send).toHaveBeenCalledTimes(1);
+    const mail = (email.send.mock.calls[0] as unknown as [{ to: string; subject: string; text: string; html: string }])[0];
+    expect(mail.to).toBe('maria@gmail.com');
+    expect(mail.subject.replace(/[\u00a0\u202f]/g, ' ')).toBe('Tu justificante de 35,00 €');
+    expect(payments.recordReceiptEmailed).toHaveBeenCalledWith(PAYMENT_ID, 'es');
+  });
+
+  it('el correo: fecha, local, importes, método SIN dígitos y código; sin lo pedido, sin enlace ni imágenes, escapado y con «Si no lo has pedido tú…»', async () => {
+    const { email } = await post({});
+    const mail = (email.send.mock.calls[0] as unknown as [{ text: string; html: string }])[0];
+    for (const body of [mail.text, mail.html]) {
+      const b = body.replace(/[\u00a0\u202f]/g, ' ');
+      expect(b).toContain('23:41');
+      expect(b).toContain('33,00 €');
+      expect(b).toContain('2,00 €');
+      expect(b).toContain('35,00 €');
+      expect(b).toContain('Visa · Tarjeta');
+      expect(b).toContain('A6B');
+      expect(b).toContain('Si no lo has pedido tú, ignora este correo.');
+      expect(b).not.toContain('1234');
+      expect(b).not.toContain('Gin tonic');
+      expect(b).not.toMatch(/https?:|<a |<img|qr-token-1/);
+    }
+    expect(mail.text).toContain('Pagado a: Sala <Aurora>');
+    expect(mail.html).toContain('Sala &lt;Aurora&gt;');
+    expect(mail.html).not.toContain('Sala <Aurora>');
+  });
+
+  it('en el idioma de la página', async () => {
+    const { email, sent } = await post({ body: { email: 'maria@gmail.com', lang: 'en' } });
+    const mail = (email.send.mock.calls[0] as unknown as [{ subject: string; text: string }])[0];
+    expect(mail.subject).toBe('Your receipt for €35.00');
+    expect(mail.text).toContain('If you did not ask for it, ignore this email.');
+    expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=en&correo=enviado');
+  });
+
+  it('403 sin enviar: desde otra web (aunque lleve la cookie), sin la cookie del intento aprobado o sin pagar', async () => {
+    for (const o of [
+      { origin: 'https://otra.example' },
+      { origin: 'null', fetchSite: 'cross-site' },
+      { origin: undefined, fetchSite: 'cross-site' },
+      { origin: undefined },
+      { cookie: null },
+      { cookie: `${walletClaimCookieName('', 'qr-token-1')}=${'o'.repeat(43)}` },
+      { receipt: { ...RECEIPT, approvedClaimHash: null } },
+      { receipt: null },
+    ]) {
+      const { sent, email, payments } = await post(o);
+      expect(sent.status).toBe(403);
+      expect(sent.body).toContain('No se ha enviado');
+      expect(email.send).not.toHaveBeenCalled();
+      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+    }
+    // Sin Origin (o «null») pero el navegador dice que es de la misma web: sí.
+    expect((await post({ origin: undefined, fetchSite: 'same-origin' })).sent.headers.Location).toContain('correo=enviado');
+    expect((await post({ origin: 'null', fetchSite: 'same-origin' })).sent.headers.Location).toContain('correo=enviado');
+  });
+
+  it('dos direcciones, 255 letras, nada o basura → correo=mal, sin send()', async () => {
+    const long = `${'a'.repeat(245)}@gmail.com`;
+    expect(long.length).toBe(255);
+    for (const value of ['maria@gmail.com, pepe@gmail.com', 'maria@gmail.com;pepe@gmail.com', 'maria@gmail.com pepe@gmail.com', long, '', 'maria', 'maria@gmail.com\r\nBcc: x@y.com', undefined, ['maria@gmail.com']]) {
+      const { sent, email } = await post({ body: { email: value, lang: 'es' } });
+      expect(sent.status).toBe(303);
+      expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=mal');
+      expect(email.send).not.toHaveBeenCalled();
+    }
+    // Con espacios alrededor, vale (se quitan).
+    const { email } = await post({ body: { email: '  maria@gmail.com ', lang: 'es' } });
+    expect((email.send.mock.calls[0] as unknown as [{ to: string }])[0].to).toBe('maria@gmail.com');
+  });
+
+  it('tope de 3 por cobro: la 4.ª no envía (correo=tope)', async () => {
+    const { sent, email } = await post({ emailsSent: 3 });
+    expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=tope');
+    expect(email.send).not.toHaveBeenCalled();
+    expect((await post({ emailsSent: 2 })).email.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('un fallo de Resend (o que se cuelgue) no cuenta y dice «error»; la página sigue', async () => {
+    for (const send of [async () => ({ ok: false, delivered: false, reason: 'resend-422' }), async () => Promise.reject(new Error('timeout'))]) {
+      const { sent, payments } = await post({ send });
+      expect(sent.status).toBe(303);
+      expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
+      expect(payments.recordReceiptEmailed).not.toHaveBeenCalled();
+    }
+    // El correo no configurado: no se envía nada.
+    const off = await post({ enabled: false });
+    expect(off.sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
+    expect(off.email.send).not.toHaveBeenCalled();
+  });
+
+  it('si el apunte falla tras enviarlo, «enviado» igualmente (el correo ya salió)', async () => {
+    const made = makeController({ receipt: RECEIPT, email: { enabled: true } });
+    made.payments.recordReceiptEmailed.mockRejectedValueOnce(new Error('base caída'));
+    const { reply, sent } = fakeReply(COOKIE);
+    await made.controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, HOST, `https://${HOST}`, undefined, reply);
+    expect(sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=enviado');
   });
 });
 
