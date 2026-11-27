@@ -16,8 +16,8 @@ function render(first: boolean, second: boolean) {
       createElement(
         'div',
         null,
-        createElement(Sheet, { open: first, onClose: () => undefined, title: 'Clave' }, 'clave'),
-        createElement(Sheet, { open: second, onClose: () => undefined, title: '¿Ya la has guardado?' }, 'pregunta'),
+        createElement(Sheet, { open: first, onClose: () => undefined, title: 'Clave', children: 'clave' }),
+        createElement(Sheet, { open: second, onClose: () => undefined, title: '¿Ya la has guardado?', children: 'pregunta' }),
       ),
     ),
   );
