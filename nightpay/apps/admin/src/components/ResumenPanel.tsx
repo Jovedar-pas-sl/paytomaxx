@@ -125,7 +125,8 @@ function Attention({ isOwner, tabs, onNavigate, onOpenPayment }: { isOwner: bool
   // El mismo número que el globo de «Hoy».
   const count = avisosCount({ incidents: incidents.open, approvals: decidableCount(approvals.pending), isOwner }) ?? total;
   const more = moreAvisosLabel(count);
-  const loading = incidents.open === null && (approvals.pending === null || !isOwner);
+  // Sin los avisos no se puede decir «Todo en orden», aunque las aprobaciones ya estén.
+  const loading = incidents.open === null;
 
   function act(item: AttentionItem): void {
     const a = item.action;
