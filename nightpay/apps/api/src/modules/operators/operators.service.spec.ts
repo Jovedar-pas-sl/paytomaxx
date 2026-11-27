@@ -709,6 +709,17 @@ describe('Cuenta de cobro segura — tapada en el panel, entera solo con «Ver c
     expect(JSON.stringify(audit.log.mock.calls)).not.toContain('López');
   });
 
+  it('«Ver cuenta para pagar» de un camarero (también se le paga): su cuenta, no un 404 tras gastar el 2FA', async () => {
+    const waiter = { ...baseOperator, ...sealedSepa(), role: 'WAITER' };
+    const { svc, prisma } = makeOps({ operator: waiter });
+    // Como la base de datos: solo la devuelve si el rol buscado es el suyo.
+    const roleMatches = (role: unknown) =>
+      role === waiter.role || (typeof role === 'object' && role !== null && ((role as { in?: string[] }).in ?? []).includes(waiter.role));
+    prisma.user.findFirst.mockImplementation(async (args: { where: { role?: unknown } }) => (roleMatches(args.where.role) ? waiter : null));
+    const full = await svc.revealPayoutAccount('t-1', 'op-1', 'u-owner');
+    expect(full.payoutAddress).toBe(IBAN);
+  });
+
   it('«Ver cuenta» de alguien que no es de este local → 404', async () => {
     const { svc } = makeOps({ operator: null });
     await expect(svc.revealPayoutAccount('t-1', 'op-x', 'u-owner')).rejects.toThrow(NotFoundException);

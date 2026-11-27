@@ -24,10 +24,10 @@ describe('el total de la lista de Cobros', () => {
       row({ id: 'c', kind: 'SALDO', status: 'ACCEPTED', amountCents: 2000 }),
     ];
     expect(cobrosTotals(rows)).toEqual({ count: 3, cardCents: 4000, bitcoinCents: 0, saldoCents: 4000 });
-    expect(plain(totalsText(rows, false, formatEur))).toBe('3 cobros · 40,00 € con tarjeta o móvil · 40,00 € con saldo');
+    expect(plain(totalsText(rows, false, formatEur))).toBe('3 cobros · 40,00 € con tarjeta o móvil · 40,00 € con saldo (cobrado sin restar devoluciones, como el Z)');
   });
 
-  it('Cancelado, Sin pagar y Rechazado no suman; Devuelto en parte sí; el saldo anulado tampoco', () => {
+  it('Cancelado, Sin pagar y Rechazado no suman; Devuelto en parte y Devuelto, enteros (como el Z); el saldo anulado tampoco', () => {
     const rows = [
       row({ id: 'a', status: 'CANCELED', amountCents: 1000 }),
       row({ id: 'b', status: 'CREATED', amountCents: 1000 }),
@@ -36,8 +36,8 @@ describe('el total de la lista de Cobros', () => {
       row({ id: 'e', status: 'PARTIALLY_REFUNDED', amountCents: 3000, tipCents: 200 }),
       row({ id: 'f', kind: 'SALDO', status: 'REVERSED', amountCents: 900 }),
     ];
-    expect(cobrosTotals(rows)).toEqual({ count: 6, cardCents: 3200, bitcoinCents: 0, saldoCents: 0 });
-    expect(plain(totalsText(rows, false, formatEur))).toBe('6 cobros · 32,00 € con tarjeta o móvil');
+    expect(cobrosTotals(rows)).toEqual({ count: 6, cardCents: 4200, bitcoinCents: 0, saldoCents: 0 });
+    expect(plain(totalsText(rows, false, formatEur))).toBe('6 cobros · 42,00 € con tarjeta o móvil (cobrado sin restar devoluciones, como el Z)');
   });
 
   it('con el filtro Bitcoin, lo pagado con bitcoin nunca se llama «con tarjeta o móvil»', () => {
@@ -47,17 +47,29 @@ describe('el total de la lista de Cobros', () => {
     ];
     expect(cobrosTotals(rows)).toEqual({ count: 2, cardCents: 0, bitcoinCents: 3600, saldoCents: 0 });
     const text = plain(totalsText(rows, false, formatEur));
-    expect(text).toBe('2 cobros · 36,00 € con bitcoin');
+    expect(text).toBe('2 cobros · 36,00 € con bitcoin (cobrado sin restar devoluciones, como el Z)');
     expect(text).not.toContain('tarjeta');
     // Mezclado con tarjeta y saldo: cada uno en su cifra, la misma suma.
     const mixed = [...rows, row({ id: 'c', method: 'CARD', amountCents: 1000 }), row({ id: 'd', kind: 'SALDO', status: 'ACCEPTED', amountCents: 500 })];
-    expect(plain(totalsText(mixed, false, formatEur))).toBe('4 cobros · 10,00 € con tarjeta o móvil · 36,00 € con bitcoin · 5,00 € con saldo');
+    expect(plain(totalsText(mixed, false, formatEur))).toBe('4 cobros · 10,00 € con tarjeta o móvil · 36,00 € con bitcoin · 5,00 € con saldo (cobrado sin restar devoluciones, como el Z)');
   });
 
   it('cada parte solo si no es 0; uno solo, en singular; con más páginas, «Los 50 últimos»', () => {
     expect(totalsText([], false, formatEur)).toBe('0 cobros');
     expect(plain(totalsText([row({ kind: 'SALDO', status: 'ACCEPTED', amountCents: 1500 })], false, formatEur))).toBe('1 cobro · 15,00 € con saldo');
     const fifty = Array.from({ length: 50 }, (_, i) => row({ id: String(i), amountCents: 100 }));
-    expect(plain(totalsText(fifty, true, formatEur))).toBe('Los 50 últimos · 50,00 € con tarjeta o móvil');
+    expect(plain(totalsText(fifty, true, formatEur))).toBe('Los 50 últimos · 50,00 € con tarjeta o móvil (cobrado sin restar devoluciones, como el Z)');
+  });
+
+  it('la misma regla que «Total cobrado» del Z (chargedCents): lo cobrado de Pagado, Devuelto en parte y Devuelto, sin restar lo devuelto', () => {
+    const rows = [
+      row({ id: 'a', status: 'AUTHORIZED', amountCents: 1000, tipCents: 100, serviceFeeCents: 30 }),
+      row({ id: 'b', status: 'PARTIALLY_REFUNDED', amountCents: 2000 }),
+      row({ id: 'c', status: 'REFUNDED', amountCents: 500 }),
+    ];
+    // El Z: importe + propina + comisión del servicio de los pagados (AUTHORIZED, PARTIALLY_REFUNDED, REFUNDED).
+    expect(cobrosTotals(rows).cardCents).toBe(1000 + 100 + 30 + 2000 + 500);
+    // Solo con saldo no hay nada que decir de devoluciones.
+    expect(plain(totalsText([row({ kind: 'SALDO', status: 'ACCEPTED', amountCents: 1500 })], false, formatEur))).not.toContain('devoluciones');
   });
 });

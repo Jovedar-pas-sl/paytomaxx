@@ -237,13 +237,14 @@ export class NightsService {
     this.moneyMap = moneyMap ?? null;
   }
 
-  async current(tenantId: string): Promise<NightView | null> {
+  /** `viewerRole`: quien la pide (cierre a ciegas: blind-cash.blindsCash). */
+  async current(tenantId: string, viewerRole?: string): Promise<NightView | null> {
     await this.safeAutoClose(tenantId);
     const night = await this.openNight(tenantId);
-    return night ? this.view(night) : null;
+    return night ? this.view(night, viewerRole) : null;
   }
 
-  async open(tenantId: string, userId: string, openingFloatCents?: number): Promise<NightView> {
+  async open(tenantId: string, userId: string, openingFloatCents?: number, viewerRole?: string): Promise<NightView> {
     await this.safeAutoClose(tenantId);
     let night: NightRow;
     try {
@@ -265,7 +266,7 @@ export class NightsService {
       targetId: night.id,
       payload: { openedAt: night.openedAt.toISOString(), openingFloatCents: night.openingFloatCents },
     });
-    return this.view(night);
+    return this.view(night, viewerRole);
   }
 
   /** Los pasos para cerrar la noche abierta (qué falta, la caja y lo de cada chica). */
@@ -470,10 +471,10 @@ export class NightsService {
     });
   }
 
-  async get(tenantId: string, nightId: string): Promise<NightView> {
+  async get(tenantId: string, nightId: string, viewerRole?: string): Promise<NightView> {
     const night = await this.prisma.venueNight.findFirst({ where: { id: nightId, tenantId } });
     if (!night) throw new NotFoundException('Noche no encontrada');
-    return this.view(night);
+    return this.view(night, viewerRole);
   }
 
   /**
@@ -721,7 +722,7 @@ export class NightsService {
     return this.prisma.venueNight.findFirst({ where: { tenantId, closedAt: null } });
   }
 
-  private async view(night: NightRow): Promise<NightView> {
+  private async view(night: NightRow, viewerRole?: string): Promise<NightView> {
     const now = new Date();
     const start = night.closedAt === null ? await this.zBounds(night.tenantId, night.openedAt) : null;
     const window = start ? { from: start.from, to: now } : null;
@@ -744,7 +745,8 @@ export class NightsService {
       z,
       pending: pending.items,
       // Solo con la noche abierta (el minigráfico del Resumen); no entra en el Z que se congela.
-      ...(rows ? { hourly: nightHourly(rows, now) } : {}),
+      // A ciegas, sin las recargas en efectivo: si no, sumando las horas y restando «Pagado» sale la caja.
+      ...(rows ? { hourly: nightHourly(viewerRole !== undefined && blindsCash(viewerRole, true) ? { ...rows, recargasEfectivo: [] } : rows, now) } : {}),
     };
   }
 

@@ -11,9 +11,13 @@ export function cobroPaidCents(row: Pick<CobroRow, 'amountCents' | 'tipCents' | 
 
 export interface CobrosTotals {
   count: number;
-  /** Cobros que no son del saldo ni con bitcoin (también las recargas con tarjeta), en Pagado o Devuelto en parte. */
+  /**
+   * Cobros que no son del saldo ni con bitcoin (también las recargas con
+   * tarjeta), en Pagado, Devuelto en parte o Devuelto: lo cobrado sin restar
+   * devoluciones, como «Total cobrado» del Z y el mapa del dinero (chargedCents).
+   */
   cardCents: number;
-  /** Cobros con bitcoin, en Pagado o Devuelto en parte: no son tarjeta ni móvil. */
+  /** Cobros con bitcoin, con la misma regla: no son tarjeta ni móvil. */
   bitcoinCents: number;
   /** Cobros del saldo, en Pagado. */
   saldoCents: number;
@@ -26,7 +30,7 @@ export function cobrosTotals(rows: readonly CobroRow[]): CobrosTotals {
   for (const row of rows) {
     if (row.kind === 'SALDO') {
       if (row.status !== 'REVERSED') saldoCents += cobroPaidCents(row);
-    } else if (row.status === 'AUTHORIZED' || row.status === 'PARTIALLY_REFUNDED') {
+    } else if (row.status === 'AUTHORIZED' || row.status === 'PARTIALLY_REFUNDED' || row.status === 'REFUNDED') {
       if (row.method === 'BITCOIN') bitcoinCents += cobroPaidCents(row);
       else cardCents += cobroPaidCents(row);
     }
@@ -49,8 +53,17 @@ export function totalsParts(totals: CobrosTotals): Array<{ cents: number; label:
   ].filter((p) => p.cents !== 0);
 }
 
-/** «34 cobros · 725,00 € con tarjeta o móvil · 397,00 € con saldo». */
+/** Lo de tarjeta y bitcoin es lo cobrado, sin restar devoluciones (como el Z): se dice, si hay. */
+export const TOTALS_GROSS_NOTE = 'cobrado sin restar devoluciones, como el Z';
+
+export function totalsNote(totals: CobrosTotals): string | null {
+  return totals.cardCents !== 0 || totals.bitcoinCents !== 0 ? TOTALS_GROSS_NOTE : null;
+}
+
+/** «34 cobros · 725,00 € con tarjeta o móvil · 397,00 € con saldo (cobrado sin restar devoluciones, como el Z)». */
 export function totalsText(rows: readonly CobroRow[], hasMore: boolean, eur: (cents: number) => string): string {
   const totals = cobrosTotals(rows);
-  return [totalsLead(totals.count, hasMore), ...totalsParts(totals).map((p) => `${eur(p.cents)} ${p.label}`)].join(' · ');
+  const note = totalsNote(totals);
+  const text = [totalsLead(totals.count, hasMore), ...totalsParts(totals).map((p) => `${eur(p.cents)} ${p.label}`)].join(' · ');
+  return note ? `${text} (${note})` : text;
 }

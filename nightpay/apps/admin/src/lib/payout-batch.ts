@@ -33,6 +33,9 @@ export const BATCH_2FA_TEXT =
 
 export const NO_PERMISSION_TEXT = 'No tienes permiso para pagar';
 
+/** El encargado con direct_2fa sin 2FA ni llave: tampoco puede pagar una a una (el API pide el código). */
+export const NEEDS_2FA_TEXT = 'Activa la verificación en dos pasos para pagar';
+
 export const BATCH_LOST_TEXT =
   'No sabemos si se apuntaron todos: el servidor no contestó y puede que siga apuntándolos. Espera un minuto y pulsa «Volver a cargar la lista» antes de repetir nada.';
 
@@ -51,11 +54,13 @@ export function payoutModeFor(isOwner: boolean, rule: string | undefined): 'pay'
 }
 
 /**
- * Qué se puede hacer en la lista. `tick`: casillas y barra. `one-by-one`: sin
- * 2FA ni llave, «Pagar» por fila. `request`: «Pedir al dueño» por fila.
- * `no-permission` y `look`: solo mirar (sin reglas o permisos aún, también).
+ * Qué se puede hacer en la lista. `tick`: casillas y barra. `one-by-one`: el
+ * dueño sin 2FA ni llave, «Pagar» por fila. `request`: «Pedir al dueño» por
+ * fila. `needs-2fa`: el encargado que paga con 2FA y no tiene 2FA ni llave,
+ * solo mirar (pagar fallaría siempre). `no-permission` y `look`: solo mirar
+ * (sin reglas o permisos aún, también).
  */
-export type BatchAccess = 'tick' | 'one-by-one' | 'request' | 'no-permission' | 'look';
+export type BatchAccess = 'tick' | 'one-by-one' | 'request' | 'needs-2fa' | 'no-permission' | 'look';
 
 export function batchAccess(input: {
   isOwner: boolean;
@@ -70,7 +75,7 @@ export function batchAccess(input: {
   const mode = payoutModeFor(input.isOwner, input.rule);
   if (mode === null) return 'look';
   if (mode === 'request') return 'request';
-  if (input.method === null) return 'one-by-one';
+  if (input.method === null) return mode === 'pay_2fa' ? 'needs-2fa' : 'one-by-one';
   return 'tick';
 }
 

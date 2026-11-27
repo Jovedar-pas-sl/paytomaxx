@@ -92,6 +92,20 @@ describe('cierre a ciegas en el API (no solo en la pantalla)', () => {
     expect((await c.get(user('MANAGER'), 'n-1')).openingFloatCents).toBe(20_000);
   });
 
+  it('las horas del minigráfico: el controlador pasa quién mira, para que el servicio las saque sin el efectivo', async () => {
+    const roles: Array<string | undefined> = [];
+    const svc = {
+      current: async (_t: string, role?: string) => (roles.push(role), view()),
+      open: async (_t: string, _u: string, _f?: number, role?: string) => (roles.push(role), view()),
+      get: async (_t: string, _id: string, role?: string) => (roles.push(role), view()),
+    };
+    const c = new NightsController(svc as never);
+    await c.current(user('MANAGER'));
+    await c.open(user('MANAGER'), {});
+    await c.get(user('OWNER'), 'n-1');
+    expect(roles).toEqual(['MANAGER', 'MANAGER', 'OWNER']);
+  });
+
   it('GET /admin/money-map: en directo, a la encargada no le llega la caja esperada; una noche cerrada o unas fechas, sí', async () => {
     let m = map();
     const c = new MoneyMapController({ forQuery: async () => m } as never, {} as never);
@@ -156,6 +170,26 @@ describe('cierre a ciegas: nada del efectivo sale restando', () => {
   });
 });
 
+describe('cierre a ciegas: el efectivo de los cajeros de otras plataformas', () => {
+  it('con una carga en un cajero de socios, entra, «dónde está» y «de quién es» suman lo mismo (y como sin efectivo)', () => {
+    const strip = (m: MoneyMap) => ({ ...m, inflow: { ...m.inflow, topUps: { ...m.inflow.topUps, count: 0 } } });
+    const base = mapInput(true);
+    // 100 € cargados en el cajero de un socio: en las recargas en efectivo, no en la caja de recepción.
+    const input: MoneyMapInput = {
+      ...base,
+      topUps: { ...base.topUps, cashCents: base.topUps.cashCents + 10_000 },
+      cashBox: { ...base.cashBox, partnerCashCents: 10_000 },
+    };
+    const m = blindMoneyMap(buildMoneyMap(input));
+    expect(m.where.partnerCashCents).toBeUndefined();
+    expect(strip(m)).toEqual(strip(blindMoneyMap(buildMoneyMap(mapInput(false)))));
+    const o = m.where.owners;
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
+    // Lo del cajero no sale como del local.
+    expect(o.venueCents).toBe(blindMoneyMap(buildMoneyMap(mapInput(false))).where.owners.venueCents);
+  });
+});
+
 describe('cierre a ciegas: las otras vías del API', () => {
   const user = (role: string) => ({ sub: 'u-1', tenantId: 't-1', role }) as never;
   const openFrom = new Date('2026-11-26T21:00:00Z');
@@ -210,7 +244,7 @@ describe('cierre a ciegas: las otras vías del API', () => {
     const reports = {
       openNightStart: async () => open,
       cobros: async () => [], devoluciones: async () => [], liquidaciones: async () => [], consumos: async () => [],
-      pagosSaldo: async () => [], recargasEfectivo: async () => [], venueName: async () => 'Local', sectionLabeler: async () => () => '',
+      pagosSaldo: async () => [], recargasEfectivo: async () => [], recargasSocios: async () => [], venueName: async () => 'Local', sectionLabeler: async () => () => '',
     };
     const c = new ReportsController(reports as never);
     const reply = () => {
@@ -227,6 +261,8 @@ describe('cierre a ciegas: las otras vías del API', () => {
     }
     // Los cobros (con tarjeta) no llevan efectivo de caja.
     await expect(c.export(user('MANAGER'), 't-1', 'cobros', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
+    // Las cargas de los cajeros de otras plataformas tampoco: no son el cajón de recepción.
+    await expect(c.export(user('MANAGER'), 't-1', 'recargas-socios', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
     open = null;
     await expect(c.export(user('MANAGER'), 't-1', 'resumen', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
   });

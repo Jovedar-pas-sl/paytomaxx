@@ -11,6 +11,7 @@ import {
   BATCH_LOST_TEXT,
   BATCH_MAX,
   NO_PERMISSION_TEXT,
+  NEEDS_2FA_TEXT,
   allToggle,
   barText,
   batchAccess,
@@ -207,6 +208,11 @@ export function PayoutBatchList({ isOwner, onNavigate }: Props) {
       {data && access === 'one-by-one' ? (
         <Banner tone="info" action={onNavigate ? { label: 'Ir a Seguridad', onClick: () => onNavigate('security') } : undefined}>
           {BATCH_2FA_TEXT}
+        </Banner>
+      ) : null}
+      {data && access === 'needs-2fa' ? (
+        <Banner tone="info" action={onNavigate ? { label: 'Ir a Seguridad', onClick: () => onNavigate('security') } : undefined}>
+          {NEEDS_2FA_TEXT}
         </Banner>
       ) : null}
       {data && access === 'request' ? <Banner tone="info">En este local los pagos los aprueba el dueño</Banner> : null}

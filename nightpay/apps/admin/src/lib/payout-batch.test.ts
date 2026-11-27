@@ -9,6 +9,7 @@ import {
   BATCH_LOST_TEXT,
   BATCH_MAX,
   NO_PERMISSION_TEXT,
+  NEEDS_2FA_TEXT,
   allToggle,
   barText,
   batchAccess,
@@ -62,9 +63,10 @@ describe('quién marca (roles y segundo factor)', () => {
     expect(batchAccess({ isOwner: false, rule: 'direct_2fa', canPay: true, method: 'passkey' })).toBe('tick');
   });
 
-  it('sin 2FA ni llave: una a una', () => {
+  it('sin 2FA ni llave: el dueño, una a una; el encargado con direct_2fa, solo mirar (pagar fallaría siempre)', () => {
     expect(batchAccess({ isOwner: true, rule: 'direct', canPay: true, method: null })).toBe('one-by-one');
-    expect(batchAccess({ isOwner: false, rule: 'direct_2fa', canPay: true, method: null })).toBe('one-by-one');
+    expect(batchAccess({ isOwner: false, rule: 'direct_2fa', canPay: true, method: null })).toBe('needs-2fa');
+    expect(NEEDS_2FA_TEXT).toBe('Activa la verificación en dos pasos para pagar');
   });
 
   it('el encargado que pide: «Pedir al dueño» por fila; sin permiso: solo mirar; sin reglas: solo mirar', () => {

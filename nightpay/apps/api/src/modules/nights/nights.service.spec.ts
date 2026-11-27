@@ -6,6 +6,7 @@ import { venueSectionLabeler } from '../reports/export-rows';
 import { buildCloseSteps } from './close-check-rules';
 import { settleWritesBefore } from './night-cutoff';
 import { NightsService } from './nights.service';
+import { blindNightView } from './blind-cash';
 
 // Esperar a lo abierto antes del corte va contra pg_stat_activity (night-cutoff.spec.ts y la
 // prueba de integración cierre-carrera): aquí, «ya está todo a la vista».
@@ -780,6 +781,20 @@ describe('lo pagado por horas (el minigráfico del Resumen)', () => {
     ]);
     expect(view!.hourly!.reduce((s, h) => s + h.chargedCents, 0)).toBe(view!.z.summary.chargedCents);
     expect(reports.cobros).toHaveBeenCalledTimes(1);
+  });
+
+  it('a ciegas (la encargada, noche abierta) va sin las recargas en efectivo: las horas suman lo «Pagado» que ve', async () => {
+    const { svc, reports } = makeService();
+    reports.cobros.mockResolvedValue([COPA]);
+    const cash = { id: 'r-1', at: new Date('2026-10-13T21:15:00Z'), amountCents: 5_000, serviceFeeCents: 25, takenByName: null, takenByEmail: null, terminalLabel: null };
+    reports.recargasEfectivo.mockResolvedValue([cash]);
+    const shown = blindNightView((await svc.current('t-1', 'MANAGER'))!);
+    expect(shown.hourly!.reduce((s, h) => s + h.chargedCents, 0)).toBe(shown.z.summary.chargedCents);
+    expect(shown.z.summary.chargedCents).toBe(1200);
+    // El dueño, con todo: la recarga en su hora.
+    const owner = await svc.current('t-1', 'OWNER');
+    expect(owner!.hourly!.reduce((s, h) => s + h.chargedCents, 0)).toBe(owner!.z.summary.chargedCents);
+    expect(owner!.hourly![1]!.chargedCents).toBe(5_025);
   });
 
   it('no entra en el Z que se congela al cerrar, ni en la noche ya cerrada', async () => {

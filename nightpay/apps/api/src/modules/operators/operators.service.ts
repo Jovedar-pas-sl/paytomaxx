@@ -1480,8 +1480,9 @@ export class OperatorsService {
    * que ya ha pasado su 2FA en el controlador. Queda en el registro, tapada.
    */
   async revealPayoutAccount(tenantId: string, operatorId: string, actorUserId: string): Promise<PayoutAccountFull> {
+    // A quien se le paga (compañeras y camareros), como createPayout y el pago por lotes.
     const row = await this.prisma.user.findFirst({
-      where: { id: operatorId, tenantId, role: 'OPERATOR' },
+      where: { id: operatorId, tenantId, role: { in: [...PAYEE_ROLES] } },
       select: PAYOUT_ACCOUNT_SELECT,
     });
     if (!row) throw new NotFoundException('Compañera no encontrada');
