@@ -5,6 +5,8 @@ import {
   PARTNER_CONNECTION_EXAMPLE,
   PartnerConnectionSchema,
   PartnerProblemSchema,
+  WalletBalance,
+  WalletBalanceRequest,
   buildPartnerOpenApi,
   partnerErrorsMarkdown,
 } from '@nightpay/contracts';
@@ -23,7 +25,6 @@ const pilot = readJson(join(DOCS, 'pilot/openapi-piloto.json'));
 
 /** Rutas del contrato que llegan con su entrega (al hacerlas, se quitan de aquí). */
 const PILOT_PENDING = [
-  'POST /wallet/balance',
   'POST /wallet/loads',
   'GET /wallet/loads/{id}',
   'POST /wallet/loads/{id}/void',
@@ -106,12 +107,29 @@ describe('docs/partner-api/openapi.json', () => {
     expect(missing).toEqual([]);
   });
 
-  it('el ejemplo de la conexión pasa su esquema y el de un problema, el suyo', () => {
+  it('cada ejemplo pasa su propio esquema (la conexión, el saldo, el cuerpo de la petición o un problema)', () => {
     expect(PartnerConnectionSchema.parse(PARTNER_CONNECTION_EXAMPLE.value)).toEqual(PARTNER_CONNECTION_EXAMPLE.value);
-    for (const ex of Object.values((generated.components as Json).examples as Record<string, Json>)) {
+    const schemaOf = (name: string, value: Json) =>
+      value.object === 'connection'
+        ? PartnerConnectionSchema
+        : value.object === 'wallet_balance'
+          ? WalletBalance
+          : name.startsWith('BalanceRequest')
+            ? WalletBalanceRequest
+            : PartnerProblemSchema;
+    const examples = Object.entries((generated.components as Json).examples as Record<string, Json>);
+    expect(examples.map(([n]) => n)).toEqual(expect.arrayContaining(['Balance5000', 'BalanceRequestFicha', 'BalanceRequestLiveCode', 'ProblemPrivateLink']));
+    for (const [name, ex] of examples) {
       const value = ex.value as Json;
-      if (value.object === 'connection') continue;
-      expect(PartnerProblemSchema.safeParse(value).success).toBe(true);
+      expect(schemaOf(name, value).safeParse(value).success, name).toBe(true);
+    }
+  });
+
+  it('los ejemplos de /wallet/balance son los del contrato', () => {
+    const ours = (generated.components as Json).examples as Record<string, Json>;
+    const theirs = (pilot.components as Json).examples as Record<string, Json>;
+    for (const name of ['Balance5000', 'BalanceRequestFicha', 'BalanceRequestLiveCode', 'ProblemWalletNotFound', 'ProblemFichaCopy', 'ProblemPrivateLink', 'ProblemLiveCodeInvalid']) {
+      expect(ours[name], name).toEqual(theirs[name]);
     }
   });
 });

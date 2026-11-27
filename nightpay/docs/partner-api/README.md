@@ -34,7 +34,8 @@ locales. Apagada de serie (`PARTNER_API_ENABLED=false`) hasta el PR 8.
 | Nº | Español | English |
 |---|---|---|
 | 2 | [Claves y seguridad](guides/es/02-claves-y-seguridad.md) | [Keys and security](guides/en/02-keys-and-security.md) |
+| 3 | [Identificar al cliente](guides/es/03-identificar-al-cliente.md) | [Identifying the customer](guides/en/03-identifying-the-customer.md) |
 
-Los demás capítulos (empezar, identificar al cliente, cargar, errores, cuadre,
+Los demás capítulos (empezar, cargar, errores, cuadre,
 demo, salida) llegan con su entrega; hasta entonces, las guías completas del
 piloto están en `pilot/`.

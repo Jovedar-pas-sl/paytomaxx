@@ -17,6 +17,10 @@ interface Opts {
   pinLockable?: boolean;
   /** Llaves (Face ID) del saldo: 1 si no se dice. */
   passkeys?: number;
+  /** El saldo del cobro se sumó a este otro (el de ahora). */
+  mergedInto?: string;
+  /** dropWallet de los códigos del móvil falla. */
+  dropFails?: boolean;
 }
 
 function harness(opts: Opts = {}) {
@@ -31,8 +35,10 @@ function harness(opts: Opts = {}) {
       if (sql.includes('FROM wallet_charge_requests')) return [charge];
       if (sql.includes('FROM audit_events')) return opts.disputed ? [{ one: 1 }] : [];
       if (sql.includes('"pinLockedAt" IS NOT NULL')) return [{ locked: true }];
-      if (sql.includes('FOR UPDATE')) return [{ id: WALLET, tenantId: VENUE, walletGroup: null, balanceCents: 3_800, status: 'ACTIVE', shortCode: 'K7Q4M2', mergedIntoId: null }];
-      return [{ mergedIntoId: null }];
+      if (sql.includes('FOR UPDATE')) return [{ id: opts.mergedInto ?? WALLET, tenantId: VENUE, walletGroup: null, balanceCents: 3_800, status: 'ACTIVE', shortCode: 'K7Q4M2', mergedIntoId: null }];
+      // La cadena de sumas: el saldo del cobro apunta al de ahora (si se sumó).
+      const [, id] = Array.isArray(q) ? (q as unknown[]) : [];
+      return [{ mergedIntoId: opts.mergedInto && id === WALLET ? opts.mergedInto : null }];
     }),
     walletChargeRequest: { findUnique: vi.fn(async () => charge) },
     venue: { findUnique: vi.fn(async () => ({ name: 'Sala Aurora' })) },
@@ -46,8 +52,9 @@ function harness(opts: Opts = {}) {
   };
   const prisma = { acrossVenues: vi.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)) };
   const audit = { logInTx: vi.fn(async () => undefined) };
-  const svc = new ChargeDisputeService(prisma as never, audit as never, { JWT_SECRET: SECRET });
-  return { svc, tx, audit };
+  const liveCodes = { dropWallet: vi.fn(async () => (opts.dropFails ? Promise.reject(new Error('redis caído')) : undefined)) };
+  const svc = new ChargeDisputeService(prisma as never, audit as never, { JWT_SECRET: SECRET }, liveCodes as never);
+  return { svc, tx, audit, liveCodes };
 }
 
 const tokenFor = (walletId = WALLET, now = Date.now()) => signNotMeToken({ chargeId: CHARGE, walletId }, now, SECRET);
@@ -104,6 +111,42 @@ describe('«No he sido yo»', () => {
     expect(await svc.view(tokenFor())).toMatchObject({ state: 'already' });
     expect(tx.walletCard.updateMany).not.toHaveBeenCalled();
     expect(audit.logInTx).not.toHaveBeenCalled();
+  });
+
+  it('confirmado: anula los códigos del móvil del saldo (una vez, tras guardar)', async () => {
+    const { svc, liveCodes } = harness();
+    expect(await svc.dispute(tokenFor())).toMatchObject({ state: 'done' });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith(WALLET);
+  });
+
+  it('si el saldo se sumó a otro, anula los códigos del de ahora (donde está el dinero)', async () => {
+    const { svc, tx, liveCodes } = harness({ mergedInto: OTHER });
+    expect(await svc.dispute(tokenFor())).toMatchObject({ state: 'done' });
+    expect(tx.walletCard.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ walletId: OTHER }) }));
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith(OTHER);
+  });
+
+  it('si anular los códigos falla, «No he sido yo» sale igual', async () => {
+    const { svc, liveCodes } = harness({ dropFails: true });
+    await expect(svc.dispute(tokenFor())).resolves.toMatchObject({ state: 'done', blockedCards: 1, pinLocked: true });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('rechazado, ya avisado o si falla al guardar: no anula códigos', async () => {
+    const other = harness();
+    await other.svc.dispute(tokenFor(OTHER));
+    await other.svc.dispute(tokenFor(WALLET, Date.now() - NOT_ME_TTL_MS - 1));
+    await other.svc.dispute('inventado.xxx');
+    expect(other.liveCodes.dropWallet).not.toHaveBeenCalled();
+    const already = harness({ disputed: true });
+    await already.svc.dispute(tokenFor());
+    expect(already.liveCodes.dropWallet).not.toHaveBeenCalled();
+    const broken = harness();
+    broken.audit.logInTx.mockRejectedValueOnce(new Error('sin base de datos') as never);
+    await expect(broken.svc.dispute(tokenFor())).rejects.toThrow('sin base de datos');
+    expect(broken.liveCodes.dropWallet).not.toHaveBeenCalled();
   });
 
   it('sin ficha: bloquea el PIN y avisa igual', async () => {

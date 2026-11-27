@@ -20,7 +20,9 @@ function make(o: { passkey?: boolean; owner?: string; cards?: Array<{ id: string
     challenge: vi.fn(async () => ({ challenge: 'reto' })),
     verify: vi.fn(async () => o.owner ?? 'w1'),
   };
-  return { service: new WalletLostCardService(prisma as never, audit as never, passkeys as never), tx, audit, passkeys };
+  // Los códigos del móvil (OXC1:) del saldo: se anulan tras bloquear el NFC.
+  const liveCodes = { dropWallet: vi.fn(async (_walletId: string) => undefined) };
+  return { service: new WalletLostCardService(prisma as never, audit as never, passkeys as never, liveCodes as never), tx, audit, passkeys, liveCodes };
 }
 
 describe('«He perdido mi NFC»', () => {
@@ -47,6 +49,29 @@ describe('«He perdido mi NFC»', () => {
       action: CLIENT_CARD_BLOCKED_ACTION, tenantId: 'issuing-venue', actorId: null, targetType: 'ClientWallet', targetId: 'w1',
       payload: { via: 'client_passkey', cards: 1, code: 'K7Q-4M2', amountCents: 3_000 },
     });
+  });
+
+  it('bloqueado: anula los códigos del móvil del saldo (una vez, tras guardar)', async () => {
+    const { service, liveCodes } = make();
+    await expect(service.block('w1', undefined, {})).resolves.toEqual({ blockedCards: 1 });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith('w1');
+  });
+
+  it('si anular los códigos falla, el NFC queda bloqueado igual', async () => {
+    const { service, audit, liveCodes } = make();
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(service.block('w1', undefined, {})).resolves.toEqual({ blockedCards: 1 });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: CLIENT_CARD_BLOCKED_ACTION }));
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin passkey, con otra, sin NFC activo o sin saldo: no anula códigos', async () => {
+    const cases = [make({ passkey: false }), make({ owner: 'w2' }), make({ cards: [] }), make({ wallet: null })];
+    for (const c of cases) {
+      await expect(c.service.block('w1', undefined, {})).rejects.toBeDefined();
+      expect(c.liveCodes.dropWallet).not.toHaveBeenCalled();
+    }
   });
 
   it('un NFC sin local apunta la incidencia en el local del saldo', async () => {

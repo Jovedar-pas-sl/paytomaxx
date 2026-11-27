@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { WALLET_REF_DETAIL } from './wallet';
 import { PARTNER_DOCS_HOST, PartnerLoadIdSchema, PartnerScopeSchema, PartnerTimestampSchema, partnerSchemas } from './common';
 
 // Catálogo de errores de la API de socios (§4.8 del diseño, capítulo 5 de
@@ -102,12 +103,46 @@ export const PARTNER_ERRORS = {
     en: 'Not found.',
     es: 'API apagada o congelada del todo, o ruta que no existe. Con la API apagada el cuerpo puede no ser JSON',
   },
+  wallet_not_found: {
+    status: 404,
+    title: 'Wallet not found',
+    en: 'No wallet within this key\'s reach matches this reference.',
+    es: 'No hay saldo a vuestro alcance con esa referencia (no existe, otro grupo u otra sociedad)',
+  },
+  wallet_blocked: { status: 409, title: 'Wallet blocked', en: 'Wallet blocked', es: 'Saldo bloqueado' },
+  wallet_closed: { status: 409, title: 'Wallet closed', en: 'Wallet closed', es: 'Saldo cerrado' },
+  ficha_lost: { status: 409, title: 'Ficha lost', en: 'Ficha reported lost', es: 'Ficha dada como perdida' },
+  ficha_blocked: { status: 409, title: 'Ficha blocked', en: 'Ficha blocked', es: 'Ficha bloqueada' },
+  ficha_copy_suspected: {
+    status: 409,
+    title: 'Ficha copy suspected',
+    en: 'The chip\'s serial does not match this ficha.',
+    es: 'El número del chip no es el de la ficha; el dueño recibe aviso',
+  },
   body_too_large: { status: 413, title: 'Body too large', en: 'Body over 16 KB', es: 'Cuerpo de más de 16 KB' },
   validation_failed: {
     status: 422,
     title: 'Validation failed',
     en: 'A field breaks its rule (`param`), an extra field, `nfc_uid` with a phone code, or a card number in `reference`',
     es: 'Un campo incumple su regla (`param`), un campo de más, `nfc_uid` con un código del móvil, o un número de tarjeta en `reference`',
+  },
+  wallet_ref_unrecognized: {
+    status: 422,
+    title: 'Wallet reference unrecognized',
+    en: 'What was read is nothing of OxioPay\'s',
+    es: 'Lo leído no es nada de OxioPay',
+  },
+  wallet_ref_not_accepted: {
+    status: 422,
+    title: 'Wallet reference not accepted',
+    en: 'It is OxioPay\'s but does not work here (`reason`, chapter 3)',
+    es: 'Es de OxioPay pero no sirve aquí (`reason`, capítulo 3)',
+  },
+  live_code_invalid: {
+    status: 422,
+    title: 'Live code invalid',
+    en: 'This live code is expired or unknown. Ask the customer to show the code again.',
+    es: 'Código del móvil caducado o desconocido',
   },
   rate_limited: {
     status: 429,
@@ -199,8 +234,8 @@ export type PartnerProblem = z.infer<typeof PartnerProblemSchema>;
 export interface PartnerErrorResponseDef {
   readonly description: string;
   readonly codes: readonly PartnerErrorCode[];
-  /** El ejemplo (components.examples), con el código como nombre. */
-  readonly example?: PartnerProblemExampleName;
+  /** Los ejemplos (components.examples), cada uno con su código como nombre. */
+  readonly examples?: readonly PartnerProblemExampleName[];
   /** 429 y 503 llevan Retry-After. */
   readonly retryAfter?: boolean;
 }
@@ -212,50 +247,65 @@ export const PARTNER_ERROR_RESPONSES = {
     description:
       '`invalid_request`: the body is not a JSON object (an array, a string, an empty body where one is needed), the\ncontent type is not `application/json`, or the request cannot be read (`param` when it names one place).\n`api_key_in_url` / `api_key_in_body`: a key was sent outside the Authorization header.\n',
     codes: ['invalid_request', 'api_key_in_url', 'api_key_in_body'],
-    example: 'ProblemKeyInUrl',
+    examples: ['ProblemKeyInUrl'],
   },
   Unauthorized: {
     description: 'The key is not usable. Do not retry; the ATM platform\'s operators must act.',
     codes: ['invalid_api_key', 'api_key_rotated', 'api_key_revoked', 'api_key_expired', 'api_key_suspended', 'wrong_environment'],
-    example: 'ProblemInvalidKey',
+    examples: ['ProblemInvalidKey'],
   },
-  ForbiddenAnyScope: { description: 'Refused before any data is read.', codes: [...FORBIDDEN_BASE], example: 'ProblemIpNotAllowed' },
+  ForbiddenAnyScope: { description: 'Refused before any data is read.', codes: [...FORBIDDEN_BASE], examples: ['ProblemIpNotAllowed'] },
   ForbiddenScoped: {
     description: 'Refused before any data is read, or the key lacks the scope (or `wallet:balance` is paused).',
     codes: ['scope_missing', 'scope_paused', ...FORBIDDEN_BASE],
-    example: 'ProblemScopeMissing',
+    examples: ['ProblemScopeMissing'],
   },
   ForbiddenRead: {
     description:
       'Refused before any data is read, or the key lacks the scope. A pause of `wallet:load` and the money freeze do\nnot refuse this route: an open transaction can always be looked up and reconciled.\n',
     codes: ['scope_missing', ...FORBIDDEN_BASE],
-    example: 'ProblemScopeMissing',
+    examples: ['ProblemScopeMissing'],
   },
   ForbiddenVoid: {
     description:
       'As `ForbiddenRead`, plus `partner_api_frozen` when OxioPay froze money operations. A pause of `wallet:load` does\nnot refuse a void.\n',
     codes: ['scope_missing', ...FORBIDDEN_BASE, 'partner_api_frozen'],
-    example: 'ProblemApiFrozen',
+    examples: ['ProblemApiFrozen'],
   },
   ForbiddenMoney: {
     description:
       'As for any scoped route, plus `scope_paused` while new loads are paused and `partner_api_frozen` when OxioPay\nfroze money operations.\n',
     codes: ['scope_missing', 'scope_paused', ...FORBIDDEN_BASE, 'partner_api_frozen'],
-    example: 'ProblemScopePaused',
+    examples: ['ProblemScopePaused'],
   },
   ApiOff: {
     description:
       '`not_found`: the partner API is switched off, frozen for every route, or the route does not exist here (the\ntest helpers in live). When the API is switched off the body may not be problem+json: treat any 404 on\n`/me` as "API unavailable".\n',
     codes: ['not_found'],
-    example: 'ProblemNotFound',
+    examples: ['ProblemNotFound'],
+  },
+  WalletNotFound: {
+    description: 'No wallet within the key\'s reach matches the reference, or the API is switched off.',
+    codes: ['wallet_not_found', 'not_found'],
+    examples: ['ProblemWalletNotFound'],
+  },
+  WalletUnusable: {
+    description: 'The wallet or the ficha cannot be used.',
+    codes: ['wallet_blocked', 'wallet_closed', 'ficha_lost', 'ficha_blocked', 'ficha_copy_suspected'],
+    examples: ['ProblemFichaCopy'],
+  },
+  WalletRefInvalid: {
+    description: 'The request breaks a rule, or the `qr` text is not a usable wallet reference.',
+    codes: ['validation_failed', 'wallet_ref_unrecognized', 'wallet_ref_not_accepted', 'live_code_invalid'],
+    examples: ['ProblemPrivateLink', 'ProblemLiveCodeInvalid'],
   },
   PayloadTooLarge: { description: 'The body is larger than 16 KB (16,384 bytes).', codes: ['body_too_large'] },
-  ValidationFailed: { description: 'A field breaks its rule; `param` names it.', codes: ['validation_failed'], example: 'ProblemValidationReason' },
+  ValidationFailed: { description: 'A field breaks its rule; `param` names it.', codes: ['validation_failed'], examples: ['ProblemValidationReason'] },
   RateLimited: {
     description:
       'Too many requests; nothing was done. Retry after `Retry-After`, with the same Idempotency-Key and body. See the\nrate-limit table for each bucket.\n',
     codes: ['rate_limited'],
-    example: 'ProblemRateLimited',
+    examples: ['ProblemRateLimited'],
     retryAfter: true,
   },
   TryLater: {
@@ -288,6 +338,14 @@ export const PARTNER_PROBLEM_EXAMPLES = {
     code: 'validation_failed',
     extra: { detail: 'reason must be 1 to 140 characters.', param: 'reason' },
   },
+  ProblemWalletNotFound: { summary: 'Unknown, or outside the key\'s reach', code: 'wallet_not_found' },
+  ProblemFichaCopy: { summary: 'The chip\'s serial is not the ficha\'s', code: 'ficha_copy_suspected' },
+  ProblemPrivateLink: {
+    summary: 'The customer showed their private wallet link',
+    code: 'wallet_ref_not_accepted',
+    extra: { reason: 'private_link', detail: WALLET_REF_DETAIL.private_link.en },
+  },
+  ProblemLiveCodeInvalid: { summary: 'Expired or unknown live code', code: 'live_code_invalid' },
 } as const satisfies Record<string, { summary: string; code: PartnerErrorCode; extra?: Record<string, string> }>;
 
 export type PartnerProblemExampleName = keyof typeof PARTNER_PROBLEM_EXAMPLES;

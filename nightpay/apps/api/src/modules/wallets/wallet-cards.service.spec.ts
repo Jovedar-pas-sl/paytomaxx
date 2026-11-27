@@ -95,8 +95,10 @@ function setup(o: { nfc?: boolean } = {}) {
   const run = async (fn: (t: typeof tx) => unknown) => fn(tx);
   const prisma = { venue: tx.venue, asSystem: vi.fn(run), acrossVenues: vi.fn(run) };
   const audit = { log: vi.fn(async (_e: Record<string, unknown>) => undefined) };
-  const svc = new WalletCardsService(prisma as never, audit as never);
-  return { svc, cards, put, tx, audit, events };
+  // Los códigos del móvil (OXC1:) del saldo de la ficha: se anulan al bloquearla o perderla.
+  const liveCodes = { dropWallet: vi.fn(async (_walletId: string) => undefined) };
+  const svc = new WalletCardsService(prisma as never, audit as never, liveCodes as never);
+  return { svc, cards, put, tx, audit, events, liveCodes };
 }
 
 const recepcion = { userId: null, terminalId: 'term-recepcion' };
@@ -236,6 +238,40 @@ describe('panel: Clientes → Fichas', () => {
       ['card-1', 'LOST', SALA, JAVI],
       ['card-2', 'BLOCKED', SALA, JAVI],
     ]);
+  });
+
+  it('bloquear o perder la ficha de un saldo anula los códigos del móvil de ese saldo (una vez, tras guardar); una del stock, nada', async () => {
+    for (const action of ['lost', 'block'] as const) {
+      const { svc, put, liveCodes } = setup();
+      put({ id: 'card-1', token: tok('A'), walletId: W_CON, status: 'ISSUED' });
+      put({ id: 'card-2', token: tok('B') });
+      await expect(svc.mark(javi, 'card-1', action)).resolves.toMatchObject({ id: 'card-1' });
+      expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+      expect(liveCodes.dropWallet).toHaveBeenCalledWith(W_CON);
+      await expect(svc.mark(javi, 'card-2', action)).resolves.toMatchObject({ id: 'card-2' });
+      expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('si anular los códigos falla, la ficha queda marcada igual', async () => {
+    const { svc, put, cards, liveCodes } = setup();
+    put({ id: 'card-1', token: tok('A'), walletId: W_CON, status: 'ISSUED' });
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(svc.mark(javi, 'card-1', 'block')).resolves.toMatchObject({ id: 'card-1', status: 'BLOCKED' });
+    expect(cards.get('card-1')).toMatchObject({ status: 'BLOCKED' });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin cambio (ya bloqueada, cambió entre medias, sin permiso o de otro grupo): no anula códigos', async () => {
+    const { svc, put, tx, liveCodes } = setup();
+    put({ id: 'card-1', token: tok('A'), walletId: W_CON, status: 'BLOCKED' });
+    put({ id: 'card-2', token: tok('B'), walletId: W_CON, status: 'ISSUED' });
+    await expect(svc.mark(javi, 'card-1', 'block')).rejects.toBeInstanceOf(ConflictException);
+    tx.walletCard.updateMany.mockResolvedValueOnce({ count: 0 });
+    await expect(svc.mark(javi, 'card-2', 'block')).rejects.toThrow(/acaba de cambiar/);
+    await expect(svc.mark({ ...javi, role: 'OPERATOR' as never }, 'card-2', 'block')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(svc.mark({ ...javi, tenantId: NEON }, 'card-2', 'block')).rejects.toBeInstanceOf(NotFoundException);
+    expect(liveCodes.dropWallet).not.toHaveBeenCalled();
   });
 
   it('la chica no; el encargado de otro grupo no la ve', async () => {

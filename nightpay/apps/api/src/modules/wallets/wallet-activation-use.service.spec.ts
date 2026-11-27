@@ -85,3 +85,45 @@ describe('activar Face ID con el QR de un solo uso, dos móviles a la vez', () =
     await expect(service.registerPasskey('token-1', 'api.paytomaxx.com', {})).rejects.toBe(timeout);
   });
 });
+
+describe('elegir el primer PIN con el QR de activación: el enlace cambia', () => {
+  function withNewPin(o: { setPinError?: unknown; dropFails?: boolean } = {}) {
+    const charges = {
+      setFirstPinWithActivation: vi.fn(async () => {
+        if (o.setPinError) throw o.setPinError;
+      }),
+    };
+    const audit = { log: vi.fn().mockResolvedValue(undefined) };
+    const prisma = { acrossVenues: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ payment: { findFirst: async () => null }, walletCashTopUp: { findFirst: async () => null } })) };
+    // Los códigos del móvil (OXC1:) del saldo: el enlace cambia, se anulan tras guardar.
+    const liveCodes = { dropWallet: vi.fn(async (_walletId: string) => (o.dropFails ? Promise.reject(new Error('redis caído')) : undefined)) };
+    const service = new WalletActivationUseService(prisma as never, {} as never, charges as never, audit as never, liveCodes as never);
+    vi.spyOn(service as unknown as { usable: (token: string) => Promise<unknown> }, 'usable').mockResolvedValue({
+      id: 'wallet-1', shortCode: 'K7Q4M2', tenantId: 'venue-1', qrToken: 'qr-1', hasPin: false, via: 'reception', balanceCents: 0, issuedAt: new Date(),
+    });
+    return { service, charges, audit, liveCodes };
+  }
+
+  it('guardado el PIN, anula los códigos del móvil del saldo (una vez)', async () => {
+    const { service, charges, liveCodes } = withNewPin();
+    const out = await service.setPin('t', '4821');
+    expect(out).toMatchObject({ walletId: 'wallet-1', qrToken: expect.any(String) });
+    expect(out.qrToken).not.toBe('qr-1');
+    expect(charges.setFirstPinWithActivation).toHaveBeenCalledOnce();
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith('wallet-1');
+  });
+
+  it('si anular los códigos falla, el PIN queda elegido igual', async () => {
+    const { service, audit, liveCodes } = withNewPin({ dropFails: true });
+    await expect(service.setPin('t', '4821')).resolves.toMatchObject({ walletId: 'wallet-1' });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.activation_used' }));
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('si no se guarda (QR usado, PIN fácil…), no anula códigos', async () => {
+    const { service, liveCodes } = withNewPin({ setPinError: new ConflictException({ code: 'ACTIVATION_USED' }) });
+    await expect(service.setPin('t', '4821')).rejects.toMatchObject({ response: { code: 'ACTIVATION_USED' } });
+    expect(liveCodes.dropWallet).not.toHaveBeenCalled();
+  });
+});

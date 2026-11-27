@@ -860,6 +860,34 @@ describe('API de socios: avisos al dueño (Incidencias y Telegram)', () => {
     expect(i.alertDetail).not.toMatch(/Marta|Cajeros Demo|oxp_/);
   });
 
+  it('partner.master_link_submitted: el texto nuevo, sin «Alguien del personal»; plataforma y saldo en el panel, no en Telegram', () => {
+    expect(SENSITIVE_AUDIT_ACTIONS).toContain('partner.master_link_submitted');
+    const i = sensitiveActionIncident(
+      row('partner.master_link_submitted', {
+        actorName: null,
+        payload: { connectionId: 'c1', keyHint: 'oxp_live_…a1b2', name: 'Cajeros Demo', code: 'K7Q-4M2', linkRef: 'a1b2c3d4e5f6' },
+      }),
+    );
+    expect(i).toMatchObject({ kind: 'sensitive_action', title: 'Enlace privado enseñado en otra plataforma', ackable: true });
+    expect(i.detail).toBe(
+      'Un cliente ha enseñado el enlace privado de su saldo en otra plataforma: quien lo tenga puede ver su saldo. Dale un enlace nuevo. (Cajeros Demo) (saldo K7Q-4M2)',
+    );
+    expect(i.alertDetail).toBe(
+      'Un cliente ha enseñado el enlace privado de su saldo en otra plataforma: quien lo tenga puede ver su saldo. Dale un enlace nuevo.',
+    );
+    expect(`${i.detail} ${i.alertDetail}`).not.toMatch(/Alguien del personal|a1b2c3d4e5f6|oxp_/);
+  });
+
+  it('wallet.card_copy_suspected de una plataforma: «no se ha aceptado», con plataforma y saldo solo en el panel', () => {
+    const i = sensitiveActionIncident(
+      row('wallet.card_copy_suspected', { actorName: null, payload: { cardId: 'k1', connectionId: 'c1', keyHint: 'oxp_live_…a1b2', name: 'Cajeros Demo', code: 'K7Q-4M2' } }),
+    );
+    expect(i.detail).toBe(
+      'Han acercado una ficha con el código de un saldo y otro número de serie: no se ha aceptado. Si se repite, cambia esa ficha. (Cajeros Demo) (saldo K7Q-4M2)',
+    );
+    expect(i.alertDetail).toBe('Han acercado una ficha con el código de un saldo y otro número de serie: no se ha aceptado. Si se repite, cambia esa ficha.');
+  });
+
   it('la clave dormida, el enlace abierto y la reanudación no avisan', () => {
     for (const quiet of ['partner.key.suspended', 'partner.key.claim_opened', 'partner.connection.resumed']) {
       expect(SENSITIVE_AUDIT_ACTIONS).not.toContain(quiet);

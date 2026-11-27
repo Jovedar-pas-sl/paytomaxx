@@ -13,6 +13,10 @@ import { PartnerKeySweepService } from './connections/partner-key-sweep.service'
 import { PartnerKeyExposureService } from './http/partner-key-exposure.service';
 import { PartnerResponseInterceptor } from './http/partner-response.interceptor';
 import { PartnerController } from './partner.controller';
+import { WalletLiveCodeModule } from '../wallets/wallet-live-code.module';
+import { PartnerWalletController } from './wallet/partner-wallet.controller';
+import { PartnerWalletLimits } from './wallet/partner-wallet-limits';
+import { PartnerWalletRefs } from './wallet/partner-wallet-ref';
 
 /**
  * API de socios (/v1/partner): otras plataformas con una clave por local.
@@ -21,8 +25,9 @@ import { PartnerController } from './partner.controller';
  * super-admin (socios, congelación) está en modules/superadmin/partners.*.
  */
 @Module({
-  imports: [AuthModule],
-  controllers: [PartnerController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
+  // WalletLiveCodeModule: leer los códigos del móvil (no todo WalletsModule).
+  imports: [AuthModule, WalletLiveCodeModule],
+  controllers: [PartnerController, PartnerWalletController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
   providers: [
     PartnerAuthLimiter,
     PartnerRateLimiter,
@@ -34,6 +39,8 @@ import { PartnerController } from './partner.controller';
     PartnerConnectionsService,
     PartnerKeyClaimService,
     PartnerKeySweepService,
+    PartnerWalletLimits,
+    PartnerWalletRefs,
   ],
   exports: [PartnerFreezeService, PartnerAuthLimiter, PartnerRateLimiter, PartnerForeignIpService, PartnerKeyExposureService],
 })

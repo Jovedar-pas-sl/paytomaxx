@@ -127,6 +127,19 @@ describe('renderPartnerProblem', () => {
     });
   });
 
+  it('un detail propio en dos idiomas sale en el de Accept-Language (inglés de serie)', () => {
+    const detail = { en: 'nfc_uid: send it only with a ficha link read by NFC.', es: 'nfc_uid: solo va con el enlace de una ficha leída por NFC.' };
+    const es = reply();
+    renderPartnerProblem(partnerError('validation_failed', { param: 'nfc_uid' }, undefined, detail), { url: '/v1/partner/wallet/balance', headers: { 'accept-language': 'es' } } as never, es as never);
+    expect(es.payload).toMatchObject({ code: 'validation_failed', param: 'nfc_uid', detail: detail.es });
+    const en = reply();
+    renderPartnerProblem(partnerError('validation_failed', { param: 'nfc_uid' }, undefined, detail), { url: '/v1/partner/wallet/balance', headers: {} } as never, en as never);
+    expect(en.payload).toMatchObject({ detail: detail.en });
+    const plain = reply();
+    renderPartnerProblem(partnerError('validation_failed', {}, undefined, 'qr: Required'), { url: '/v1/partner/wallet/balance', headers: { 'accept-language': 'es' } } as never, plain as never);
+    expect((plain.payload as { detail: string }).detail).toBe('qr: Required');
+  });
+
   it('429 y 503 llevan Retry-After', () => {
     const res = reply();
     renderPartnerProblem(partnerError('try_later'), { url: '/v1/partner/me', headers: {} } as never, res as never);

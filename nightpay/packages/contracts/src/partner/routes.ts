@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { PartnerScope } from './common';
 import { PartnerConnectionSchema } from './connection';
 import type { PartnerErrorResponseName } from './errors';
+import { WalletBalance, WalletBalanceRequest } from './wallet';
 
 // La tabla de rutas de la API de socios: la única fuente. Los controladores
 // declaran sus rutas solo con @PartnerRoute(PARTNER_ROUTES.x) (lo comprueba
@@ -76,7 +77,7 @@ export interface PartnerRouteDef {
 }
 
 /** Ejemplos de respuestas buenas (components.examples). */
-export type PartnerExampleName = 'ConnectionAtm';
+export type PartnerExampleName = 'ConnectionAtm' | 'BalanceRequestFicha' | 'BalanceRequestLiveCode' | 'Balance5000';
 
 const ANY_KEY_ERRORS = {
   '400': 'BadRequest',
@@ -107,6 +108,36 @@ export const PARTNER_ROUTES = {
     errorResponses: ANY_KEY_ERRORS,
     responseExamples: { atm: 'ConnectionAtm' },
   },
+  getWalletBalance: {
+    method: 'POST',
+    path: '/wallet/balance',
+    operationId: 'getWalletBalance',
+    tag: 'Wallet',
+    summary: 'Identify a wallet and read its balance',
+    description:
+      'POST so the QR text never travels in a URL. Send the exact text the scanner decoded, or the NDEF URI read from\nthe ficha plus its chip UID. It spends nothing and does not use up a live code.\n\nA wallet outside the key\'s reach (another wallet group, or a home venue of another company) answers\n`404 wallet_not_found`, exactly like an unknown ficha (see Authentication). It does not tell whether a load\nwould be accepted: the venue\'s switches, pauses and the load limits are checked only by `POST /wallet/loads`.\n',
+    scopes: ['wallet:balance'],
+    money: false,
+    successStatus: 200,
+    response: WalletBalance,
+    successHeaders: ['RequestId'],
+    parameters: ['AcceptLanguage', 'XRequestId'],
+    errorResponses: {
+      '400': 'BadRequest',
+      '401': 'Unauthorized',
+      '403': 'ForbiddenScoped',
+      '404': 'WalletNotFound',
+      '409': 'WalletUnusable',
+      '413': 'PayloadTooLarge',
+      '422': 'WalletRefInvalid',
+      '429': 'RateLimited',
+      '503': 'TryLater',
+      '5XX': 'ServerError',
+    },
+    responseExamples: { balance: 'Balance5000' },
+    body: WalletBalanceRequest,
+    bodyExamples: { ficha_nfc: 'BalanceRequestFicha', live_code: 'BalanceRequestLiveCode' },
+  },
   getOpenApi: {
     method: 'GET',
     path: '/openapi.json',
@@ -130,5 +161,6 @@ export type PartnerRouteName = keyof typeof PARTNER_ROUTES;
 /** La descripción de la respuesta buena de cada ruta (la del contrato). */
 export const PARTNER_SUCCESS_DESCRIPTIONS: Readonly<Record<PartnerRouteName, string>> = {
   getConnection: 'The connection.',
+  getWalletBalance: 'The balance of the identified wallet.',
   getOpenApi: 'The OpenAPI 3.1 document of the partner API.',
 };

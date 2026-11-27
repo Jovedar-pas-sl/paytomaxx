@@ -161,8 +161,14 @@ function setup(wallet: Row = {}, topUp: Row | null = null) {
   });
   if (topUp) tables.payment.put({ id: 'pay-1', walletId: WALLET, createdByUserId: LOLA, createdAt: NOW, ...topUp });
   const audit = { log: vi.fn(async (_e: { action: string; payload: Record<string, unknown> }) => undefined) };
-  const svc = new WalletChargesService(prisma as never, audit as never, { get: vi.fn() } as never, { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) } as never);
-  return { svc, db: tables, audit, queries, $queryRaw };
+  // Los códigos del móvil (OXC1:) del saldo: se anulan al quedar bloqueado por el PIN.
+  const liveCodes = { dropWallet: vi.fn(async (_walletId: string) => undefined) };
+  const svc = new WalletChargesService(
+    prisma as never, audit as never, { get: vi.fn() } as never,
+    { isEnabled: vi.fn(async () => true), assertForUser: vi.fn(async () => undefined) } as never,
+    undefined, undefined, liveCodes as never,
+  );
+  return { svc, db: tables, audit, queries, $queryRaw, liveCodes };
 }
 
 /** Un cobro con QR de Lola (40 €), sin pagar, que caduca a los 5 min. */
@@ -310,6 +316,40 @@ describe('PIN fallado: bloqueo del saldo', () => {
     const { svc, db, $queryRaw } = setup({ pinFails: 5, pinFailedAt: NOW, pinLockedAt: NOW });
     $queryRaw.mockImplementationOnce(async () => [{ ...db.clientWallet.get(WALLET), pinFails: 0, pinLockedAt: null }]);
     await expect(pagar(svc, lola, cobro(db), PIN)).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 8_000 });
+  });
+
+  it('al bloquearse (5.º fallo) anula los códigos del móvil del saldo, una vez; los fallos de antes no', async () => {
+    const { svc, db, liveCodes } = setup();
+    const req = cobro(db);
+    for (let i = 1; i <= 4; i += 1) await expect(pagar(svc, lola, req, '1111')).rejects.toThrow(/intento/);
+    expect(liveCodes.dropWallet).not.toHaveBeenCalled();
+    await expect(pagar(svc, lola, req, '1111')).rejects.toMatchObject({ response: { code: 'PIN_LOCKED' } });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinLockedAt: NOW });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+    expect(liveCodes.dropWallet).toHaveBeenCalledWith(WALLET);
+    // Ya bloqueado: otro intento no lo anula otra vez.
+    await expect(pagar(svc, lola, cobro(db), PIN)).rejects.toMatchObject({ response: { code: 'PIN_LOCKED' } });
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('si anular los códigos falla, el bloqueo queda igual y responde lo de siempre (PIN_LOCKED)', async () => {
+    const { svc, db, liveCodes, audit } = setup({ pinFails: 4, pinFailedAt: NOW });
+    liveCodes.dropWallet.mockRejectedValueOnce(new Error('redis caído'));
+    await expect(pagar(svc, lola, cobro(db), '1111')).rejects.toMatchObject({ response: { code: 'PIN_LOCKED' } });
+    expect(db.clientWallet.get(WALLET)).toMatchObject({ pinFails: 5, pinLockedAt: NOW });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'wallet.pin_locked' }));
+    expect(liveCodes.dropWallet).toHaveBeenCalledTimes(1);
+  });
+
+  it('PIN bueno, sin PIN o saldo que no está: no anula códigos', async () => {
+    const bueno = setup();
+    await expect(pagar(bueno.svc, lola, cobro(bueno.db), PIN)).resolves.toMatchObject({ status: 'ACCEPTED' });
+    const sinPin = setup({ pinHash: null });
+    await expect(pagar(sinPin.svc, lola, cobro(sinPin.db), PIN)).rejects.toBeInstanceOf(ConflictException);
+    const fuera = setup();
+    fuera.$queryRaw.mockResolvedValueOnce([]);
+    await expect(pagar(fuera.svc, lola, cobro(fuera.db), PIN)).rejects.toBeInstanceOf(NotFoundException);
+    for (const h of [bueno, sinPin, fuera]) expect(h.liveCodes.dropWallet).not.toHaveBeenCalled();
   });
 
   it('si el saldo ya no está al ir a comprobar el PIN → 404 y no se cobra nada', async () => {
