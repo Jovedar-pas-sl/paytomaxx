@@ -28,8 +28,10 @@ type ExportKind = (typeof KINDS)[number];
  * devuelto, los pagos al personal (en mano), las devoluciones (alguna se paga
  * en efectivo) y el resumen, que los suma. Con la noche abierta, a la
  * encargada no le salen si el periodo llega a ella (cierre a ciegas).
+ * «recargas-socios» no: es el efectivo de los cajeros de otras plataformas,
+ * no el del cajón de recepción (y ya se ve en «Movimientos»).
  */
-const CASH_KINDS: ReadonlySet<ExportKind> = new Set(['devoluciones', 'liquidaciones', 'resumen', 'recargas-efectivo', 'recargas-socios', 'saldo-devuelto']);
+const CASH_KINDS: ReadonlySet<ExportKind> = new Set(['devoluciones', 'liquidaciones', 'resumen', 'recargas-efectivo', 'saldo-devuelto']);
 
 /**
  * Informes para la gestoría en CSV (Fase 1C). El dueño, y el encargado si el

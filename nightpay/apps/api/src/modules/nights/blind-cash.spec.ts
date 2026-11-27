@@ -244,7 +244,7 @@ describe('cierre a ciegas: las otras vías del API', () => {
     const reports = {
       openNightStart: async () => open,
       cobros: async () => [], devoluciones: async () => [], liquidaciones: async () => [], consumos: async () => [],
-      pagosSaldo: async () => [], recargasEfectivo: async () => [], venueName: async () => 'Local', sectionLabeler: async () => () => '',
+      pagosSaldo: async () => [], recargasEfectivo: async () => [], recargasSocios: async () => [], venueName: async () => 'Local', sectionLabeler: async () => () => '',
     };
     const c = new ReportsController(reports as never);
     const reply = () => {
@@ -261,6 +261,8 @@ describe('cierre a ciegas: las otras vías del API', () => {
     }
     // Los cobros (con tarjeta) no llevan efectivo de caja.
     await expect(c.export(user('MANAGER'), 't-1', 'cobros', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
+    // Las cargas de los cajeros de otras plataformas tampoco: no son el cajón de recepción.
+    await expect(c.export(user('MANAGER'), 't-1', 'recargas-socios', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
     open = null;
     await expect(c.export(user('MANAGER'), 't-1', 'resumen', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
   });
