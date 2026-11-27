@@ -342,10 +342,13 @@ $('seg').addEventListener('keydown',function(e){var k=e.key,to=k==='Home'?'pay':
  * Lo puro de «Último: …» (se prueba aparte): npNight(ms) es la noche (de 8:00 a
  * 8:00, hora de Madrid) de un instante, como «2026-11-26»; npLastWhen(iso,
  * ahora, idioma) da la hora si el movimiento es de esta noche y, si no, la
- * fecha y la hora.
- * shortcut: resta 8 horas al instante, así que la noche del cambio de hora el corte cae a las 7:00 o a las 9:00; si importa, calcular las 8:00 de Madrid de verdad.
+ * fecha y la hora. El corte son las 8:00 de la hora de Madrid de verdad (su
+ * fecha y su hora; antes de las 8, la noche del día anterior), también las
+ * noches del cambio de hora (antes se restaban 8 horas y ese día el corte caía
+ * a las 7:00 o a las 9:00). Sin barras invertidas: va dentro de un `…`.
  */
-export const WALLET_LAST_JS = `function npNight(ms){return new Date(ms-28800000).toLocaleDateString('en-CA',{timeZone:'Europe/Madrid'});}
+export const WALLET_LAST_JS = `function npNight(ms){var p=new Date(ms).toLocaleString('en-US',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hour12:false}).replace(/[^0-9]+/g,' ').trim().split(' ');
+ var d=new Date(Date.UTC(+p[2],+p[0]-1,+p[1]-(+p[3]%24<8?1:0)));return d.toISOString().slice(0,10);}
 function npLastWhen(iso,now,L){var t=new Date(iso),o={timeZone:'Europe/Madrid',hour:'2-digit',minute:'2-digit'};
  if(npNight(t.getTime())!==npNight(now)){o.day='2-digit';o.month='2-digit';}return t.toLocaleString(L,o);}`;
 

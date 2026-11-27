@@ -770,6 +770,27 @@ describe('idea 69: el saldo a mano (lo último, los últimos movimientos y «Blo
     expect(WALLET_LAST_JS.includes(BACKSLASH)).toBe(false);
   });
 
+  it('el corte de las 8:00 es la hora de Madrid de verdad, también las noches del cambio de hora de 2026 (29-mar y 25-oct)', () => {
+    // 29 de marzo: a las 2:00 pasan a ser las 3:00 (la noche del 28 dura una hora menos). Corte a las 8:00 de verano.
+    expect(last.npNight(at('2026-03-29T01:30:00+01:00'))).toBe('2026-03-28');
+    expect(last.npNight(at('2026-03-29T07:59:00+02:00'))).toBe('2026-03-28');
+    expect(last.npNight(at('2026-03-29T08:00:00+02:00'))).toBe('2026-03-29');
+    expect(last.npNight(at('2026-03-29T08:30:00+02:00'))).toBe('2026-03-29');
+    // 25 de octubre: a las 3:00 vuelven a ser las 2:00 (la noche del 24 dura una hora más). Corte a las 8:00 de invierno.
+    expect(last.npNight(at('2026-10-25T02:30:00+02:00'))).toBe('2026-10-24');
+    expect(last.npNight(at('2026-10-25T02:30:00+01:00'))).toBe('2026-10-24');
+    expect(last.npNight(at('2026-10-25T07:30:00+01:00'))).toBe('2026-10-24');
+    expect(last.npNight(at('2026-10-25T08:00:00+01:00'))).toBe('2026-10-25');
+    // Cambio de mes y de año: antes de las 8:00 del día 1, la noche del último día.
+    expect(last.npNight(at('2027-01-01T06:00:00+01:00'))).toBe('2026-12-31');
+    expect(last.npNight(at('2026-04-01T07:00:00+02:00'))).toBe('2026-03-31');
+    // Medianoche justa (algún navegador viejo la escribe «24»): de la noche de antes.
+    expect(last.npNight(at('2026-11-27T00:00:00+01:00'))).toBe('2026-11-26');
+    // Con la hora de verano: lo de esa noche, solo la hora.
+    expect(last.npLastWhen('2026-03-29T01:30:00+01:00', at('2026-03-29T07:30:00+02:00'), 'es-ES')).toBe('01:30');
+    expect(last.npLastWhen('2026-10-25T07:30:00+01:00', at('2026-10-25T08:30:00+01:00'), 'es-ES')).toMatch(/^25\/10,? 07:30$/);
+  });
+
   it('debajo de «Pagar» / «Cargar»: «Últimos movimientos», tres a la vista y «Ver todos» (48 px), que despliega el resto aquí («Ver menos»)', () => {
     const html = renderWalletPage('tok-1', 'es', state(), { topUp });
     expect(html).toContain(
