@@ -38,6 +38,7 @@ export function Hero() {
           <img className={h.mark} src="/portada/marcas/visa.svg" height={28} alt="Visa" />
           <img className={h.mark} src="/portada/marcas/mastercard.svg" height={28} alt="Mastercard" />
           <img className={h.mark} src="/portada/marcas/Apple_Pay_Mark_RGB_041619.svg" height={28} alt="Apple Pay" />
+          <img className={h.markBox} src="/portada/marcas/google-pay-mark_800.svg" height={52} alt="Google Pay" />
         </p>
       </div>
       <div className={h.heroPhones}>

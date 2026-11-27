@@ -117,6 +117,15 @@
   margin: 0 6px;
 }
 
+/* Google Pay: su fichero oficial trae el margen dentro; en una caja de 52 px su pastilla queda en 28,
+   y el margen negativo la deja en la misma línea que las otras marcas. */
+.markBox {
+  display: block;
+  width: auto;
+  height: 52px;
+  margin: -12px 0;
+}
+
 /* Tres móviles que asoman por abajo, como las tres tarjetas de oxiocard. */
 .heroPhones {
   position: relative;

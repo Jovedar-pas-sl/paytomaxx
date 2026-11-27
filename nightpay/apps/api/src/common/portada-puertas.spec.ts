@@ -62,9 +62,13 @@ describe('portada: las marcas con las que se paga', () => {
     expect(sha256('Apple_Pay_Mark_RGB_041619.svg')).toBe('66baf110b86c1f1ae01a0e28985970d3827465e6aba6be54d5142a6d1eaa803c');
   });
 
-  // El fichero oficial de Google (google-pay-mark_800.svg, sha256 9ddde73a…ba9d) no se pudo
-  // descargar en esta entrega: cuando esté, su marca va en la portada y esta prueba se escribe.
-  it.todo('Google Pay: el fichero oficial, sin tocar, en una caja de 52 px (su pastilla queda en 28)');
+  it('Google Pay: el fichero oficial, sin tocar, en una caja de 52 px (su pastilla queda en 28)', () => {
+    expect(sha256('google-pay-mark_800.svg')).toBe('9ddde73a0e3e8b16e7c518f00380c542c96dbec8b0f80363d5037d905f0bba9d');
+    expect(HERO).toMatch(/<img className=\{h\.markBox\} src="\/portada\/marcas\/google-pay-mark_800\.svg" height=\{52\} alt="Google Pay" \/>/);
+    expect(rule(CSS, '.markBox')).toMatch(/height: 52px;/);
+    // Después de Apple Pay, la última.
+    expect(HERO.indexOf('google-pay-mark_800.svg')).toBeGreaterThan(HERO.indexOf('Apple_Pay_Mark_RGB_041619.svg'));
+  });
 
   it('a 28 px de alto, con su nombre para el lector; ninguna sale de otro dominio', () => {
     const marks = [...HERO.matchAll(/<img className=\{h\.mark\} src="([^"]+)" height=\{28\} alt="([^"]+)"/g)].map((m) => [m[1], m[2]]);
