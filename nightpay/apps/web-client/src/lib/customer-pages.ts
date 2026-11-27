@@ -22,6 +22,11 @@ export function customerPageUrl(page: CustomerPage, token: string, lang: unknown
   return typeof lang === 'string' && LANGUAGES.has(lang) ? `${url}?lang=${lang}` : url;
 }
 
+/** «Ver mi saldo» de la portada (idea 73): la página del API que abre el saldo con Face ID o huella. */
+export function myBalanceUrl(): string {
+  return `${API_BASE}/w/mine`;
+}
+
 /** Los textos legales también los sirve el API: /legal/<página>. */
 export const LEGAL_LINKS = [
   ['aviso-legal', 'Aviso legal'],

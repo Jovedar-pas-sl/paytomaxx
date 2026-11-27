@@ -8,3 +8,7 @@ Dockerfile text eol=lf
 
 # Scripts de Windows: siempre CRLF.
 *.bat text eol=crlf
+
+# Marcas oficiales de la portada (Apple Pay, Google Pay…): byte a byte como
+# las publica cada marca (su sha256 se comprueba en portada-puertas.spec.ts).
+nightpay/apps/web-client/public/portada/marcas/*.svg -text
