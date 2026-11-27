@@ -67,6 +67,8 @@ describe('cardGatewayFor: Yavin solo con servidor, super-admin y credencial', ()
     expect(chooseCardGateway({ base: 'REDSYS', yavin: false, requested: 'YAVIN' })).toBe('REDSYS');
     expect(chooseCardGateway({ base: null, yavin: true })).toBe('YAVIN');
     expect(chooseCardGateway({ base: 'REDSYS', yavin: true, requested: 'YAVIN' })).toBe('YAVIN');
+    expect(chooseCardGateway({ base: 'REDSYS', yavin: true, requested: 'YAVIN', amountCents: 99 })).toBe('REDSYS');
+    expect(chooseCardGateway({ base: 'REDSYS', yavin: true, requested: 'YAVIN', amountCents: 100 })).toBe('YAVIN');
     expect(chooseCardGateway({ base: 'REDSYS', yavin: true })).toBe('REDSYS');
     expect(cardGatewayChoices({ base: 'REDSYS', yavin: true })).toEqual(['REDSYS', 'YAVIN']);
     expect(cardGatewayChoices({ base: 'REDSYS', yavin: false })).toEqual([]);

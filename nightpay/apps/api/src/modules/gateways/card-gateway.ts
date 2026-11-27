@@ -1,6 +1,7 @@
 import type { Provider } from '@nightpay/contracts';
 import type { Prisma } from '@nightpay/db';
 import { yavinEnabled } from './yavin-flag';
+import { YAVIN_MIN_CENTS } from './yavin.adapter';
 
 /**
  * Qué pasarela de tarjeta cobra un cobro. Hoy cada local tiene la suya (Redsys,
@@ -27,6 +28,8 @@ export interface CardGatewayOptions {
   yavin: boolean;
   /** Lo que eligió el camarero en la app del personal (null = no eligió). */
   requested?: CardGatewayRequest | null;
+  /** Importe del cobro: por debajo del mínimo de Yavin (1 €) va por la de siempre. */
+  amountCents?: number;
 }
 
 /**
@@ -40,6 +43,7 @@ export interface CardGatewayOptions {
 export function chooseCardGateway(o: CardGatewayOptions): Provider | null {
   if (!o.yavin) return o.base;
   if (!o.base) return 'YAVIN';
+  if (o.amountCents !== undefined && o.amountCents < YAVIN_MIN_CENTS) return o.base;
   return o.requested === 'YAVIN' ? 'YAVIN' : o.base;
 }
 
@@ -72,12 +76,12 @@ export async function baseGatewayOf(db: Db, tenantId: string): Promise<Provider 
 /** La pasarela que cobrará este cobro (null = el local no tiene ninguna). */
 export async function cardGatewayFor(
   db: Db,
-  payment: { tenantId: string; walletId: string | null; cardGateway?: string | null },
+  payment: { tenantId: string; walletId: string | null; cardGateway?: string | null; amountCents?: number },
 ): Promise<Provider | null> {
   const base = await baseGatewayOf(db, payment.tenantId);
   const yavin = payment.walletId === null && (await yavinUsableIn(db, payment.tenantId));
   const requested = payment.cardGateway === 'YAVIN' || payment.cardGateway === 'REDSYS' ? payment.cardGateway : null;
-  return chooseCardGateway({ base, yavin, requested });
+  return chooseCardGateway({ base, yavin, requested, amountCents: payment.amountCents });
 }
 
 /** Lo que ve la app del personal al cobrar en este local. */
