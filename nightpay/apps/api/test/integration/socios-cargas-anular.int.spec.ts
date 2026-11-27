@@ -220,7 +220,7 @@ describe('1. por la API', () => {
     expect((await voidApi(PA, l.id)).statusCode).toBe(200);
     await vi.waitFor(() => expect(s.pushes).toHaveLength(1));
     const name = (await s.sys((tx) => tx.partnerConnection.findUnique({ where: { id: PA.id }, include: { partner: true } })))!.partner.name;
-    const plain = JSON.parse(JSON.stringify(s.pushes[0]!.payload).replace(/[  ]/g, ' '));
+    const plain = JSON.parse(JSON.stringify(s.pushes[0]!.payload).replace(/[\u00a0\u202f]/g, ' '));
     expect(plain).toMatchObject({ title: `Carga anulada · ${name}`, body: 'Se han quitado 20 € de tu saldo · te quedan 10 €' });
     expect(plain.notMeUrl).toBeUndefined();
   });
