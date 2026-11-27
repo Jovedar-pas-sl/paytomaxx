@@ -12,7 +12,7 @@ import {
   type CobroDetail,
   type CobroKind,
 } from '@nightpay/contracts';
-import { Button, Modal, receiptFromDetail, usePrintTicket } from '@nightpay/ui';
+import { Button, FormError, Importe, receiptFromDetail, Sheet, usePrintTicket } from '@nightpay/ui';
 import { paymentTimeLabel } from '@/lib/earnings-view';
 import { formatEur } from '@/lib/money';
 import { fetchOwnCobroDetail, ownDetailStatus, ownDeviceText, ownWhereText } from '@/lib/own-cobro-detail';
@@ -36,6 +36,8 @@ export function CobroDetailSheet({ target, onClose }: { target: { kind: CobroKin
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [shared, setShared] = useState<string | null>(null);
+  // El ticket del cliente (solo de lo pagado): lo comprado, el total y cómo se pagó; nunca «lo tuyo».
+  const printer = usePrintTicket();
 
   const load = useCallback(() => {
     if (!target) return undefined;
@@ -74,26 +76,54 @@ export function CobroDetailSheet({ target, onClose }: { target: { kind: CobroKin
   }
 
   return (
-    <Modal open={Boolean(target)} onClose={onClose} title={detail?.ref ? `Cobro ${detail.ref}` : 'Detalle del cobro'}>
-      {error ? (
-        <p role="alert" className={styles.mute} style={{ color: 'var(--np-danger)' }}>
-          {error}
-        </p>
-      ) : null}
+    <Sheet
+      open={Boolean(target)}
+      onClose={onClose}
+      title={detail?.ref ? `Cobro ${detail.ref}` : 'Detalle del cobro'}
+      footer={
+        detail ? (
+          <DetailButtons d={detail} onPrint={() => printer.print(receiptFromDetail(detail))} onShare={() => void share(detail)} onMore={() => setVerifying(true)} />
+        ) : undefined
+      }
+    >
+      {error ? <FormError>{error}</FormError> : null}
       {!detail && !error ? <SkelCard bare figure lines={4} /> : null}
-      {detail ? <DetailBody d={detail} onShare={() => void share(detail)} shared={shared} onMore={() => setVerifying(true)} /> : null}
+      {detail ? <DetailBody d={detail} shared={shared} printer={printer} /> : null}
       <StepUpSheet open={verifying} onClose={() => setVerifying(false)} onVerified={() => load()} />
-    </Modal>
+    </Sheet>
   );
 }
 
-function DetailBody({ d, onShare, shared, onMore }: { d: CobroDetail; onShare: () => void; shared: string | null; onMore: () => void }) {
-  // El ticket del cliente (solo de lo pagado): lo comprado, el total y cómo se pagó; nunca «lo tuyo».
-  const printer = usePrintTicket();
+/** El pie de la hoja: «Imprimir ticket» (si está pagado), «Compartir» y «Ver más». */
+function DetailButtons({ d, onPrint, onShare, onMore }: { d: CobroDetail; onPrint: () => void; onShare: () => void; onMore: () => void }) {
+  return (
+    <div className={styles.buttons}>
+      {d.paidAt ? (
+        <Button variant="ghost" onClick={onPrint}>
+          Imprimir ticket
+        </Button>
+      ) : null}
+      <div className={styles.actions}>
+        <Button variant="ghost" onClick={onShare}>
+          Compartir
+        </Button>
+        {d.sensitive ? null : (
+          <Button variant="ghost" onClick={onMore}>
+            Ver más
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailBody({ d, shared, printer }: { d: CobroDetail; shared: string | null; printer: ReturnType<typeof usePrintTicket> }) {
   return (
     <div className={styles.sheet}>
       <div className={styles.head}>
-        <b className={`np-num ${styles.total}`}>{eur(d.totalCents)}</b>
+        <b className={`np-num ${styles.total}`}>
+          <Importe cents={d.totalCents} decimals="always" />
+        </b>
         <span className={styles.status}>{ownDetailStatus(d.status)}</span>
         {d.confirmationCode ? <span className={styles.mute}>código {d.confirmationCode}</span> : null}
       </div>
@@ -150,28 +180,7 @@ function DetailBody({ d, onShare, shared, onMore }: { d: CobroDetail; onShare: (
         </Block>
       ) : null}
 
-      <div className={styles.buttons}>
-        {d.paidAt ? (
-          <Button variant="ghost" onClick={() => printer.print(receiptFromDetail(d))}>
-            Imprimir ticket
-          </Button>
-        ) : null}
-        <div className={styles.actions}>
-          <Button variant="ghost" onClick={onShare}>
-            Compartir
-          </Button>
-          {d.sensitive ? null : (
-            <Button variant="ghost" onClick={onMore}>
-              Ver más
-            </Button>
-          )}
-        </div>
-      </div>
-      {printer.error ? (
-        <p role="alert" className={styles.mute} style={{ color: 'var(--np-danger)' }}>
-          {printer.error}
-        </p>
-      ) : null}
+      {printer.error ? <FormError>{printer.error}</FormError> : null}
       {printer.ticketNode}
       {shared ? (
         <p role="status" className={styles.mute}>

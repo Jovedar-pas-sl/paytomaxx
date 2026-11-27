@@ -89,7 +89,9 @@ describe('«Buscar por fechas»', () => {
 
   it('«Desde» después de «Hasta»: lo dice', () => {
     const html = renderToStaticMarkup(<DateRange value={{ fromDay: '2026-11-15', toDay: '2026-11-01' }} onChange={noop} />);
-    expect(html).toContain('role="alert"');
+    // Entrega 4B: un error de los campos, en FieldError (sin role: los dos campos lo apuntan y se marcan).
+    expect(html).toContain('class="np-field-error"');
+    expect(html.match(/aria-invalid="true"/g)).toHaveLength(2);
     expect(html).toContain('«Desde» tiene que ser antes que «Hasta».');
   });
 });

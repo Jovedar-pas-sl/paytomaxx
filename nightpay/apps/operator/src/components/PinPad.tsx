@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Card, haptic, pinFailed, shakeClass } from '@nightpay/ui';
+import { Card, FormError, haptic, pinFailed, shakeClass } from '@nightpay/ui';
 import { WALLET_PIN_PROBLEM_TEXT, walletPinProblem } from '@nightpay/contracts';
 import { PIN_CHOOSE, PIN_CHOOSE_HINT, PIN_ENTER, PIN_REPEAT, keypadDigits } from '@/lib/pin-pad';
 import { useVenueNight } from '@/lib/venue-methods';
@@ -107,11 +107,7 @@ export function PinPad({ title, hint, mode, onPin, onCancel, cancelLabel = 'Canc
         ))}
         <span style={srOnly}>{`${pin.length} de ${PIN_LENGTH} cifras`}</span>
       </div>
-      {error ? (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
       <div style={gridStyle}>
         {keys.slice(0, 9).map((d) => (
           <button key={d} type="button" style={key} onClick={() => press(d)} disabled={busy}>
@@ -195,7 +191,6 @@ const srOnly: CSSProperties = {
   border: 0,
 };
 
-const errorStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)', fontWeight: 500 };
 
 const gridStyle: CSSProperties = {
   display: 'grid',

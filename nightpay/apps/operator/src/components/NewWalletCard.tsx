@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Button, Icon } from '@nightpay/ui';
+import { Button, FormError, Icon } from '@nightpay/ui';
 import { walletCardUrl } from '@nightpay/contracts';
 import { fetchWalletById, getUser, issueWalletCard, linkWalletCard, setWalletPin, type WalletLookup } from '@/lib/api';
 import { blankCodeFrom, tapChip } from '@/lib/chip-tap';
@@ -68,9 +68,7 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
 
   if (!wallet) {
     return error ? (
-      <p role="alert" style={errorStyle}>
-        {error}
-      </p>
+      <FormError>{error}</FormError>
     ) : (
       <SkelCard figure lines={1} style={boxStyle} />
     );
@@ -136,11 +134,7 @@ export function NewWalletCard({ walletId, withCard = true }: { walletId: string;
           Android.)
         </p>
       ) : null}
-      {error ? (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
     </div>
   );
 }
@@ -172,4 +166,3 @@ const codeStyle: CSSProperties = {
 
 const hintStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' };
 const okStyle: CSSProperties = { margin: 0, fontWeight: 600, color: 'var(--np-success)' };
-const errorStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger)' };

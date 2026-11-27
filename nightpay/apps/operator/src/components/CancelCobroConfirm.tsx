@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Modal } from '@nightpay/ui';
+import { Button, Sheet } from '@nightpay/ui';
 import { CANCEL_AT_BANK_TEXT, CANCEL_CONFIRM_TITLE } from '@/lib/cobro-state';
 
 /**
@@ -26,7 +26,21 @@ export function CancelCobroConfirm({
   onClose: () => void;
 }) {
   return (
-    <Modal open={open} onClose={onClose} title={CANCEL_CONFIRM_TITLE}>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title={CANCEL_CONFIRM_TITLE}
+      footer={
+        <div className="np-pregunta-pie">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Volver
+          </Button>
+          <Button variant="danger" onClick={onConfirm} loading={busy} disabled={busy} loadingLabel="Cancelando">
+            Cancelar cobro
+          </Button>
+        </div>
+      }
+    >
       <div style={{ display: 'grid', gap: '0.75rem' }}>
         {detail ? <p style={{ margin: 0, fontSize: 'var(--np-fs-16)', fontWeight: 600 }}>{detail}</p> : null}
         {atBank ? (
@@ -34,13 +48,7 @@ export function CancelCobroConfirm({
             {CANCEL_AT_BANK_TEXT}
           </p>
         ) : null}
-        <Button variant="danger" onClick={onConfirm} loading={busy} disabled={busy} loadingLabel="Cancelando">
-          Cancelar cobro
-        </Button>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          Volver
-        </Button>
       </div>
-    </Modal>
+    </Sheet>
   );
 }
