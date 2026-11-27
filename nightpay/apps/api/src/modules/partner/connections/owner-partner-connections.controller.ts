@@ -15,7 +15,7 @@ import {
   type PartnerLoadAdminView,
   type PartnerLoadVoidDto,
   type PartnerLoadsPage,
-  type StatementBody,
+  type PartnerOwnerStatement,
   type ResumePartnerConnectionDto,
   type RotatePartnerKeyDto,
 } from '@nightpay/contracts';
@@ -144,7 +144,7 @@ export class OwnerPartnerConnectionsController {
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: Record<string, unknown>,
-  ): Promise<StatementBody> {
+  ): Promise<PartnerOwnerStatement> {
     return this.loads.ownerStatement(user, id, query);
   }
 

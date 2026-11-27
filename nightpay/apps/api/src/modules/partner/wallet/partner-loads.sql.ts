@@ -156,6 +156,32 @@ export async function partnerStatementSql(tx: RawTx, a: { tenantId: string; conn
   return out;
 }
 
+/**
+ * «Movimientos» por cajero (solo el dueño): en [from, to), cada carga a su
+ * hora y cada anulación a la suya, con el `device` de su carga (también las
+ * anuladas en el panel). La suma de `netCents` es el `net_loads` de
+ * partnerStatementSql() en la misma ventana.
+ */
+export async function partnerDeviceTotalsSql(
+  tx: RawTx,
+  a: { tenantId: string; connectionId: string; from: Date; to: Date },
+): Promise<Array<{ device: string | null; loadsCount: number; voidsCount: number; netCents: number }>> {
+  const rows = await tx.$queryRaw<Array<{ device: string | null; loads: bigint | number; voids: bigint | number; net: bigint | number }>>`
+    SELECT COALESCE(l.device, o.device) AS device,
+           COUNT(*) FILTER (WHERE o.kind = 'LOAD')::bigint AS loads,
+           COUNT(*) FILTER (WHERE o.kind = 'LOAD_VOID')::bigint AS voids,
+           COALESCE(SUM(CASE WHEN o.kind = 'LOAD_VOID' THEN -o."amountCents" ELSE o."amountCents" END), 0)::bigint AS net
+      FROM partner_wallet_operations o
+      LEFT JOIN partner_wallet_operations l
+        ON l.id = o."reversesId" AND l."tenantId" = ${a.tenantId}::uuid AND l."connectionId" = ${a.connectionId}::uuid
+     WHERE o."tenantId" = ${a.tenantId}::uuid AND o."connectionId" = ${a.connectionId}::uuid
+       AND o."createdAt" >= ${a.from} AND o."createdAt" < ${a.to}
+     GROUP BY COALESCE(l.device, o.device)
+     ORDER BY COALESCE(l.device, o.device) NULLS LAST
+  `;
+  return rows.map((r) => ({ device: r.device, loadsCount: n(r.loads), voidsCount: n(r.voids), netCents: n(r.net) }));
+}
+
 // ─── Lo que mira la vigilancia (tras responder, sin candados) ───────────
 
 /** Cargas nuevas de la conexión desde `since` (la ráfaga: más de 30 en un minuto). */
