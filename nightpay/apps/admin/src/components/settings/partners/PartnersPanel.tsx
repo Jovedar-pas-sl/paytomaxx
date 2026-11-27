@@ -58,6 +58,8 @@ export function PartnersPanel({ role }: { role: string }) {
   const [limiting, setLimiting] = useState<PartnerConnectionView | null>(null);
   /** La respuesta con la clave: solo aquí, y a null al cerrar su hoja. */
   const [issued, setIssued] = useState<PartnerKeyIssued | null>(null);
+  /** De dónde salió: si el correo falla, se vuelve a conectar o a cambiar la clave. */
+  const [issuedFrom, setIssuedFrom] = useState<'connect' | 'rotate'>('rotate');
   const [busy, setBusy] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
   const [confirm, confirmDialog] = useConfirm();
@@ -81,9 +83,10 @@ export function PartnersPanel({ role }: { role: string }) {
   // Al salir de la pestaña, nada de la clave se queda.
   useEffect(() => () => setIssued(null), []);
 
-  function keyIssued(next: PartnerKeyIssued): void {
+  function keyIssued(next: PartnerKeyIssued, from: 'connect' | 'rotate'): void {
     setConnecting(false);
     setRotating(null);
+    setIssuedFrom(from);
     setIssued(next);
     reload();
   }
@@ -225,7 +228,7 @@ export function PartnersPanel({ role }: { role: string }) {
       ) : null}
 
       {connecting ? (
-        <ConnectSheet partners={connectable} emailEnabled={data.emailEnabled} onClose={() => setConnecting(false)} onIssued={keyIssued} />
+        <ConnectSheet partners={connectable} emailEnabled={data.emailEnabled} onClose={() => setConnecting(false)} onIssued={(next) => keyIssued(next, 'connect')} />
       ) : null}
       {rotating ? (
         <RotateSheet
@@ -233,7 +236,7 @@ export function PartnersPanel({ role }: { role: string }) {
           emailEnabled={data.emailEnabled}
           maskedEmail={emailOf(rotating.partnerId)}
           onClose={() => setRotating(null)}
-          onIssued={keyIssued}
+          onIssued={(next) => keyIssued(next, 'rotate')}
         />
       ) : null}
       {resuming ? (
@@ -267,7 +270,8 @@ export function PartnersPanel({ role }: { role: string }) {
           onRotate={() => {
             const c = issued.connection;
             setIssued(null);
-            setRotating(c);
+            if (issuedFrom === 'connect') setConnecting(true);
+            else setRotating(c);
           }}
         />
       ) : null}

@@ -346,7 +346,7 @@ describe('lo que sale al conectar o cambiar la clave', () => {
     ).toEqual({ kind: 'sent', sentTo: 'o***@cajeros.example', expiresAt: '2026-11-27T17:30:00.000Z' });
   });
 
-  it('si el correo no salió, la clave no existe en ningún sitio: hay que cambiarla', () => {
+  it('si el correo no salió, el API lo deshizo: hay que intentarlo otra vez', () => {
     expect(issuedOutcome({ ...base, claim: { sentTo: 'o***@cajeros.example', expiresAt: null, delivered: false } })).toEqual({
       kind: 'failed',
     });

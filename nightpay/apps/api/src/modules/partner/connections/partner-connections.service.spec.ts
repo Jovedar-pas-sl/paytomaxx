@@ -76,7 +76,7 @@ function fakeDb() {
     withTenant: vi.fn(async (_tenant: string, fn: (tx: unknown) => Promise<unknown>) => {
       const draft = structuredClone(state.connections);
       const tx = {
-        $queryRaw: vi.fn(async () => draft.filter((c) => c.id === CONN && c.tenantId === TENANT).map((c) => ({ id: c.id }))),
+        $queryRaw: vi.fn(async (_q: unknown, id: string) => draft.filter((c) => c.id === id && c.tenantId === TENANT).map((c) => ({ id: c.id }))),
         partner: { findUnique: vi.fn(async ({ where }: { where: Row }) => ({ ...partner, id: where.id })), findMany: vi.fn(async () => [partner]) },
         venue: {
           findUnique: vi.fn(async () => ({ name: 'Local Demo Centro', businessId: 'eeeeeeee-0000-0000-0000-000000000001', business: { name: 'Empresa Demo S.L.', taxId: 'B00000000' } })),
@@ -89,6 +89,10 @@ function fakeDb() {
             const row = { status: 'ACTIVE', pausedScopes: [], pausedReason: null, ...data, id: 'ffffffff-0000-0000-0000-000000000001', createdAt: new Date(), partner: { id: PARTNER, name: 'Cajeros Demo' } };
             draft.push(row);
             return row;
+          }),
+          delete: vi.fn(async ({ where }: { where: Row }) => {
+            const i = draft.findIndex((c) => c.id === where.id);
+            return draft.splice(i, 1)[0];
           }),
           update: vi.fn(async ({ where, data }: { where: Row; data: Row }) => {
             const row = draft.find((c) => c.id === where.id)!;
@@ -105,9 +109,8 @@ function fakeDb() {
   return { prisma, state };
 }
 
-function service(prisma: unknown, audit: unknown) {
+function service(prisma: unknown, audit: unknown, email: unknown = { isEnabled: () => false, send: vi.fn() }) {
   const totp = { assertForUser: vi.fn(async () => undefined) };
-  const email = { isEnabled: () => false, send: vi.fn() };
   const config = { get: () => undefined };
   return new PartnerConnectionsService(prisma as never, createFakeRedis() as never, audit as never, totp as never, email as never, config as never);
 }
@@ -188,5 +191,57 @@ describe('la pausa de OxioPay no se esquiva', () => {
     Object.assign(state.connections[0]!, { status: 'REVOKED', pausedReason: 'owner' });
     const out = await service(prisma, audit).create(owner, connect);
     expect(out.key).toMatch(/^oxp_test_/);
+  });
+});
+
+describe('por correo: si no sale, no se pierde la clave', () => {
+  const audit = () => ({ log: vi.fn(), logInTx: vi.fn(async () => undefined) });
+  const failingMail = (how: 'reject' | 'undelivered') => ({
+    isEnabled: () => true,
+    send: vi.fn(async () => (how === 'reject' ? Promise.reject(new Error('Resend 500')) : { ok: false, delivered: false })),
+  });
+
+  it.each(['reject', 'undelivered'] as const)('cambiar sin solape (%s): vuelve la clave de antes, entera', async (how) => {
+    const { prisma, state } = fakeDb();
+    const before = structuredClone(state.connections[0]!);
+    Object.assign(state.connections[0]!, { keyExposedAt: new Date('2026-11-20T10:00:00Z') });
+    const a = audit();
+    const out = await service(prisma, a, failingMail(how)).rotate(owner, CONN, { overlap: 'none', expiresAt: null, delivery: 'email' });
+    expect(out.claim.delivered).toBe(false);
+    expect(out.key).toBeUndefined();
+    expect(state.connections[0]).toMatchObject({
+      keyHash: before.keyHash,
+      keyHint: before.keyHint,
+      keyCreatedAt: before.keyCreatedAt,
+      prevKeyHash: null,
+      keyExposedAt: new Date('2026-11-20T10:00:00Z'),
+      keyClaimHash: null,
+      keyClaimSealed: null,
+    });
+    expect(out.connection.keyHint).toBe(before.keyHint);
+    expect(a.logInTx).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ action: 'partner.key.issue_undone' }));
+  });
+
+  it('la primera conexión: si el correo no sale, no queda conexión (se puede conectar otra vez)', async () => {
+    const { prisma, state } = fakeDb();
+    state.connections = [];
+    const out = await service(prisma, audit(), failingMail('reject')).create(owner, {
+      partnerId: PARTNER,
+      scopes: ['wallet:balance'],
+      ipAllowlist: [],
+      expiresAt: null,
+      delivery: 'email',
+    });
+    expect(out.claim.delivered).toBe(false);
+    expect(state.connections).toHaveLength(0);
+  });
+
+  it('si sale, la clave nueva se queda', async () => {
+    const { prisma, state } = fakeDb();
+    const mail = { isEnabled: () => true, send: vi.fn(async () => ({ ok: true, delivered: true })) };
+    const out = await service(prisma, audit(), mail).rotate(owner, CONN, { overlap: 'none', expiresAt: null, delivery: 'email' });
+    expect(out.claim.delivered).toBe(true);
+    expect(state.connections[0]!.keyHash).not.toBe('a'.repeat(64));
+    expect(state.connections[0]!.keyClaimSealed).toEqual(expect.any(String));
   });
 });

@@ -44,6 +44,8 @@ export const SCOPE_LABELS: Readonly<Record<PartnerScope, string>> = {
 
 export const PAUSED_BY_OXIOPAY_LABEL = 'En pausa por OxioPay';
 export const CHANGE_KEY_LABEL = 'Cambiar clave';
+/** El correo no salió: volver a conectar o a cambiar la clave. */
+export const RETRY_ISSUE_LABEL = 'Intentarlo otra vez';
 
 // Textos del API (A7), los mismos aquí para no mandar lo que va a rechazar.
 const TEXT_EXPIRY = 'La caducidad va de mañana a un año; para cargar saldo es obligatoria.';
@@ -271,7 +273,7 @@ export function rotatePayload(form: RotateForm, c: PartnerConnectionView, emailE
 export type IssuedOutcome =
   | { kind: 'key'; key: string }
   | { kind: 'sent'; sentTo: string | null; expiresAt: string | null }
-  /** El correo no salió: el API borró la clave sellada y nadie la tiene. */
+  /** El correo no salió: el API lo deshizo (la conexión nueva no queda; en un cambio, vuelve la clave de antes). */
   | { kind: 'failed' };
 
 export function issuedOutcome(issued: PartnerKeyIssued): IssuedOutcome {

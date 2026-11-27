@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Banner, Button, FieldError, Sheet, formatDateTime, useConfirm, useToast } from '@nightpay/ui';
 import type { PartnerKeyIssued } from '@nightpay/contracts';
-import { CHANGE_KEY_LABEL, issuedOutcome, type IssuedOutcome } from '@/lib/partner-connections';
+import { RETRY_ISSUE_LABEL, issuedOutcome, type IssuedOutcome } from '@/lib/partner-connections';
 
 const HIDDEN = '•'.repeat(24);
 
@@ -33,7 +33,7 @@ export function KeyIssuedBody({
   copyFailed?: boolean;
   onToggle: () => void;
   onCopy: () => void;
-  /** Con el correo fallido: cambiar la clave otra vez. */
+  /** Con el correo fallido: conectar o cambiar la clave otra vez. */
   onRotate?: () => void;
 }) {
   if (outcome.kind === 'key') {
@@ -78,9 +78,9 @@ export function KeyIssuedBody({
       <Banner
         tone="danger"
         title="El correo no salió"
-        action={onRotate ? { label: CHANGE_KEY_LABEL, onClick: onRotate } : undefined}
+        action={onRotate ? { label: RETRY_ISSUE_LABEL, onClick: onRotate } : undefined}
       >
-        La clave no se ha guardado en ningún sitio. Cámbiala otra vez y elige «La copio yo».
+        No ha cambiado nada: todo sigue como antes. Inténtalo otra vez o elige «La copio yo».
       </Banner>
     </div>
   );

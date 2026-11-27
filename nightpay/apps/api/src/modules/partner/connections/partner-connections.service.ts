@@ -56,6 +56,28 @@ interface IssueResult {
   claim: NewClaim | null;
   partner: { name: string; contactEmail: string };
   venueName: string;
+  /** Si el correo no sale: la conexión nueva se borra; si era un cambio, vuelve la clave de antes. */
+  undo: 'delete' | KeyState;
+}
+
+/** Lo que cambia al cambiar la clave: para dejarlo como estaba si el correo no sale. */
+const KEY_STATE_FIELDS = [
+  'keyHash',
+  'keyHint',
+  'keyCreatedAt',
+  'keyExpiresAt',
+  'prevKeyHash',
+  'prevKeyExpiresAt',
+  'keySuspendedAt',
+  'keyExposedAt',
+  'keyClaimHash',
+  'keyClaimSealed',
+  'keyClaimExpiresAt',
+] as const;
+type KeyState = Pick<Prisma.PartnerConnectionUncheckedUpdateInput, (typeof KEY_STATE_FIELDS)[number]>;
+
+function keyState(conn: Record<(typeof KEY_STATE_FIELDS)[number], unknown>): KeyState {
+  return Object.fromEntries(KEY_STATE_FIELDS.map((f) => [f, conn[f]])) as KeyState;
 }
 
 /**
@@ -172,7 +194,7 @@ export class PartnerConnectionsService {
           throw err;
         });
       await this.audit.logInTx(tx, this.auditRow(user, PARTNER_AUDIT.keyCreated, row));
-      return { row, key, claim, partner, venueName: venue.name };
+      return { row, key, claim, partner, venueName: venue.name, undo: 'delete' };
     });
     return this.deliver(user, issued, now);
   }
@@ -190,6 +212,7 @@ export class PartnerConnectionsService {
       this.assertDelivery(dto.delivery);
       const venue = await tx.venue.findUnique({ where: { id: user.tenantId }, select: { name: true } });
 
+      const before = keyState(conn);
       const key = generatePartnerKey(conn.keyMode === 'live' ? 'live' : 'test');
       const claim = dto.delivery === 'email' ? newClaim(this.kek(), conn.id, key.key, now) : null;
       // El solape nunca alarga la vida de la clave que sale.
@@ -217,7 +240,7 @@ export class PartnerConnectionsService {
       await this.audit.logInTx(tx, this.auditRow(user, PARTNER_AUDIT.keyRotated, row, { overlap: dto.overlap }));
       // Antes de confirmar: sin Redis no hay rotación (la vieja diría invalid_api_key y contaría como fallo).
       for (const [hash, ttl] of retire) await this.limiter.retire(hash, ttl);
-      return { row, key, claim, partner, venueName: venue?.name ?? '' };
+      return { row, key, claim, partner, venueName: venue?.name ?? '', undo: before };
     });
     return this.deliver(user, issued, now);
   }
@@ -327,9 +350,14 @@ export class PartnerConnectionsService {
     return conn;
   }
 
-  /** Tras confirmar: el enlace por correo; si no sale, la clave sellada se borra. */
+  /**
+   * Tras confirmar: el enlace por correo. Si no sale, nadie tiene la clave nueva:
+   * se deshace en esta misma llamada (la conexión nueva se borra; en un cambio,
+   * vuelve la clave de antes) y la respuesta dice que no salió.
+   */
   private async deliver(user: JwtPayload, issued: IssueResult, now: Date): Promise<PartnerKeyIssued> {
-    const { row, key, claim, partner, venueName } = issued;
+    const { key, claim, partner, venueName } = issued;
+    let { row } = issued;
     let delivered = false;
     if (claim) {
       const origin = originOf(this.config.get<string>('NEXT_PUBLIC_API_URL')) ?? LOCAL_API_ORIGIN;
@@ -337,10 +365,8 @@ export class PartnerConnectionsService {
       const sent = await this.email.send({ to: partner.contactEmail, ...mail }).catch(() => ({ delivered: false }));
       delivered = sent.delivered;
       if (!delivered) {
-        this.logger.warn(`El enlace de la clave de la conexión ${row.id} no salió por correo: se borra la clave sellada`);
-        await this.prisma.withTenant(user.tenantId, (tx) =>
-          tx.partnerConnection.updateMany({ where: { id: row.id, tenantId: user.tenantId, keyClaimHash: claim.hash }, data: { keyClaimSealed: null } }),
-        );
+        this.logger.warn(`El enlace de la clave de la conexión ${row.id} no salió por correo: se deshace`);
+        row = await this.undoIssue(user, issued);
       }
     }
     return {
@@ -352,6 +378,23 @@ export class PartnerConnectionsService {
         delivered,
       },
     };
+  }
+
+  /** Deshace la conexión o el cambio de clave, si nadie la ha tocado después (sigue con la clave nueva). */
+  private async undoIssue(user: JwtPayload, issued: IssueResult): Promise<ViewRow> {
+    const { row, key, undo } = issued;
+    return this.prisma.withTenant(user.tenantId, async (tx) => {
+      const conn = await this.lockOwn(tx, user.tenantId, row.id).catch(() => null);
+      if (!conn || conn.keyHash !== key.hash) return conn ?? row;
+      if (undo === 'delete') {
+        await tx.partnerConnection.delete({ where: { id: conn.id, tenantId: user.tenantId } });
+        await this.audit.logInTx(tx, this.auditRow(user, PARTNER_AUDIT.keyIssueUndone, conn, { undone: 'created', reason: 'email_failed' }));
+        return { ...conn, status: 'REVOKED' };
+      }
+      const restored = await tx.partnerConnection.update({ where: { id: conn.id, tenantId: user.tenantId }, data: undo, include: VIEW_INCLUDE });
+      await this.audit.logInTx(tx, this.auditRow(user, PARTNER_AUDIT.keyIssueUndone, restored, { undone: 'rotated', reason: 'email_failed' }));
+      return restored;
+    });
   }
 
   private assertDelivery(delivery: 'copy' | 'email'): void {

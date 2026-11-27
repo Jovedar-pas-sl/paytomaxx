@@ -43,10 +43,12 @@ describe('la clave, una vez', () => {
     expect(html).not.toContain('oxp_');
   });
 
-  it('si el correo no salió: cambiarla otra vez, con «La copio yo»', () => {
+  it('si el correo no salió: nada cambió; intentarlo otra vez, con «La copio yo»', () => {
     const html = render({ outcome: { kind: 'failed' }, onRotate: noop });
     expect(html).toContain('El correo no salió');
-    expect(html).toContain('Cambiar clave');
+    expect(html).toContain('No ha cambiado nada');
+    expect(html).not.toContain('ningún sitio');
+    expect(html).toContain('Intentarlo otra vez');
     expect(html).toContain('La copio yo');
   });
 });
