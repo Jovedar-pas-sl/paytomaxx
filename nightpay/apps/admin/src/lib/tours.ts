@@ -35,7 +35,7 @@ export const TOURS = {
   money: {
     screen: 'panel-mapa-dinero',
     steps: [
-      { target: 'mapa-fechas', title: 'Fechas', text: 'Por defecto sale esta noche. Cambia las fechas para ver otro periodo y vuelve con «Esta noche».' },
+      { target: 'mapa-fechas', title: 'Fechas', text: 'Por defecto sale esta noche. Toca el botón para ver otra noche o unas fechas.' },
       { target: 'mapa-ganado', title: '¿Cuánto he ganado?', text: 'Lo tuyo: lo vendido menos lo de las compañeras, las comisiones y lo que se haya devuelto de ventas.' },
       { target: 'mapa-caja', title: 'La caja', text: 'Lo que debería haber en la caja: fondo más efectivo cobrado, menos salidas. Con la noche abierta, «Cerrar la caja» te lleva a cerrarla.' },
       { target: 'mapa-banco', title: 'El banco', text: 'Lo cobrado con tarjeta, menos lo devuelto. El día de abono lo confirma el banco.' },

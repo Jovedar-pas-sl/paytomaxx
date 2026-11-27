@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { Button, Card, FormError, Input } from '@nightpay/ui';
+import { Button, Card, FormError } from '@nightpay/ui';
 import { downloadExport, type ExportKind } from '@/lib/api';
-import { isValidRange, lastDayOfMonth, presetRange, type ReportPreset } from '@/lib/dates';
-import { FILTER_FIELD } from '@/lib/filter-field';
+import { isValidRange, lastDayOfMonth } from '@/lib/dates';
+import { lineaPeriodo, PERIODOS_INFORMES, resolverPeriodo, type Periodo } from '@/lib/periodos';
+import { SelectorNoches } from './SelectorNoches';
 
 const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   {
@@ -39,23 +40,16 @@ const REPORTS: Array<{ kind: ExportKind; title: string; detail: string }> = [
   },
 ];
 
-const PRESETS: Array<{ key: ReportPreset; label: string }> = [
-  { key: 'lastMonth', label: 'Mes pasado' },
-  { key: 'thisMonth', label: 'Este mes' },
-  { key: 'lastQuarter', label: 'Trimestre pasado' },
-  { key: 'thisYear', label: 'Este año' },
-];
-
 /**
  * Informes para la gestoría (Fase 1C). CSV que Excel abre con doble clic
  * (separador ";", decimales con coma). Solo el dueño.
  */
 export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
   // Días de Madrid, como el API: a las 00:30 del día 1 ya es "este mes" aunque
-  // el navegador esté en otra zona.
-  const [initial] = useState(() => presetRange('lastMonth', new Date()));
-  const [from, setFrom] = useState(initial.from);
-  const [to, setTo] = useState(initial.to);
+  // el navegador esté en otra zona. Empieza en Mes pasado; no va a la URL.
+  const [periodo, setPeriodo] = useState<Periodo>({ clave: 'mes-pasado' });
+  const resolved = resolverPeriodo(periodo, [], new Date());
+  const { from, to } = resolved.tipo === 'dias' ? { from: resolved.desde, to: resolved.hasta } : { from: '', to: '' };
   const [busy, setBusy] = useState<ExportKind | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,10 +61,8 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
     );
   }
 
-  function applyPreset(p: ReportPreset) {
-    const r = presetRange(p, new Date());
-    setFrom(r.from);
-    setTo(r.to);
+  function changePeriodo(next: Periodo) {
+    setPeriodo(next);
     setError(null);
   }
 
@@ -101,17 +93,15 @@ export function ReportsPanel({ isOwner }: { isOwner: boolean }) {
       </div>
 
       <Card style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-          {PRESETS.map((p) => (
-            <Button key={p.key} variant="ghost" size="sm" onClick={() => applyPreset(p.key)}>
-              {p.label}
-            </Button>
-          ))}
-        </div>
-        <div style={dateGrid}>
-          <Input label="Desde" type="date" style={FILTER_FIELD} value={from} onChange={(e) => setFrom(e.target.value)} />
-          <Input label="Hasta" type="date" style={FILTER_FIELD} value={to} onChange={(e) => setTo(e.target.value)} />
-        </div>
+        <SelectorNoches
+          value={periodo}
+          onChange={changePeriodo}
+          opciones={PERIODOS_INFORMES}
+          nights={null}
+          linea={lineaPeriodo(resolved)}
+          aplicar="Usar estas fechas"
+        />
+        <p style={{ ...hintStyle, marginTop: 0 }}>Los informes van por días naturales, como los pide la gestoría.</p>
       </Card>
 
       {error ? (
@@ -161,11 +151,6 @@ function saveBlob(blob: Blob, filename: string): void {
 
 const titleStyle: CSSProperties = { margin: 0, fontSize: 'var(--np-t-h3)', fontWeight: 600 };
 const hintStyle: CSSProperties = { margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '1rem' };
-const dateGrid: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(11rem, 1fr))',
-  gap: '0.75rem',
-};
 const reportGrid: CSSProperties = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(15rem, 1fr))',

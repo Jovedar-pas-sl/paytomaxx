@@ -47,19 +47,30 @@ export function cobrosQuery(filters: CobrosFilters, page: { cursor?: string; lim
   return qs.toString();
 }
 
-export async function fetchCobros(filters: CobrosFilters, page: { cursor?: string; limit?: number } = {}): Promise<CobrosPage> {
-  const res = await authedFetch(`/v1/admin/cobros?${cobrosQuery(filters, page)}`);
+export async function fetchCobros(filters: CobrosFilters, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal): Promise<CobrosPage> {
+  const res = await authedFetch(`/v1/admin/cobros?${cobrosQuery(filters, page)}`, signal ? { signal } : undefined);
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
 
-/** El mapa del dinero: la noche en directo (sin nada), una noche (su Z, congelado al cerrar) o unas fechas. */
-export async function fetchMoneyMap(q: { night?: string; from?: string; to?: string } = {}, signal?: AbortSignal): Promise<MoneyMap> {
+/**
+ * El mapa del dinero: la noche en directo (sin nada), una noche (su Z,
+ * congelado al cerrar), unas fechas (días de Madrid) o varias noches por
+ * instantes (fromAt y, si la más nueva ya cerró, toAt).
+ */
+export async function fetchMoneyMap(
+  q: { night?: string; from?: string; to?: string; fromAt?: string; toAt?: string } = {},
+  signal?: AbortSignal,
+): Promise<MoneyMap> {
   const qs = new URLSearchParams();
   if (q.night) qs.set('night', q.night);
   if (q.from && q.to) {
     qs.set('from', q.from);
     qs.set('to', q.to);
+  }
+  if (q.fromAt) {
+    qs.set('fromAt', q.fromAt);
+    if (q.toAt) qs.set('toAt', q.toAt);
   }
   const query = qs.toString();
   const res = await authedFetch(`/v1/admin/money-map${query ? `?${query}` : ''}`, { signal });
