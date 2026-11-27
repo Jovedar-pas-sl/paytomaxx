@@ -400,6 +400,19 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     expect(await earningsOf(posPay)).toMatchObject([{ reversedCents: 2970 }]);
   });
 
+  it('justificante por correo: seis envíos a la vez, solo tres apartados (tope de 3 con el cobro bloqueado); quitar uno deja otro', async () => {
+    const tries = await Promise.all(Array.from({ length: 6 }, () => inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'es'))));
+    const kept = tries.filter((id): id is bigint => id !== null);
+    expect(kept).toHaveLength(3);
+    const count = () => sys((tx) => tx.paymentEvent.count({ where: { paymentId: direct, eventType: 'receipt.emailed' } }));
+    expect(await count()).toBe(3);
+    // Resend no lo aceptó: el apunte fuera, y queda sitio para otro.
+    await inVenue(undefined, () => payments.releaseReceiptEmail(kept[0]!));
+    expect(await count()).toBe(2);
+    expect(await inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'en'))).not.toBeNull();
+    expect(await inVenue(undefined, () => payments.reserveReceiptEmail(direct, 'en'))).toBeNull();
+  });
+
   it('«Terminar devolución» pedida antes: solo el saldo (a la tarjeta lo que entró con tarjeta, en efectivo lo de efectivo); la comisión se queda', async () => {
     // El saldo ya no se devuelve (17-nov-2026): solo se termina una pedida antes (el «Me voy» de antes).
     await sys((tx) => tx.clientWallet.updateMany({ where: { id: { in: [cardWallet, cashWallet] } }, data: { closeRequestedAt: new Date() } }));
