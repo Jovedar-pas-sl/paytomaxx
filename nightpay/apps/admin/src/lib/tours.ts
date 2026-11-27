@@ -146,6 +146,14 @@ export const TOURS = {
       { target: 'permisos-camareros', title: 'Camareros', text: 'Lo que pueden hacer todos los camareros del local.' },
     ],
   },
+  partners: {
+    screen: 'panel-plataformas',
+    steps: [
+      { target: 'plataformas', title: 'Otras plataformas', text: 'Las que entran con una clave en el saldo de tu local. Por ahora, los cajeros que cargan saldo aquí.' },
+      { target: 'plataformas-estado', title: 'Cómo está', text: 'Activa, en pausa, dormida (90 días sin usarla), caducada o anulada. La pausa de OxioPay solo la quita OxioPay.' },
+      { target: 'plataformas-botones', title: 'Qué puedes hacer', text: 'Cambiar la clave, pausarla, reanudarla o anularla. La clave nueva se ve una sola vez: cópiala al momento.' },
+    ],
+  },
   alerts: {
     screen: 'panel-telegram',
     steps: [
@@ -212,6 +220,7 @@ export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
   night: TOURS.night,
   permissions: TOURS.permissions,
   alerts: TOURS.alerts,
+  partners: TOURS.partners,
   security: TOURS.security,
   reservations: TOURS.reservations,
 };

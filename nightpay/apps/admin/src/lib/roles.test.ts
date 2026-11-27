@@ -141,3 +141,40 @@ describe('encontrar los reservados y los RRPP a la primera', () => {
     }
   });
 });
+
+describe('«Otras plataformas» (API de socios)', () => {
+  it('solo si el API la contesta: sin saberlo, o con la API apagada, no sale', () => {
+    expect(keys({ role: 'OWNER' })).not.toContain('partners');
+    expect(keys({ role: 'OWNER', partnersOn: false })).not.toContain('partners');
+    expect(keys({ role: 'MANAGER', partnersOn: false })).not.toContain('partners');
+  });
+
+  it('con la API encendida, en Ajustes, para el dueño y el encargado, después de Formas de cobro', () => {
+    expect(sectionTabs({ role: 'OWNER', partnersOn: true }, 'ajustes')).toEqual([
+      'carta',
+      'sections',
+      'terminals',
+      'rules',
+      'methods',
+      'partners',
+      'night',
+      'permissions',
+      'alerts',
+      'security',
+    ]);
+    expect(sectionTabs({ role: 'MANAGER', partnersOn: true }, 'ajustes')).toEqual(['carta', 'terminals', 'partners', 'security']);
+    expect(visibleTabs({ role: 'OWNER', partnersOn: true }).find((t) => t.key === 'partners')).toMatchObject({
+      label: 'Otras plataformas',
+      section: 'ajustes',
+      access: 'staff',
+      needsPartners: true,
+    });
+    expect(sectionOf('partners')).toBe('ajustes');
+    expect(resolveTab('partners')).toBe('partners');
+  });
+
+  it('nunca en OxioParty', () => {
+    expect(visibleTabs({ role: 'OWNER', partnersOn: true }, 'party').map((t) => t.key)).not.toContain('partners');
+    expect(resolveTab('partners', 'party')).toBeNull();
+  });
+});

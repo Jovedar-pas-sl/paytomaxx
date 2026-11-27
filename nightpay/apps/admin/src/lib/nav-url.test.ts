@@ -59,6 +59,11 @@ describe('el panel en la URL: qué se enseña', () => {
     expect(shown('?s=ajustes&t=datafonos', { ...owner, posOn: true })).toBe('terminals');
   });
 
+  it('«Otras plataformas» en la URL: solo con la API de socios encendida', () => {
+    expect(shown('?s=ajustes&t=plataformas', owner)).toBe(DEFAULT_TAB);
+    expect(shown('?s=ajustes&t=plataformas', { ...owner, partnersOn: true })).toBe('partners');
+  });
+
   it('una pestaña que no existe no abre su sección: a Hoy', () => {
     expect(shown('?s=ajustes&t=caja', owner)).toBe(DEFAULT_TAB);
   });
@@ -81,7 +86,8 @@ describe('el panel en la URL: escribirla', () => {
   });
 
   it('ida y vuelta: cada pestaña se lee igual que se escribe', () => {
-    const all = visibleSections({ role: 'OWNER', isSuperAdmin: true, canSeeReports: true, posOn: true });
+    // Con «Otras plataformas» encendida (sale solo si el API la contesta): así están todas.
+    const all = visibleSections({ role: 'OWNER', isSuperAdmin: true, canSeeReports: true, posOn: true, partnersOn: true });
     for (const tab of PANEL_TABS) {
       expect(resolveNav(parseNav(navSearch('', tab.key)), all)).toBe(tab.key);
     }
