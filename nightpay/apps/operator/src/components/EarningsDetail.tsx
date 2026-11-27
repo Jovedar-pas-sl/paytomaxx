@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { Button, EmptyState, type IconName } from '@nightpay/ui';
+import { Button, EmptyState, FormError, type IconName } from '@nightpay/ui';
 import { fetchMyEarningsPage, fetchMyPayoutsPage, reportNotMine, type MyDebt, type MyEarning, type MyNight, type MyPayoutInfo } from '@/lib/api';
 import { NO_DAYS, type DayRange } from '@/lib/history';
 import {
@@ -116,7 +116,7 @@ function PayoutsHistory() {
 }
 
 function HistoryStatus({ items, error, empty }: { items: readonly unknown[] | null; error: string | null; empty: ReactNode }) {
-  if (error) return <p role="alert" style={{ ...noteStyle, color: 'var(--np-danger-text)' }}>{error}</p>;
+  if (error) return <FormError>{error}</FormError>;
   if (items === null) return <SkelRows />;
   return items.length === 0 ? <div style={emptyBox}>{empty}</div> : null;
 }
@@ -363,11 +363,7 @@ function NotMine({ earningId, reported }: { earningId: string; reported: boolean
           No
         </Button>
       </div>
-      {error ? (
-        <p role="alert" style={{ ...metaText, color: 'var(--np-danger-text)' }}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
     </div>
   );
 }
