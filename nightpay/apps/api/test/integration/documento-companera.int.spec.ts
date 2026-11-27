@@ -143,6 +143,15 @@ describe('El documento de la compañera', () => {
     expect(UpdateOperatorSchema.safeParse({ idDocument: { type: 'DNI', number: '12345678A' } }).success).toBe(false);
   });
 
+  it('el encargado no puede quitarlo (403): el documento cifrado sigue ahí', async () => {
+    const res = await failure(patch(manager, 'MANAGER', nerea, { idDocument: null }));
+    expect(res.status).toBe(403);
+    expect(res.message).toContain('Solo el dueño puede quitar su documento');
+    expect(await listed(nerea)).toMatchObject({ idDocumentType: 'DNI', idDocumentMasked: '•••• 678Z' });
+    const row = JSON.parse(await rawUser(nerea)) as { idDocumentNumber: string | null };
+    expect(row.idDocumentNumber).toMatch(/^pa1:/);
+  });
+
   it('se puede cambiar por otro (NIE) y quitar', async () => {
     expect(await patch(boss, 'OWNER', nerea, { idDocument: { type: 'NIE', number: 'x1234567l' } })).toMatchObject({ idDocumentType: 'NIE', idDocumentMasked: '•••• 567L' });
     expect(await patch(boss, 'OWNER', nerea, { idDocument: null })).toMatchObject({ idDocumentType: null, idDocumentMasked: null });

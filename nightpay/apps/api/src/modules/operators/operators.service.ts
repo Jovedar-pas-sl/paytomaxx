@@ -1244,6 +1244,8 @@ export class OperatorsService {
           `Solo OWNER puede modificar: ${attemptedOwnerFields.join(', ')}`,
         );
       }
+      // Su documento: el encargado lo pone o lo cambia, pero quitarlo (se borra el cifrado) es del dueño.
+      if (dto.idDocument === null) throw new ForbiddenException('Solo el dueño puede quitar su documento.');
     }
 
     const data: Record<string, unknown> = {};
