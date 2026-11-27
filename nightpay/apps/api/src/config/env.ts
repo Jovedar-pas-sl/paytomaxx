@@ -118,6 +118,16 @@ const EnvSchema = z.object({
   OXIOCARD_ENABLED: z
     .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
     .default(false),
+  // API de socios (/v1/partner, modules/partner): otras plataformas (los cajeros
+  // del dueño) entran con una clave por local. Apagada por defecto: sin esto
+  // sus rutas dan 404 y nadie crea claves. Ver docs/partner-api.
+  PARTNER_API_ENABLED: z
+    .union([z.boolean(), z.string().transform((s) => ['true', '1', 'yes', 'on'].includes(s.trim().toLowerCase()))])
+    .default(false),
+  // 'live' en producción, 'test' en la demo: las claves de un modo no valen en
+  // el otro (401 wrong_environment). Sin valor por defecto: obligatoria con la
+  // anterior encendida.
+  PARTNER_API_MODE: z.enum(['live', 'test']).optional(),
   // Nombre de la marca en pantallas, concepto del cobro y correos (por
   // defecto OxioPay). No cambia el extracto del banco: eso lo fija BBVA.
   BRAND_NAME: z.string().trim().min(2).max(20).optional(),
@@ -338,8 +348,26 @@ const EnvSchema = z.object({
   NIGHTPAY_DISABLE_REFUND_SWEEP: z.string().optional(),
   NIGHTPAY_DISABLE_OXIOPAY_SETTLEMENTS: z.string().optional(),
   NIGHTPAY_DISABLE_WALLET_EVENTS: z.string().optional(),
+  NIGHTPAY_DISABLE_PARTNER_SWEEP: z.string().optional(),
 }).superRefine((env, ctx) => {
+  // También en local: encendida sin modo no se sabe qué claves valen.
+  if (env.PARTNER_API_ENABLED && !env.PARTNER_API_MODE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['PARTNER_API_MODE'],
+      message: 'PARTNER_API_MODE es obligatoria con PARTNER_API_ENABLED: live (producción) o test (la demo).',
+    });
+  }
   if (env.NODE_ENV !== 'production') return;
+  // En real, la lista de IP de las claves compara la IP que da Cloudflare: sin
+  // ORIGIN_AUTH_SECRET, quien llegue directo inventaría la cabecera (puerta 1 del §10).
+  if (env.PARTNER_API_ENABLED && env.PARTNER_API_MODE === 'live' && !env.ORIGIN_AUTH_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['ORIGIN_AUTH_SECRET'],
+      message: 'La API de socios en live necesita ORIGIN_AUTH_SECRET: solo lo que pasa por Cloudflare trae la IP de verdad.',
+    });
+  }
   // NEXT_PUBLIC_API_URL no puede ser localhost (los webhooks de la pasarela
   // quedarían rotos).
   if (!isPublicUrl(env.NEXT_PUBLIC_API_URL)) {

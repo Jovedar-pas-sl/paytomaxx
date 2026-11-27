@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /**
  * El documento de la compañera (cobro por el encargado, fase 3,
- * 20261126200000_documento_companera): el tipo (DNI, NIE o pasaporte) y el
+ * 20261127040000_documento_companera): el tipo (DNI, NIE o pasaporte) y el
  * número, cifrados como su cuenta de cobro (ENCRYPTION_KEK). El encargado lo
  * ve tapado (los últimos caracteres); entero, solo el dueño con su 2FA, y queda
  * en el registro. Se borra al darla de baja. Aparte de los «4 últimos del

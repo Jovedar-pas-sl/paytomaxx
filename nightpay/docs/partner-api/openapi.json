@@ -1,0 +1,982 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OxioPay Partner API - ATM pilot",
+    "version": "1.0.0-pilot",
+    "summary": "Identify a customer's wallet, read its balance and load it from the venue's own ATMs.",
+    "description": "**There is no refund and no cash withdrawal of the balance.** No route of this API pays money out of a wallet.\n\nThis is the contract for the **ATM pilot** of the OxioPay Partner API v1. The ATM network is a partner whose\nATMs stand inside the venues and only **load** balance. The ATM team builds against this document; the API is\nimplemented to match it, and the OpenAPI document the API serves at `GET /openapi.json` must be equivalent for\nthese routes.\n\nNot in this pilot (each arrives later without breaking anything): paying with balance, charges, webhooks and the\nevents feed, reports, loads collected by the partner itself (agent models). Their routes are not described here; a\nfew of their enum values (`transfer`, `bank_app`, `partner_agent`, `licensed_psp`, `online` and the scopes other\nthan `wallet:balance` and `wallet:load`) appear so that clients accept them; in this pilot they are refused or\nnever returned.\n\n**Hosts.** Every host name ending in `.example` is a placeholder until OxioPay confirms the real one.\n\n**Marked decisions.** `x-decided-in-contract: true` marks a rule fixed by this contract.\n\n## Conventions\n- JSON in UTF-8. Amounts are integer **cents**; `currency` is always `EUR`.\n- Times in answers are RFC 3339 in UTC (`Z`); accept fractional seconds. Times in requests may use `Z` or an offset.\n- `business_date` is the venue's night: from 08:00 to 08:00 Europe/Madrid, named after the day the night starts.\n- Public ids are a prefix plus 32 lowercase hex characters: `pc_` connection, `wl_` load. A wallet never has a\n  public id. No answer carries a wallet id, a customer name, a phone, a wallet code or a ficha number.\n- Lists: `?limit=1..100` (default 25) and `?cursor=` → `{object: \"list\", data, has_more, next_cursor}`.\n- Changes inside v1 are additive: ignore fields, enum values and error codes you do not know (handle an unknown\n  code by its HTTP status). Request bodies are strict: an unknown field is refused with `422 validation_failed`.\n  Unknown query parameters are ignored.\n- Every answer carries the header `Request-Id`. Send `X-Request-Id` (letters, digits and `-`, up to 64) to have\n  your own id echoed; otherwise OxioPay generates a UUID. Log it with every call.\n- Every answer carries `Cache-Control: no-store`.\n- A POST without a body (a void without `reason`, the demo reset) is sent without `Content-Type`;\n  `Content-Type: application/json` with an empty body → `400 invalid_request`.\n\n## Authentication\n- Server to server only. The key lives on the ATM platform's servers, never inside an ATM.\n- Send the key **only** as `Authorization: Bearer oxp_live_…` (live) or `Bearer oxp_test_…` (demo). A key in the\n  URL → `400 api_key_in_url` (and the owner is told to rotate it); a key in the body → `400 api_key_in_body`.\n- A request with an `Origin` header → `403 browser_not_allowed`. Bodies above 16 KB → `413 body_too_large`.\n- In live, the partner API answers only requests that reach it through OxioPay's own edge (its CDN), and the IP\n  list is compared with the address that edge reports for your connection: your public address after your own\n  NAT, outbound proxy or cloud gateway.\n- In live, a key with `wallet:load` must have an IP list, and a key with a list works only from it, on every\n  route (`403 ip_not_allowed`). On the demo the list is optional; when it is set, it applies the same way. Every\n  new address outside the list alerts the owner, and calls from 3 such addresses within 24 hours pause new loads\n  (see `POST /wallet/loads`).\n- One key per venue (a connection = partner × venue). It reaches only the wallets of its venue's wallet group (the\n  same check the venue's own staff use) whose home venue (the venue where the wallet was created) belongs to the\n  same company (tax id) as the key's venue; a home venue without a company counts as another company.\n- Reach is checked before anything else about the reference. Outside it the answer is `404 wallet_not_found`,\n  with the same body as for an unknown ficha, even when the ficha is lost or blocked, its chip serial differs or\n  its wallet is blocked or closed, and nothing is recorded or alerted. A valid live code of a wallet outside reach\n  also answers `404 wallet_not_found`; an expired or unknown live code answers `422 live_code_invalid`.\n- The ATM key holds `wallet:balance` and `wallet:load` only.\n- `x-required-scope` on each operation lists the scopes that allow it (one is enough); `any` means any valid key;\n  an empty list means no key.\n\n## Idempotency\n- `POST /wallet/loads` requires `Idempotency-Key` (8–200 of `[A-Za-z0-9_-]`). Use the ATM's own transaction id;\n  as it is also your `reference`, keep it to 8–64 of `[A-Za-z0-9_-]`. Keys live per connection, forever, also\n  across key rotations: never reuse one for another load.\n- \"The same request\" means the same `amount`, `funding`, `reference`, `device`, `description` (after\n  normalisation), `qr` (after trimming) and `nfc_uid` (without separators, uppercase), compared after JSON\n  parsing: key order, spacing and every header other than `Idempotency-Key` do not matter.\n- Same key and same request → the stored original answer (same status, same `balance_after`) with\n  `Idempotent-Replayed: true`. Same key, different request → `422 idempotency_key_reused`, whose `operation`\n  member is the load that holds the key.\n- OxioPay handles one request per Idempotency-Key at a time: a request whose key is still being processed waits\n  for it (up to 10 seconds, else `503 try_later`), then gets its stored answer, or runs itself if that request was\n  refused. A stored success is replayed before the `qr` is resolved and before the wallet, venue and limit checks.\n- A load either commits within 30 seconds of reaching OxioPay's API or is abandoned; it never commits later.\n- `401`, `403`, `404 not_found`, `429` and `503 try_later` never come from what is stored for the Idempotency-Key:\n  after an attempt whose answer you did not get, they say nothing about that attempt.\n- Only successes are stored: after a definitive refusal the same key may be sent again and runs again.\n- The void is naturally idempotent: repeating it returns the same voided load.\n\n## Errors and retries\nErrors are `application/problem+json` with a stable `code`. Branch on `code`, never on `title` or `detail`.\n`detail` follows `Accept-Language` (`en` by default, `es`) and never repeats a value you sent. Retry `429`, `503`,\nany other `5xx` and timeouts **with the same Idempotency-Key and the same body**, after `Retry-After` when present.\nNever retry any other `4xx` unchanged. `500 internal_error` is an unexpected failure: its body carries only the\nproblem fields and `request_id`. Another `5xx` may come from OxioPay's edge without a JSON body.\n\n## Rate limits (per connection unless said otherwise)\n| Bucket | Limit |\n|---|---|\n| all calls | 600 a minute |\n| money writes (loads and voids) | 120 a minute |\n| balance reads per wallet | 12 a minute; per venue night (`business_date`) 120 with a live code and 20 with a ficha; only reads that answered `200` count |\n| loads per wallet | 6 a minute |\n| `qr` texts that are neither a live code nor a ficha link | 30 a minute; once full, only those texts get `429`: live codes and ficha links keep working |\n| failed authentication | per key string: 20 failures in 10 minutes, then that string gets `401 invalid_api_key` for 15 minutes without being looked up; per IP: 20 distinct bad keys in 10 minutes, then `429 rate_limited` for 15 minutes, never for a valid key whose IP list holds that address |\n\nFailures are `invalid_api_key` and `wrong_environment` only. Over a limit → `429 rate_limited` with `Retry-After`,\nthe seconds until a call is allowed again (over a per-night limit, until 08:00 Madrid). If a limiter cannot be read\n→ `503 try_later`. `429 rate_limited` and `503 try_later` are answered before anything is done.\n"
+  },
+  "servers": [
+    {
+      "url": "https://{api_host}/v1/partner",
+      "description": "Live. Only `oxp_live_` keys. Real money.",
+      "variables": {
+        "api_host": {
+          "default": "api.oxiopay.example",
+          "description": "Placeholder until OxioPay confirms the host.",
+          "x-decided-in-contract": true
+        }
+      }
+    },
+    {
+      "url": "https://{demo_api_host}/v1/partner",
+      "description": "Demo deployment in test mode. Only `oxp_test_` keys. Made-up data, no real money.",
+      "variables": {
+        "demo_api_host": {
+          "default": "demo-api.oxiopay.example",
+          "description": "Placeholder until OxioPay confirms the host.",
+          "x-decided-in-contract": true
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Connection",
+      "description": "The key and its connection."
+    },
+    {
+      "name": "Wallet",
+      "description": "Identify a wallet, read its balance, load it and void a load."
+    },
+    {
+      "name": "Reconciliation",
+      "description": "The connection's own loads and its totals."
+    },
+    {
+      "name": "Reference",
+      "description": "This document."
+    },
+    {
+      "name": "Test helpers (demo only)",
+      "description": "**Demo only.** These routes exist only on the demo deployment (test mode with test helpers switched on). In live\nthey do not exist (404). They act only on the demo fixtures, which hold made-up data.\n"
+    }
+  ],
+  "paths": {
+    "/me": {
+      "get": {
+        "operationId": "getConnection",
+        "tags": [
+          "Connection"
+        ],
+        "summary": "The key's connection, its limits and the terms to show",
+        "description": "Works with any valid key. Call it when the ATM platform starts and at least once an hour: it gives the issuer\nand venue for the ticket, the limits, the terms the ATM shows on screen (read it again whenever a load answer\ncarries another `terms.version`), the paused scopes and the key's expiry and replacement.\n\nWallet calls (`/wallet/balance`, loads, voids, `/wallet/operations`, `/statement`) keep the key from going\ndormant; `GET /me` does not: 90 days without a wallet call suspend the key (`401 api_key_suspended`).\n\nIt answers only while the connection is active: a paused connection gets `403 connection_paused` and a revoked\nkey `401 api_key_revoked`.\n",
+        "x-required-scope": [
+          "any"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/XRequestId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The connection.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connection"
+                },
+                "examples": {
+                  "atm": {
+                    "$ref": "#/components/examples/ConnectionAtm"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenAnyScope"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiOff"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/TryLater"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenApi",
+        "tags": [
+          "Reference"
+        ],
+        "summary": "This OpenAPI 3.1 document",
+        "description": "Public, no key needed. Answers 404 while the partner API is switched off.",
+        "security": [],
+        "x-required-scope": [],
+        "responses": {
+          "200": {
+            "description": "The OpenAPI 3.1 document of the partner API.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiOff"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "oxp_live_ or oxp_test_ followed by 48 lowercase hex characters",
+        "description": "`Authorization: Bearer oxp_live_<48 hex>` in live, `Bearer oxp_test_<48 hex>` on the demo. Live refuses test\nkeys and the demo refuses live keys (`401 wrong_environment`). The key is shown only once: when the owner\ncreates or rotates it, OxioPay emails a one-time claim link (valid 24 hours) to the partner's registered\ncontact email, or the owner hands it over directly. A rotation or a renewal keeps the connection: the same\n`pc_` id, the same loads and the same Idempotency-Keys. During a rotation overlap `GET /me` with the old key\nshows `key.replaced: true`. Keep the key on the ATM platform's servers only.\n",
+        "x-decided-in-contract": true
+      }
+    },
+    "parameters": {
+      "AcceptLanguage": {
+        "name": "Accept-Language",
+        "in": "header",
+        "required": false,
+        "description": "Language of the problem `detail`. Spanish when the first language is `es`; English otherwise. `title` is always English.",
+        "x-decided-in-contract": true,
+        "schema": {
+          "type": "string"
+        },
+        "example": "es"
+      },
+      "XRequestId": {
+        "name": "X-Request-Id",
+        "in": "header",
+        "required": false,
+        "description": "Your own id for this request, echoed in `Request-Id` when it matches the pattern; otherwise ignored and OxioPay generates a UUID.",
+        "x-decided-in-contract": true,
+        "schema": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]{1,64}$"
+        },
+        "example": "atm0042-req-000731-1"
+      }
+    },
+    "headers": {
+      "RequestId": {
+        "description": "The id of this request (your valid `X-Request-Id`, or a UUID). Also in every problem as `request_id`.",
+        "schema": {
+          "type": "string"
+        },
+        "example": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+      },
+      "RetryAfter": {
+        "description": "Seconds to wait before retrying. Over a per-night limit, the seconds until 08:00 Madrid.",
+        "x-decided-in-contract": true,
+        "schema": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "example": 30
+      }
+    },
+    "responses": {
+      "ApiOff": {
+        "description": "`not_found`: the partner API is switched off, frozen for every route, or the route does not exist here (the\ntest helpers in live). When the API is switched off the body may not be problem+json: treat any 404 on\n`/me` as \"API unavailable\".\n",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "not_found"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "not_found": {
+                "$ref": "#/components/examples/ProblemNotFound"
+              }
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "`invalid_request`: the body is not a JSON object (an array, a string, an empty body where one is needed), the\ncontent type is not `application/json`, or the request cannot be read (`param` when it names one place).\n`api_key_in_url` / `api_key_in_body`: a key was sent outside the Authorization header.\n",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "invalid_request",
+                        "api_key_in_url",
+                        "api_key_in_body"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "api_key_in_url": {
+                "$ref": "#/components/examples/ProblemKeyInUrl"
+              }
+            }
+          }
+        }
+      },
+      "ForbiddenAnyScope": {
+        "description": "Refused before any data is read.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "ip_not_allowed",
+                        "browser_not_allowed",
+                        "partner_suspended",
+                        "connection_paused"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "ip_not_allowed": {
+                "$ref": "#/components/examples/ProblemIpNotAllowed"
+              }
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "The body is larger than 16 KB (16,384 bytes).",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "body_too_large"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Too many requests; nothing was done. Retry after `Retry-After`, with the same Idempotency-Key and body. See the\nrate-limit table for each bucket.\n",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "rate_limited"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "rate_limited": {
+                "$ref": "#/components/examples/ProblemRateLimited"
+              }
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "OxioPay failed. `500 internal_error` carries only the problem fields and `request_id`; another `5xx` may come\nfrom OxioPay's edge, and its body may not be JSON. For a load the result is unknown: retry with the same\nIdempotency-Key and body.\n",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "internal_error"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "TryLater": {
+        "description": "OxioPay cannot answer safely right now, and nothing was done: a limiter or the live-code store cannot be read\n(while that store is down every call answers `503`, fichas included, because the limits fail closed), or an\nearlier request with the same Idempotency-Key is still running. Retry after `Retry-After`, with the same\nIdempotency-Key and body.\n",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          },
+          "Retry-After": {
+            "$ref": "#/components/headers/RetryAfter"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "try_later"
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "The key is not usable. Do not retry; the ATM platform's operators must act.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "invalid_api_key",
+                        "api_key_rotated",
+                        "api_key_revoked",
+                        "api_key_expired",
+                        "api_key_suspended",
+                        "wrong_environment"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "invalid_api_key": {
+                "$ref": "#/components/examples/ProblemInvalidKey"
+              }
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Connection": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "connection"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^pc_[0-9a-f]{32}$"
+          },
+          "partner_name": {
+            "type": "string",
+            "maxLength": 30,
+            "description": "The partner's name as customers see it (\"Carga · {partner_name}: {description}\")."
+          },
+          "venue_name": {
+            "type": "string",
+            "description": "The venue this key belongs to."
+          },
+          "issuer": {
+            "$ref": "#/components/schemas/Issuer"
+          },
+          "collection_model": {
+            "type": "string",
+            "enum": [
+              "venue_collects",
+              "partner_agent",
+              "licensed_psp"
+            ],
+            "description": "Who collects the money of a load. The ATM pilot is `venue_collects`: the cash belongs to the venue."
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "in_venue",
+              "online"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "paused",
+              "revoked"
+            ],
+            "description": "Always `active` in an answer; a paused or revoked connection is refused before."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "uniqueItems": true
+          },
+          "paused_scopes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Scope"
+            },
+            "uniqueItems": true
+          },
+          "livemode": {
+            "type": "boolean"
+          },
+          "key": {
+            "$ref": "#/components/schemas/KeyInfo"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits"
+          },
+          "terms": {
+            "$ref": "#/components/schemas/Terms"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "partner_name",
+          "venue_name",
+          "issuer",
+          "collection_model",
+          "channel",
+          "status",
+          "scopes",
+          "paused_scopes",
+          "livemode",
+          "key",
+          "limits",
+          "terms"
+        ],
+        "description": "In this pilot the connection carries no `credit` block (agent models only) and no `webhook` block (webhooks come after the pilot); both will be added without breaking anything.",
+        "x-decided-in-contract": true
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "Stable snake_case code. Codes that can appear in this pilot:\n`invalid_request`, `idempotency_key_missing`, `api_key_in_url`, `api_key_in_body`, `invalid_api_key`,\n`api_key_rotated`, `api_key_revoked`, `api_key_expired`, `api_key_suspended`, `wrong_environment`,\n`limit_exceeded`, `cash_limit_reached`, `scope_missing`, `scope_paused`, `ip_not_allowed`,\n`browser_not_allowed`, `partner_suspended`, `connection_paused`, `partner_api_frozen`, `wallet_not_found`,\n`load_not_found`, `not_found`, `wallet_blocked`, `wallet_closed`, `ficha_lost`, `ficha_blocked`,\n`ficha_copy_suspected`, `method_disabled`, `void_window_passed`, `balance_already_spent`, `body_too_large`,\n`validation_failed`, `wallet_ref_unrecognized`, `wallet_ref_not_accepted`, `live_code_invalid`,\n`description_invalid`, `description_personal_data`, `funding_not_allowed`, `idempotency_key_reused`,\n`range_too_long`, `venue_paused`, `rate_limited`, `try_later`, `internal_error`.\n"
+      },
+      "Issuer": {
+        "type": "object",
+        "properties": {
+          "legal_name": {
+            "type": "string",
+            "description": "The company's legal name, as registered in OxioPay. A key is only issued for a venue whose company has a tax id on file. If the venue later has no company, belongs to another company than when the key was issued, or its company has no tax id, every route of the connection answers `403 connection_paused` until OxioPay fixes it: an answer never comes without `issuer`. A deleted venue answers `401 api_key_revoked`."
+          },
+          "tax_id": {
+            "type": "string",
+            "description": "The company's tax id (NIF/CIF), uppercase, without spaces or dashes."
+          }
+        },
+        "required": [
+          "legal_name",
+          "tax_id"
+        ],
+        "description": "The company that issues the balance (the venue's company). OxioPay is its technical provider. Print it on the ticket.",
+        "x-decided-in-contract": true
+      },
+      "KeyInfo": {
+        "type": "object",
+        "properties": {
+          "hint": {
+            "type": "string",
+            "pattern": "^oxp_(live|test)_…[0-9a-f]{4}$",
+            "description": "The prefix and last 4 characters of the key you sent (during an overlap, the old key's own)."
+          },
+          "expires_at": {
+            "description": "When this key stops working (at most 365 days after its creation; always set for a key with `wallet:load`). During a rotation overlap, the end of the overlap. To renew before it, ask the owner for a rotation with a 7-day overlap at least 30 days before.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "replaced": {
+            "type": "boolean",
+            "description": "`true` when the owner has rotated this key: a new key was sent through the one-time claim link and this one works only until `expires_at`. Alert your operators at once."
+          }
+        },
+        "required": [
+          "hint",
+          "expires_at",
+          "replaced"
+        ],
+        "x-decided-in-contract": true
+      },
+      "Limits": {
+        "type": "object",
+        "properties": {
+          "loads": {
+            "$ref": "#/components/schemas/LoadLimits"
+          }
+        },
+        "required": [
+          "loads"
+        ]
+      },
+      "LoadId": {
+        "type": "string",
+        "pattern": "^wl_[0-9a-f]{32}$",
+        "examples": [
+          "wl_8b2e6f1a9c3d4e5f8a7b6c5d4e3f2a1b"
+        ]
+      },
+      "LoadLimits": {
+        "type": "object",
+        "properties": {
+          "per_operation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99999,
+            "description": "Most one load may carry. Default 30000 (300 €); the owner may set up to 99999."
+          },
+          "wallet_24h": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99999,
+            "description": "Loads minus voids by this connection into one wallet (with the wallets merged into it) in the last 24 hours. Default 60000; owner up to 99999."
+          },
+          "wallet_24h_all_partners": {
+            "type": "integer",
+            "const": 99999,
+            "description": "Loads minus voids by every partner into one wallet in the last 24 hours, any funding. Fixed."
+          },
+          "unnamed_wallet_30d": {
+            "type": "integer",
+            "const": 150000,
+            "description": "Loads minus voids by this partner (all its connections) into one wallet without a contact phone, in the last 30 days, any funding. Fixed at 1,500 €. Above it the customer asks the venue's manager to record their phone."
+          },
+          "connection_night": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5000000,
+            "description": "Loads minus voids by this connection in the venue's current night. Default 500000; owner up to 5000000."
+          },
+          "cash_wallet_24h": {
+            "type": "integer",
+            "const": 99999,
+            "description": "Cash into one wallet in the last 24 hours, counting reception and every partner together (Ley 7/2012). Fixed. The total can never reach 100000."
+          }
+        },
+        "required": [
+          "per_operation",
+          "wallet_24h",
+          "wallet_24h_all_partners",
+          "unnamed_wallet_30d",
+          "connection_night",
+          "cash_wallet_24h"
+        ],
+        "description": "The limits that apply to this connection's loads, in cents. Each one is also the `limit` value of `402 limit_exceeded`, except `cash_wallet_24h`, whose refusal is `402 cash_limit_reached`.",
+        "x-decided-in-contract": true
+      },
+      "OperationRef": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "enum": [
+              "wallet_load"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/LoadId"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "voided"
+            ]
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "created_at": {
+            "$ref": "#/components/schemas/Timestamp"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "status",
+          "amount",
+          "created_at"
+        ],
+        "description": "The operation that already holds this Idempotency-Key.",
+        "x-decided-in-contract": true
+      },
+      "Problem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri",
+            "description": "`https://<docs host>/errors/<code>`.",
+            "examples": [
+              "https://docs.oxiopay.example/errors/limit_exceeded"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Short summary in English, fixed per code."
+          },
+          "status": {
+            "type": "integer",
+            "description": "The HTTP status."
+          },
+          "code": {
+            "$ref": "#/components/schemas/ErrorCode"
+          },
+          "detail": {
+            "type": "string",
+            "description": "Explanation for developers, in the language of `Accept-Language`. It never repeats a value you sent. The ATM shows its own texts to customers."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Same value as the `Request-Id` header."
+          },
+          "param": {
+            "type": "string"
+          },
+          "required_scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "limit": {
+            "type": "string",
+            "enum": [
+              "per_operation",
+              "wallet_24h",
+              "wallet_24h_all_partners",
+              "unnamed_wallet_30d",
+              "connection_night"
+            ]
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "wallet",
+              "cash_top_up"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "venue_setting",
+              "wallet_pass",
+              "private_link",
+              "reception_qr",
+              "short_code",
+              "charge_link",
+              "other_link"
+            ]
+          },
+          "available": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "operation": {
+            "$ref": "#/components/schemas/OperationRef"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "detail",
+          "request_id"
+        ],
+        "description": "RFC 9457 problem details. Branch on `code`. The extension members appear only with the codes named in their description."
+      },
+      "Scope": {
+        "type": "string",
+        "enum": [
+          "wallet:balance",
+          "wallet:load",
+          "wallet:pay",
+          "charges:write",
+          "charges:read",
+          "reports:read"
+        ],
+        "description": "The ATM key holds `wallet:balance` and `wallet:load` only. The other scopes belong to features outside this pilot."
+      },
+      "Terms": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The balance section of OxioPay's Conditions page."
+          },
+          "version": {
+            "type": "string",
+            "description": "The revision date of the terms (YYYY-MM-DD)."
+          },
+          "summary_es": {
+            "type": "string"
+          },
+          "summary_en": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "version",
+          "summary_es",
+          "summary_en"
+        ],
+        "description": "The balance terms. The ATM shows `summary_es` or `summary_en` (the customer's language) from `GET /me` on screen before taking the money, and prints the `terms` of the load answer (summary, `url` and `version`) on the ticket. The summary, `url` and `version` always come from OxioPay, never from a copy kept in the ATM's code.",
+        "x-decided-in-contract": true
+      },
+      "Timestamp": {
+        "type": "string",
+        "format": "date-time",
+        "description": "RFC 3339 in UTC (`Z`). Clients accept fractional seconds. Times sent in requests may use `Z` or an offset.",
+        "x-decided-in-contract": true,
+        "examples": [
+          "2026-12-05T22:41:07Z"
+        ]
+      }
+    },
+    "examples": {
+      "ConnectionAtm": {
+        "summary": "The ATM network's connection on the demo",
+        "value": {
+          "object": "connection",
+          "id": "pc_3f1c9a7e2b5d4c8e9f0a1b2c3d4e5f60",
+          "partner_name": "Cajeros Demo",
+          "venue_name": "Local Demo Centro",
+          "issuer": {
+            "legal_name": "Empresa Demo S.L.",
+            "tax_id": "B00000000"
+          },
+          "collection_model": "venue_collects",
+          "channel": "in_venue",
+          "status": "active",
+          "scopes": [
+            "wallet:balance",
+            "wallet:load"
+          ],
+          "paused_scopes": [],
+          "livemode": false,
+          "key": {
+            "hint": "oxp_test_…cdef",
+            "expires_at": "2027-11-26T23:00:00Z",
+            "replaced": false
+          },
+          "limits": {
+            "loads": {
+              "per_operation": 30000,
+              "wallet_24h": 60000,
+              "wallet_24h_all_partners": 99999,
+              "unnamed_wallet_30d": 150000,
+              "connection_night": 500000,
+              "cash_wallet_24h": 99999
+            }
+          },
+          "terms": {
+            "url": "https://demo-api.oxiopay.example/legal/condiciones#saldo",
+            "version": "2026-11-17",
+            "summary_es": "El saldo se gasta en este local y en los de su grupo que lo aceptan. No se devuelve en dinero, ni en efectivo ni a la tarjeta.",
+            "summary_en": "The balance is spent at this venue and at the venues of its group that accept it. It is not refunded in money, neither in cash nor to a card."
+          }
+        }
+      },
+      "ProblemInvalidKey": {
+        "summary": "Not a valid key",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/invalid_api_key",
+          "title": "Invalid API key",
+          "status": 401,
+          "code": "invalid_api_key",
+          "detail": "This key is not valid.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemIpNotAllowed": {
+        "summary": "Called from an address not registered for this key",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/ip_not_allowed",
+          "title": "IP not allowed",
+          "status": 403,
+          "code": "ip_not_allowed",
+          "detail": "This key cannot be used from this address.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemKeyInUrl": {
+        "summary": "The key was sent in the URL",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/api_key_in_url",
+          "title": "API key in URL",
+          "status": 400,
+          "code": "api_key_in_url",
+          "detail": "Send the key only in the Authorization header. Ask the owner to rotate this key.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemNotFound": {
+        "summary": "The partner API is not available here",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/not_found",
+          "title": "Not found",
+          "status": 404,
+          "code": "not_found",
+          "detail": "Not found.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemRateLimited": {
+        "summary": "Too many requests",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/rate_limited",
+          "title": "Rate limited",
+          "status": 429,
+          "code": "rate_limited",
+          "detail": "Too many requests. Retry after the time in Retry-After.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      }
+    }
+  }
+}

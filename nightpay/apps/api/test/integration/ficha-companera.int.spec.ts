@@ -1,5 +1,5 @@
 // Integración (Postgres real, FORCE RLS, rol sin superusuario): cobro por el encargado, fase 2
-// (migración 20261126100000_ficha_companera, 26-nov-2026): la ficha NFC de la compañera.
+// (migración 20261127030000_ficha_companera, 26-nov-2026): la ficha NFC de la compañera.
 //  - El encargado le da una ficha (en blanco, con su número de serie) y su hoja dice «Ficha nº …».
 //  - Al cobrar a su nombre se acerca su ficha: vale la original; una copia (otro chip con su código), no.
 //  - Si la pierde se le da otra: la de antes deja de valer al momento. Se puede anular, y la baja la anula.
@@ -45,7 +45,7 @@ const operators = new OperatorsService(prisma, {} as never, audit, config as nev
 const admin = new AdminController(prisma, {} as never, audit, operators, {} as never, cls as never, {} as never, {} as never);
 const charges = new WalletChargesService(prisma, audit, { get: () => ({}) } as never, {} as never);
 
-const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261126100000_ficha_companera/migration.sql');
+const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261127030000_ficha_companera/migration.sql');
 
 const r = randomUUID().slice(0, 6);
 let V: string;

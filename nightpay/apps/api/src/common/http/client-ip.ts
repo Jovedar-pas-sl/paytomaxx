@@ -142,11 +142,20 @@ export function clientIp(req: ClientIpRequest): string | null {
  * entera se sigue registrando donde se registra (logs, auditoría).
  */
 export function rateLimitIpKey(ip: string): string {
+  return ipPrefixKey(ip, 64);
+}
+
+/**
+ * La red de una IPv6 con ese prefijo (múltiplo de 16: /48, /64), p. ej.
+ * '2001:db8:abcd::/48'; una IPv4 (también ::ffff:a.b.c.d), tal cual. Los
+ * fallos de clave de la API de socios cuentan por /48 (partner-auth-limiter).
+ */
+export function ipPrefixKey(ip: string, bits: 48 | 64): string {
   if (ip.startsWith('::ffff:') && isIPv4(ip.slice(7))) return ip.slice(7);
   const groups = ipv6Groups(ip.split('%')[0] ?? '');
   if (!groups) return ip;
-  const prefix = groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16));
-  return `${prefix.join(':')}::/64`;
+  const prefix = groups.slice(0, bits / 16).map((g) => parseInt(g, 16).toString(16));
+  return `${prefix.join(':')}::/${bits}`;
 }
 
 /** Los 8 grupos de una IPv6 ('::' expandido), o null si no es IPv6. */

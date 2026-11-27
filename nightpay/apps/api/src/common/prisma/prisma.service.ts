@@ -317,6 +317,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnAppli
   }
 
   private unscopedPolicy(): 'log' | 'throw' {
+    // La API de socios corta siempre (RequestContext.strictTenancy).
+    if (this.currentContext()?.strictTenancy) return 'throw';
     const raw = this.config?.get<string>('TENANCY_UNSCOPED_QUERIES') ?? process.env.TENANCY_UNSCOPED_QUERIES;
     return raw === 'throw' ? 'throw' : 'log';
   }

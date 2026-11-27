@@ -26,6 +26,11 @@ const REDACT_PATHS = [
   '*.webhookSecret',
   '*.webhookSecretEnc',
   'req.headers["btcpay-sig"]',
+  // API de socios: lo que identifica un saldo (QR, chip), el texto del socio y la clave sellada del enlace.
+  '*.qr',
+  '*.nfc_uid',
+  '*.description',
+  '*.keyClaimSealed',
 ];
 
 /** Opciones del logger de Fastify (main.ts). */

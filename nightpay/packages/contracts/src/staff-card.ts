@@ -3,7 +3,7 @@ import type { InvitableStaff } from './invitations';
 
 /**
  * La ficha NFC de la compañera (cobro por el encargado, fase 2,
- * 20261126100000_ficha_companera). Se graba en un Android desde su hoja, como
+ * 20261127030000_ficha_companera). Se graba en un Android desde su hoja, como
  * las de los clientes (el mismo enlace con su código), y al cobrar un servicio
  * a su nombre se acerca además de su «Mi QR». Vale solo el chip original: se
  * guarda su número de serie y una copia no vale. Una viva por compañera: al

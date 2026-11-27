@@ -6,7 +6,7 @@
 #   lint        ESLint de la raíz; de momento NO bloquea (hay avisos viejos)
 #   integracion migraciones en un Postgres 16 vacío con un rol SIN superusuario
 #               (FORCE RLS de verdad), esquema = schema.prisma, las pruebas
-#               de integración del API contra esa base y la prueba de
+#               de integración del API contra esa base (y un Redis 7) y la prueba de
 #               restauración (una copia completa pasa, una incompleta no)
 #   e2e         navegador (Playwright) con login real contra API y webs
 #               levantados en el job, base y Redis aislados
@@ -152,8 +152,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 5s --health-timeout 5s --health-retries 20
+      # La API de socios (socios-claves.int.spec.ts) prueba sus topes y bloqueos con un Redis de verdad.
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       DATABASE_URL: postgresql://np_app:np_app@localhost:5432/nightpay
+      REDIS_URL: redis://localhost:6379
       SHADOW_DATABASE_URL: postgresql://np_app:np_app@localhost:5432/nightpay_shadow
       # Solo para las pruebas (40 caracteres, no es ningún secreto real).
       ENCRYPTION_KEK: ci-kek-solo-para-pruebas-0123456789abcde

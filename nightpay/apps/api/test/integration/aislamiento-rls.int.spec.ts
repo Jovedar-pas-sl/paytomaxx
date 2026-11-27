@@ -2,7 +2,7 @@
 // con el rol dueño SIN superusuario, aunque la consulta no filtre por local. Ver README.md y docs/DB-ROLE.md.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService, RlsOutsideTransactionError } from '../../src/common/prisma/prisma.service';
 import { FORCED_RLS_TABLES } from '../../src/common/prisma/rls';
@@ -147,9 +147,24 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const staffCard = await tx.staffCard.create({
         data: { tenantId, userId: chica, token: `fc${tag}${r}`.padEnd(22, 'x'), uid: `04${randomUUID().replace(/-/g, '').slice(0, 12)}`.toUpperCase(), number: (await tx.$queryRaw<Array<{ n: number }>>`SELECT nextval('wallet_cards_number_seq')::int AS n`)[0]!.n },
       });
+      // API de socios: una plataforma conectada al local (solo el hash de su clave; en `test`, sin lista de IP).
+      const partner = await tx.partner.create({
+        data: {
+          name: `RLS ${tag}`, legalName: 'Cajeros RLS S.L.', taxId: 'B12345678', contactEmail: `rls-p-${tag}-${r}@x.es`,
+          allowedScopes: ['wallet:balance'], createdById: owner,
+        },
+      });
+      const partnerConnection = await tx.partnerConnection.create({
+        data: {
+          tenantId, partnerId: partner.id, businessId: randomUUID(), collectionModel: 'VENUE_COLLECTS', channel: 'IN_VENUE',
+          scopes: ['wallet:balance'], keyMode: 'test', keyHash: createHash('sha256').update(`rls-${tag}-${r}`).digest('hex'),
+          keyHint: 'oxp_test_…0000', keyCreatedAt: new Date(), keyExpiresAt: new Date(Date.now() + 30 * 86_400_000), createdById: owner,
+        },
+      });
       return {
         tenantId,
         rows: {
+          partner_connections: partnerConnection.id,
           reservation_packages: pkg.id,
           promoters: promoter.id,
           reservations: reservation.id,

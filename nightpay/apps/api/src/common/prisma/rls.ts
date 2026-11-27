@@ -62,8 +62,10 @@ export const FORCED_RLS_TABLES = [
   'party_refund_requests',
   // «Te han pagado» (20261120400000): los navegadores del personal apuntados para el aviso del pago.
   'staff_push_subscriptions',
-  // Cobro por el encargado, fase 2 (20261126100000): la ficha NFC de la compañera.
+  // Cobro por el encargado, fase 2 (20261127030000): la ficha NFC de la compañera.
   'staff_cards',
+  // API de socios (20261126100000): socio × local, con el hash de la clave y su enlace de un uso.
+  'partner_connections',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -97,6 +99,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'PartyRefundRequest',
   'StaffPushSubscription',
   'StaffCard',
+  'PartnerConnection',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

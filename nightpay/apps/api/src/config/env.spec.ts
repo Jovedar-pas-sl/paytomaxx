@@ -273,3 +273,27 @@ describe('entorno: AUTH_BODY_REFRESH_UNTIL (refresh token en el cuerpo, apps ant
     }
   });
 });
+
+describe('entorno: API de socios', () => {
+  const DEV = { ...BASE, NODE_ENV: 'development' };
+
+  it('apagada de serie; encendida necesita PARTNER_API_MODE (live o test), sin valor por defecto, también en local', () => {
+    expect(parseEnv(DEV).PARTNER_API_ENABLED).toBe(false);
+    expect(() => parseEnv({ ...DEV, PARTNER_API_ENABLED: 'true' })).toThrow(/PARTNER_API_MODE/);
+    expect(() => parseEnv({ ...DEV, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'prod' })).toThrow(InvalidEnvError);
+    const env = parseEnv({ ...DEV, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'test' });
+    expect(env).toMatchObject({ PARTNER_API_ENABLED: true, PARTNER_API_MODE: 'test' });
+  });
+
+  it('en producción, live sin ORIGIN_AUTH_SECRET no arranca (la lista de IP se saltaría con una cabecera inventada)', () => {
+    const live = { ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'live' };
+    expect(() => parseEnv(live)).toThrow(/ORIGIN_AUTH_SECRET/);
+    expect(parseEnv({ ...live, ORIGIN_AUTH_SECRET: 'secreto-de-cloudflare-0123456789' }).PARTNER_API_MODE).toBe('live');
+    expect(parseEnv({ ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'test' }).PARTNER_API_MODE).toBe('test');
+  });
+
+  it('NIGHTPAY_DISABLE_PARTNER_SWEEP=1 avisa en producción', () => {
+    expect(Object.keys(DISABLE_FLAGS)).toContain('NIGHTPAY_DISABLE_PARTNER_SWEEP');
+    expect(envWarnings(validateConfig({ ...PROD, NIGHTPAY_DISABLE_PARTNER_SWEEP: '1' })).join('\n')).toMatch(/NIGHTPAY_DISABLE_PARTNER_SWEEP=1/);
+  });
+});
