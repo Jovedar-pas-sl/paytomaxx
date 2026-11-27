@@ -42,7 +42,16 @@ export type SaAction =
   | 'settlement.void'
   | 'settlement.generate'
   | 'settlement.payee'
-  | 'settlement.startWeek';
+  | 'settlement.startWeek'
+  | 'partner.create'
+  | 'partner.update'
+  | 'partner.updateSensitive'
+  | 'partner.suspend'
+  | 'partner.resume'
+  | 'partner.freeze'
+  | 'partner.connectionPause'
+  | 'partner.connectionResume'
+  | 'partner.connectionRevoke';
 
 export type ReasonRule = 'required' | 'optional' | 'none';
 
@@ -101,6 +110,17 @@ export const SA_ACTION_RULES: Readonly<Record<SaAction, StepUpRule>> = {
   'settlement.payee': rule(true, 'none'),
   // La semana de inicio cambia qué se liquida: con motivo.
   'settlement.startWeek': rule(true, 'required'),
+  // Socios (API de socios, A7): alta y reanudar, 2FA; suspender, congelar y anular una conexión, 2FA y
+  // motivo; editar, 2FA si cambian permisos, IP, KYB o contrato de datos; pausar una conexión, motivo.
+  'partner.create': rule(true, 'none'),
+  'partner.update': rule(false, 'none'),
+  'partner.updateSensitive': rule(true, 'none'),
+  'partner.suspend': rule(true, 'required'),
+  'partner.resume': rule(true, 'optional'),
+  'partner.freeze': rule(true, 'required'),
+  'partner.connectionPause': rule(false, 'required'),
+  'partner.connectionResume': rule(true, 'optional'),
+  'partner.connectionRevoke': rule(true, 'required'),
 };
 
 export function needsTotp(action: SaAction): boolean {

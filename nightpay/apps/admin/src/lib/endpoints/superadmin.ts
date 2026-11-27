@@ -14,6 +14,11 @@ import type {
   CustomerWalletDetail,
   GenerateSettlementDto,
   OxioPayPayee,
+  PartnerApiStateView,
+  PartnerFreeze,
+  PartnerView,
+  SuperAdminPartnerConnectionView,
+  SuperAdminPartnersOverview,
   PayoutAccountFull,
   PayoutAccountListItem,
   ResetStaffPasswordResponse,
@@ -35,6 +40,7 @@ import { API_BASE, authedFetch, totpAwareError } from '../http';
 import { absoluteApiUrl } from '../superadmin/labels';
 import type { ProfileDto, RulesDto } from '../superadmin/forms';
 import type { NewPersonDto, PayoutUpdateDto } from '../superadmin/person-forms';
+import type { PartnerBody, PartnerChanges } from '../superadmin/partner-forms';
 
 /** Tope de espera de una llamada de la consola. */
 const TIMEOUT_MS = 20_000;
@@ -341,4 +347,46 @@ export async function downloadSaSettlement(settlementId: string, kind: 'document
   const res = await authedFetch(`/v1/superadmin/oxiopay-settlements/${id(settlementId)}/${kind}`);
   if (!res.ok) throw await totpAwareError(res);
   return res.blob();
+}
+
+// ─── Socios (API de socios): registro, conexiones y congelación ─────────
+
+export function fetchSaPartners(signal?: AbortSignal): Promise<SuperAdminPartnersOverview> {
+  return call('/partners', { signal });
+}
+
+/** Alta (siempre con 2FA). */
+export function createSaPartner(dto: PartnerBody, totpCode: string): Promise<PartnerView> {
+  return post('/partners', { ...dto, totpCode });
+}
+
+/** Editar: con 2FA si cambian permisos, IP, KYB o el contrato de datos. */
+export function updateSaPartner(partnerId: string, changes: PartnerChanges, totpCode?: string): Promise<PartnerView> {
+  return patch(`/partners/${id(partnerId)}`, withCode(changes, totpCode));
+}
+
+export function suspendSaPartner(partnerId: string, input: StepUpInput): Promise<PartnerView> {
+  return post(`/partners/${id(partnerId)}/suspend`, stepUpBody(input));
+}
+
+export function resumeSaPartner(partnerId: string, input: StepUpInput): Promise<PartnerView> {
+  return post(`/partners/${id(partnerId)}/resume`, stepUpBody(input));
+}
+
+/** Pausar una conexión (queda «En pausa por OxioPay»): solo el motivo. */
+export function pauseSaPartnerConnection(connectionId: string, reason: string): Promise<SuperAdminPartnerConnectionView> {
+  return post(`/partners/connections/${id(connectionId)}/pause`, { reason });
+}
+
+export function resumeSaPartnerConnection(connectionId: string, input: StepUpInput): Promise<SuperAdminPartnerConnectionView> {
+  return post(`/partners/connections/${id(connectionId)}/resume`, stepUpBody(input));
+}
+
+export function revokeSaPartnerConnection(connectionId: string, input: StepUpInput): Promise<SuperAdminPartnerConnectionView> {
+  return post(`/partners/connections/${id(connectionId)}/revoke`, stepUpBody(input));
+}
+
+/** Congelar o descongelar la API (2FA y motivo). */
+export function setSaPartnerFreeze(freeze: PartnerFreeze, input: StepUpInput): Promise<PartnerApiStateView> {
+  return put('/partners/api-state', { freeze, reason: input.reason ?? '', totpCode: input.totpCode });
 }

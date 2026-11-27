@@ -35,9 +35,9 @@ export interface ChargePushPayload {
   tag: string;
   /** Tocar el aviso: la página del saldo. */
   url: string;
-  /** «No he sido yo»: la página que pide confirmar (enlace firmado). */
-  notMeUrl: string;
-  notMeLabel: string;
+  /** «No he sido yo»: la página que pide confirmar (enlace firmado). Sin él (una carga anulada), solo abre el saldo. */
+  notMeUrl?: string;
+  notMeLabel?: string;
 }
 
 interface ChargeRow {
@@ -149,6 +149,54 @@ export class ChargeAlertService {
     void this.notifyCharge(chargeId).catch((err: unknown) => {
       this.logger.warn(`Aviso del cobro ${chargeId}: no se ha podido mandar (${(err as Error)?.message ?? err})`);
     });
+  }
+
+  /**
+   * Una carga de otra plataforma (API de socios) anulada: «Carga anulada ·
+   * {socio}» al móvil del cliente, sin «No he sido yo». No espera ni lanza.
+   */
+  loadVoided(input: { walletId: string; loadId: string; partnerName: string; amountCents: number }): void {
+    if (!this.settings) return;
+    void this.notifyLoadVoided(input).catch((err: unknown) => {
+      this.logger.warn(`Aviso de la carga anulada ${input.loadId}: no se ha podido mandar (${(err as Error)?.name ?? err})`);
+    });
+  }
+
+  /** Manda el aviso de la carga anulada a cada móvil apuntado al saldo (y a los de su cadena). Cuántos lo recibieron. */
+  async notifyLoadVoided(input: { walletId: string; loadId: string; partnerName: string; amountCents: number }): Promise<number> {
+    const vapid = this.settings;
+    if (!vapid) return 0;
+    const found = await this.prisma.acrossVenues(async (tx) => {
+      const liveId = (await liveWalletId(tx, input.walletId)) ?? input.walletId;
+      const walletIds = [...new Set([input.walletId, liveId])];
+      const [wallet, subs] = await Promise.all([
+        tx.clientWallet.findUnique({ where: { id: liveId }, select: { balanceCents: true, qrToken: true } }),
+        tx.walletPushSubscription.findMany({
+          where: { walletId: { in: walletIds } },
+          select: { id: true, endpoint: true, p256dh: true, auth: true, lang: true, failCount: true },
+        }),
+      ]);
+      return { wallet, subs };
+    });
+    if (!found.wallet || found.subs.length === 0) return 0;
+    const seen = new Set<string>();
+    const unique = found.subs.filter((s) => !seen.has(s.endpoint) && Boolean(seen.add(s.endpoint)));
+    const outcomes = await Promise.all(
+      unique.map((sub) => {
+        const t = CHARGE_ALERT_TEXT[isPayLanguage(sub.lang) ? sub.lang : 'es'];
+        const payload: ChargePushPayload = {
+          title: fillText(t.loadVoidTitle, { partner: input.partnerName }),
+          body: fillText(t.loadVoidBody, {
+            amount: clientMoney(input.amountCents, t.locale),
+            balance: clientMoney(found.wallet!.balanceCents, t.locale),
+          }),
+          tag: `carga-anulada-${input.loadId}`,
+          url: `/w/${encodeURIComponent(found.wallet!.qrToken)}`,
+        };
+        return this.deliver(sub, JSON.stringify(payload), vapid);
+      }),
+    );
+    return outcomes.filter((o) => o === 'sent').length;
   }
 
   /** Manda el aviso del cobro a cada móvil apuntado al saldo. Cuántos lo recibieron. */

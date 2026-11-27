@@ -461,7 +461,7 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   },
   'wallet.card_copy_suspected': {
     title: 'Posible ficha copiada',
-    detail: 'Han acercado una ficha con el código de un saldo y otro número de serie: el cobro se ha rechazado. Si se repite, cambia esa ficha.',
+    detail: 'Han acercado una ficha con el código de un saldo y otro número de serie: no se ha aceptado. Si se repite, cambia esa ficha.',
   },
   'payment.manual_reconcile': {
     title: 'Cobro dado por pagado a mano',
@@ -511,6 +511,36 @@ const SENSITIVE_ACTIONS: Readonly<Record<string, { title: string; detail: string
   },
   'partner.key.claim_expired': { title: 'Enlace de clave sin abrir', detail: 'El enlace de una clave caducó sin abrirse: cámbiala.' },
   'partner.key.expiring': { title: 'Clave a punto de caducar', detail: 'La clave de una plataforma caduca pronto: cámbiala antes.' },
+  'partner.master_link_submitted': {
+    title: 'Enlace privado enseñado en otra plataforma',
+    detail: 'Un cliente ha enseñado el enlace privado de su saldo en otra plataforma: quien lo tenga puede ver su saldo. Dale un enlace nuevo.',
+  },
+  // Las cargas de los cajeros de otras plataformas (PR 3). partner.limit_exceeded,
+  // solo el primero de cada conexión y noche (payload.ownerAlert: incidents.service).
+  'partner.limit_exceeded': {
+    title: 'Tope de carga alcanzado',
+    detail: 'Una plataforma ha llegado esta noche a un tope de carga: mira su ficha.',
+  },
+  'partner.wallet.load_voided': {
+    title: 'Carga anulada por una plataforma',
+    detail: 'Una plataforma ha anulado una de sus cargas: comprueba que el dinero no se quedó en el local.',
+  },
+  'partner.wallet.load_voided_by_venue': {
+    title: 'Carga de una plataforma anulada en el panel',
+    detail: 'ha anulado una carga de una plataforma, con su 2FA.',
+  },
+  'partner.loads.night_half': {
+    title: 'Cargas de una plataforma: mitad del tope de la noche',
+    detail: 'Por la mañana, cuenta el efectivo de sus cajeros contra «Movimientos».',
+  },
+  'partner.loads.night_full': {
+    title: 'Cargas de una plataforma: tope de la noche alcanzado',
+    detail: 'Por la mañana, cuenta el efectivo de sus cajeros contra «Movimientos».',
+  },
+  'partner.cash_split_suspected': {
+    title: 'Efectivo troceado en varios saldos',
+    detail: 'Un cajero de una plataforma ha cargado en efectivo varios saldos que juntos pasan de 1.000 € en una hora: revisa sus cargas.',
+  },
   // A dónde va el dinero de una compañera (panel, enlace de alta u OxioPay): el
   // texto según por dónde (`via`, PAYOUT_ACCOUNT_CHANGE_VIA).
   'operator.payout_account_changed': {

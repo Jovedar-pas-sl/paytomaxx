@@ -176,3 +176,22 @@ describe('«Pagar» a varias a la vez: la acción de la prueba', () => {
     expect(stepUpActions.payoutBatch(KEY.replace('7f', '8f'), 6, 54_000)).not.toBe(action);
   });
 });
+
+describe('API de socios (PR 3): subir los topes y anular una carga desde el panel', () => {
+  const CONN = '3f1c9a7e-2b5d-4c8e-9f0a-1b2c3d4e5f60';
+  const LOAD = '8b2e6f1a-9c3d-4e5f-8a7b-6c5d4e3f2a1b';
+
+  it('partner:limits:<conexión>:<op>-<día>-<noche>, también con los topes más altos, y partner:void:<carga>', () => {
+    const limits = stepUpActions.partner('limits', CONN, '99999-99999-5000000');
+    expect(limits).toBe(`partner:limits:${CONN}:99999-99999-5000000`);
+    expect(STEP_UP_ACTION_RE.test(limits)).toBe(true);
+    expect(StepUpPasskeyOptionsSchema.safeParse({ action: limits }).success).toBe(true);
+    const voidLoad = stepUpActions.partner('void', LOAD);
+    expect(voidLoad).toBe(`partner:void:${LOAD}`);
+    expect(STEP_UP_ACTION_RE.test(voidLoad)).toBe(true);
+    // Atada a los tres topes: otros valores, otra acción.
+    expect(stepUpActions.partner('limits', CONN, '99999-99999-4999999')).not.toBe(limits);
+    // Las de antes, sin tercer trozo.
+    expect(stepUpActions.partner('resume', CONN)).toBe(`partner:resume:${CONN}`);
+  });
+});

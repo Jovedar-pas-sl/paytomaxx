@@ -25,8 +25,10 @@ describe('cinco secciones', () => {
     expect(visibleSections({ role: 'OWNER' }).map((s) => s.label)).toEqual(['Hoy', 'Compañeras', 'Clientes', 'Informes', 'Ajustes']);
   });
 
-  it('Hoy: cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
-    expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
+  it('Hoy: el Resumen primero, cobros, el mapa del dinero y una sola bandeja de avisos; Chicas: las chicas y sus pagos; Clientes: los saldos y las fichas', () => {
+    expect(sectionTabs({ role: 'OWNER' }, 'hoy')).toEqual(['resumen', 'payments', 'money', 'incidents']);
+    expect(visibleTabs({ role: 'OWNER' })[0]).toEqual({ key: 'resumen', label: 'Resumen', section: 'hoy', access: 'staff' });
+    expect(sectionOf('resumen')).toBe('hoy');
     expect(sectionTabs({ role: 'OWNER' }, 'chicas')).toEqual(['operators', 'treasury']);
     expect(sectionTabs({ role: 'OWNER' }, 'clientes')).toEqual(['wallets', 'reservations', 'fichas']);
     expect(sectionTabs({ role: 'MANAGER' }, 'clientes')).toEqual(['wallets', 'reservations', 'fichas']);
@@ -67,8 +69,8 @@ describe('cinco secciones', () => {
   });
 
   it('el mapa del dinero, como los informes: el encargado solo si el dueño le deja verlos', () => {
-    expect(sectionTabs({ role: 'MANAGER' }, 'hoy')).toEqual(['payments', 'incidents']);
-    expect(sectionTabs({ role: 'MANAGER', canSeeReports: true }, 'hoy')).toEqual(['payments', 'money', 'incidents']);
+    expect(sectionTabs({ role: 'MANAGER' }, 'hoy')).toEqual(['resumen', 'payments', 'incidents']);
+    expect(sectionTabs({ role: 'MANAGER', canSeeReports: true }, 'hoy')).toEqual(['resumen', 'payments', 'money', 'incidents']);
     expect(sectionOf('money')).toBe('hoy');
   });
 
@@ -139,5 +141,42 @@ describe('encontrar los reservados y los RRPP a la primera', () => {
     for (const s of visibleSections({ role: 'MANAGER' })) {
       for (const t of ownerOnly) expect(SECTION_HINTS[s.key].toLowerCase(), `${s.key}: ${t.label}`).not.toContain(t.label.toLowerCase());
     }
+  });
+});
+
+describe('«Otras plataformas» (API de socios)', () => {
+  it('solo si el API la contesta: sin saberlo, o con la API apagada, no sale', () => {
+    expect(keys({ role: 'OWNER' })).not.toContain('partners');
+    expect(keys({ role: 'OWNER', partnersOn: false })).not.toContain('partners');
+    expect(keys({ role: 'MANAGER', partnersOn: false })).not.toContain('partners');
+  });
+
+  it('con la API encendida, en Ajustes, para el dueño y el encargado, después de Formas de cobro', () => {
+    expect(sectionTabs({ role: 'OWNER', partnersOn: true }, 'ajustes')).toEqual([
+      'carta',
+      'sections',
+      'terminals',
+      'rules',
+      'methods',
+      'partners',
+      'night',
+      'permissions',
+      'alerts',
+      'security',
+    ]);
+    expect(sectionTabs({ role: 'MANAGER', partnersOn: true }, 'ajustes')).toEqual(['carta', 'terminals', 'partners', 'security']);
+    expect(visibleTabs({ role: 'OWNER', partnersOn: true }).find((t) => t.key === 'partners')).toMatchObject({
+      label: 'Otras plataformas',
+      section: 'ajustes',
+      access: 'staff',
+      needsPartners: true,
+    });
+    expect(sectionOf('partners')).toBe('ajustes');
+    expect(resolveTab('partners')).toBe('partners');
+  });
+
+  it('nunca en OxioParty', () => {
+    expect(visibleTabs({ role: 'OWNER', partnersOn: true }, 'party').map((t) => t.key)).not.toContain('partners');
+    expect(resolveTab('partners', 'party')).toBeNull();
   });
 });

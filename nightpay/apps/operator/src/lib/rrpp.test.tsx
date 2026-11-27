@@ -16,7 +16,13 @@ const read = (rel: string): string => readFileSync(new URL(rel, import.meta.url)
 /** Con los espacios finos del € y del % como espacios normales. */
 const plain = (s: string): string => s.replace(/\s+/g, ' ');
 /** El texto que se lee: sin etiquetas. */
-const textOf = (el: Parameters<typeof renderToStaticMarkup>[0]): string => plain(renderToStaticMarkup(el).replace(/<[^>]+>/g, ' '));
+// El «,00» apagado de Importe (entrega 4B) va en su span: se lee pegado a la cifra, como en pantalla.
+const textOf = (el: Parameters<typeof renderToStaticMarkup>[0]): string =>
+  plain(
+    renderToStaticMarkup(el)
+      .replace(/<span class="np-importe-dim">([^<]*)<\/span>/g, '$1')
+      .replace(/<[^>]+>/g, ' '),
+  );
 
 const res = (o: Partial<MyPromoterReservation> = {}): MyPromoterReservation => ({
   ref: 'R-0007',

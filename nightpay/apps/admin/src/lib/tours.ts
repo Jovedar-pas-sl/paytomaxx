@@ -14,6 +14,15 @@ export interface TourDef {
 }
 
 export const TOURS = {
+  resumen: {
+    screen: 'panel-resumen',
+    steps: [
+      { target: 'resumen-noche', title: 'Esta noche', text: 'Lo pagado desde que abriste la noche, hora a hora.' },
+      { target: 'resumen-mapa', title: 'Tu dinero', text: 'Lo ganado, la caja y lo que debes. Toca una para abrir el mapa.' },
+      { target: 'resumen-atencion', title: 'Pide tu atención', text: 'Lo que tienes que decidir o revisar.' },
+      { target: 'resumen-cobros', title: 'Últimos cobros', text: 'Toca uno para ver su detalle.' },
+    ],
+  },
   payments: {
     screen: 'panel-cobros',
     steps: [
@@ -146,6 +155,14 @@ export const TOURS = {
       { target: 'permisos-camareros', title: 'Camareros', text: 'Lo que pueden hacer todos los camareros del local.' },
     ],
   },
+  partners: {
+    screen: 'panel-plataformas',
+    steps: [
+      { target: 'plataformas', title: 'Otras plataformas', text: 'Las que entran con una clave en el saldo de tu local. Por ahora, los cajeros que cargan saldo aquí.' },
+      { target: 'plataformas-estado', title: 'Cómo está', text: 'Activa, en pausa, dormida (90 días sin usarla), caducada o anulada. La pausa de OxioPay solo la quita OxioPay.' },
+      { target: 'plataformas-botones', title: 'Qué puedes hacer', text: 'Cambiar la clave, pausarla, reanudarla o anularla. La clave nueva se ve una sola vez: cópiala al momento.' },
+    ],
+  },
   alerts: {
     screen: 'panel-telegram',
     steps: [
@@ -196,6 +213,7 @@ export type TourKey = keyof typeof TOURS;
 
 /** El tutorial de cada pestaña del panel (las que no salen aquí no llevan «?»). */
 export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
+  resumen: TOURS.resumen,
   payments: TOURS.payments,
   money: TOURS.money,
   incidents: TOURS.incidents,
@@ -212,6 +230,7 @@ export const TAB_TOURS: Readonly<Partial<Record<TabKey, TourDef>>> = {
   night: TOURS.night,
   permissions: TOURS.permissions,
   alerts: TOURS.alerts,
+  partners: TOURS.partners,
   security: TOURS.security,
   reservations: TOURS.reservations,
 };

@@ -14,6 +14,10 @@ export interface ChargeAlertText {
   /** Sin nombre del local (no debería pasar): «Te quedan 38 €». */
   pushBodyNoVenue: string;
   pushNotMe: string;
+  /** Una carga de otra plataforma anulada (API de socios): «Carga anulada · Cajeros». */
+  loadVoidTitle: string;
+  /** «Se han quitado 20 € de tu saldo · te quedan 30 €». */
+  loadVoidBody: string;
   // Página del saldo («Más»).
   row: string;
   rowOff: string;
@@ -65,6 +69,8 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     pushBody: 'En {venue} · te quedan {balance}',
     pushBodyNoVenue: 'Te quedan {balance}',
     pushNotMe: 'No he sido yo',
+    loadVoidTitle: 'Carga anulada · {partner}',
+    loadVoidBody: 'Se han quitado {amount} de tu saldo · te quedan {balance}',
     row: 'Avisarme de cada cobro',
     rowOff: 'Te llega un aviso al móvil cada vez que se paga con tu saldo.',
     rowOn: 'Activado en este móvil. Toca para quitarlo.',
@@ -116,6 +122,8 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     pushBody: 'At {venue} · {balance} left',
     pushBodyNoVenue: '{balance} left',
     pushNotMe: 'It wasn’t me',
+    loadVoidTitle: 'Top-up cancelled · {partner}',
+    loadVoidBody: '{amount} taken off your balance · {balance} left',
     row: 'Notify me of every charge',
     rowOff: 'Get a notification on your phone every time your balance is used.',
     rowOn: 'On for this phone. Tap to turn it off.',
@@ -167,6 +175,8 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     pushBody: 'À {venue} · il vous reste {balance}',
     pushBodyNoVenue: 'Il vous reste {balance}',
     pushNotMe: 'Ce n’est pas moi',
+    loadVoidTitle: 'Recharge annulée · {partner}',
+    loadVoidBody: '{amount} retirés de votre solde · il vous reste {balance}',
     row: 'M’avertir de chaque paiement',
     rowOff: 'Recevez une notification sur votre téléphone à chaque paiement avec votre solde.',
     rowOn: 'Activé sur ce téléphone. Touchez pour le retirer.',
@@ -218,6 +228,8 @@ export const CHARGE_ALERT_TEXT: Readonly<Record<PayLanguage, ChargeAlertText>> =
     pushBody: 'Em {venue} · restam-te {balance}',
     pushBodyNoVenue: 'Restam-te {balance}',
     pushNotMe: 'Não fui eu',
+    loadVoidTitle: 'Recarga anulada · {partner}',
+    loadVoidBody: 'Foram retirados {amount} do teu saldo · restam-te {balance}',
     row: 'Avisar-me de cada cobrança',
     rowOff: 'Recebes um aviso no telemóvel sempre que se paga com o teu saldo.',
     rowOn: 'Ativado neste telemóvel. Toca para o tirar.',

@@ -32,6 +32,8 @@ import { WalletPasskeysService } from './wallet-passkeys.service';
 import { WalletTopUpService } from './wallet-topup.service';
 import { saldoNoSeDevuelve } from './saldo-rule';
 import { renderWalletPage } from './wallet-page';
+import { WalletLiveCodeService } from './wallet-live-code.service';
+import { partnerApiOn } from '../partner/partner-flag';
 import { checkedPin } from './client-pin';
 import { walletViewSetCookies } from './wallet-view-session';
 import { walletViewAccess, type WalletViewAccess } from './wallet-view-access';
@@ -88,6 +90,7 @@ export class PublicWalletController {
   private readonly details: CobroDetailService | null;
   private readonly alerts: ChargeAlertService | null;
   private readonly party: PartyRefundsService | null;
+  private readonly liveCodes: WalletLiveCodeService | null;
 
   constructor(
     @Inject(WalletChargesService) charges: WalletChargesService,
@@ -105,6 +108,8 @@ export class PublicWalletController {
     @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
     // OxioParty: la página de la pulsera (la fiesta y «Lo que sobra»); solo con EDITION=party.
     @Optional() @Inject(PartyRefundsService) party?: PartyRefundsService,
+    // «Pagar o recargar en otro sistema»: si alguna plataforma conectada alcanza el saldo; en el API siempre está.
+    @Optional() @Inject(WalletLiveCodeService) liveCodes?: WalletLiveCodeService,
   ) {
     this.charges = charges;
     this.passkeys = passkeys;
@@ -116,6 +121,7 @@ export class PublicWalletController {
     this.details = details ?? null;
     this.alerts = alerts ?? null;
     this.party = party ?? null;
+    this.liveCodes = liveCodes ?? null;
   }
 
   /**
@@ -299,6 +305,9 @@ export class PublicWalletController {
     if (remember) res.header('Set-Cookie', remember);
     // OxioParty: la página de la pulsera (de día, con «Lo que sobra» y las casetas).
     const party = isPartyEdition() && this.party ? await this.party.pageData(walletId) : null;
+    // «Pagar o recargar en otro sistema»: la API de socios encendida (como PartnerApiEnabledGuard en
+    // POST /w/:token/live-code) y una conexión que alcanza el saldo. Si falla, la página sale sin él.
+    const liveCode = partnerApiOn() && this.liveCodes ? await this.liveCodes.offered(walletId).catch(() => false) : false;
     res
       .status(200)
       .header('Content-Type', 'text/html; charset=utf-8')
@@ -317,6 +326,7 @@ export class PublicWalletController {
           chargeAlertKey: this.alerts?.publicKey ?? null,
           party,
           suggest,
+          liveCode,
         }),
       );
   }

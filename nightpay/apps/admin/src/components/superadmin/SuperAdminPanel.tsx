@@ -13,17 +13,20 @@ import { AuditSection } from './AuditSection';
 import { BusinessesSection } from './BusinessesSection';
 import { SaContext, type SaShared } from './context';
 import { CustomersSection } from './CustomersSection';
+import { PartnersSection } from './PartnersSection';
 import { PayoutAccountsSection } from './PayoutAccountsSection';
 import { PeopleSection } from './PeopleSection';
 import { SettlementsSection } from './SettlementsSection';
 import { SummarySection } from './SummarySection';
 import { VenuesSection } from './VenuesSection';
 
-type SaTab = 'summary' | 'businesses' | 'venues' | 'settlements' | 'people' | 'payouts' | 'customers' | 'audit';
+type SaTab = 'summary' | 'businesses' | 'partners' | 'venues' | 'settlements' | 'people' | 'payouts' | 'customers' | 'audit';
 
 const SA_TABS: readonly TabItem<SaTab>[] = [
   { key: 'summary', label: 'Resumen' },
   { key: 'businesses', label: 'Negocios' },
+  // API de socios: el registro, las conexiones de los locales y la congelación.
+  { key: 'partners', label: 'Socios' },
   { key: 'venues', label: 'Locales' },
   { key: 'settlements', label: 'Liquidaciones' },
   { key: 'people', label: 'Personas' },
@@ -145,6 +148,8 @@ function ActiveSection({ tab, auditActor }: { tab: SaTab; auditActor: { id: stri
       return <SummarySection />;
     case 'businesses':
       return <BusinessesSection />;
+    case 'partners':
+      return <PartnersSection />;
     case 'venues':
       return <VenuesSection />;
     case 'settlements':

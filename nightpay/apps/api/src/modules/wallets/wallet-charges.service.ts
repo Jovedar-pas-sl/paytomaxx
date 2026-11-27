@@ -131,6 +131,7 @@ import {
   type WalletPayoutMethod,
 } from './wallet-rules';
 import { ChargeAlertService } from './charge-alert/charge-alert.service';
+import { WalletLiveCodeService } from './wallet-live-code.service';
 import { eur } from '../../common/money/eur';
 
 type Actor = { userId: string; role: Role; tenantId: string };
@@ -397,7 +398,10 @@ export interface ClientWalletState {
      * El texto de la fila en el idioma de la página (recargas y devoluciones:
      * WalletText.mv); sin él, `label` tal cual (los consumos: lo que se pidió).
      */
-    labelKey?: 'topUp' | 'topUpCash' | 'topUpCashVoid' | 'payoutCash' | 'payoutCard';
+    labelKey?: 'topUp' | 'topUpCash' | 'topUpCashVoid' | 'payoutCash' | 'payoutCard' | 'partnerLoad' | 'partnerLoadVoid';
+    /** Cargas de otras plataformas (labelKey partnerLoad…): el nombre del socio y su descripción, para `{name}` y `{text}`. */
+    partnerName?: string;
+    partnerText?: string;
     venueName: string | null;
     at: string;
     /** Referencia del cobro (C-0001) en consumos y recargas con tarjeta; null en el resto y en los antiguos. */
@@ -487,6 +491,9 @@ export class WalletChargesService {
   /** «Aviso en cada cobro»: el aviso al móvil del cliente, después de cobrar (sin esperarlo). */
   private readonly alerts: Pick<ChargeAlertService, 'chargePaid'> | null;
 
+  /** Los códigos del móvil (OXC1:): se anulan tras guardar un bloqueo, un enlace nuevo o una suma. */
+  private readonly liveCodes: Pick<WalletLiveCodeService, 'dropWallet'> | null;
+
   constructor(
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(AuditService) audit: AuditService,
@@ -494,6 +501,8 @@ export class WalletChargesService {
     @Inject(TotpService) totp: TotpService,
     @Optional() @Inject(ClsService) cls?: ClsService<{ ctx: RequestContext }>,
     @Optional() @Inject(ChargeAlertService) alerts?: ChargeAlertService,
+    // Sin @Optional(): sin él la API no arranca. Opcional solo para los `new` de las pruebas.
+    @Inject(WalletLiveCodeService) liveCodes?: WalletLiveCodeService,
   ) {
     this.prisma = prisma;
     this.audit = audit;
@@ -501,6 +510,14 @@ export class WalletChargesService {
     this.totp = totp;
     this.cls = cls ?? null;
     this.alerts = alerts ?? null;
+    this.liveCodes = liveCodes ?? null;
+  }
+
+  /** Anula los códigos del móvil del saldo, ya guardado el cambio: si falla, la operación sigue (viven sus 60 s). */
+  private async dropLiveCodes(walletId: string): Promise<void> {
+    await this.liveCodes?.dropWallet(walletId).catch((err: unknown) => {
+      this.logger.warn(`Códigos del móvil del saldo ${walletId} sin anular: ${(err as Error).message}`);
+    });
   }
 
   // ─── Personal del local ────────────────────────────────────────────────
@@ -734,7 +751,14 @@ export class WalletChargesService {
         where: { walletId: wallet.id },
         orderBy: { createdAt: 'desc' },
         take: 10,
-        select: { amountCents: true, tenantId: true, createdAt: true },
+        select: {
+          amountCents: true,
+          tenantId: true,
+          createdAt: true,
+          // Las cargas de los cajeros de otras plataformas (API de socios): su nombre y su texto.
+          partnerConnection: { select: { partner: { select: { name: true } } } },
+          partnerOperation: { select: { description: true } },
+        },
       });
       // Su ficha NFC (dada a este saldo): en «Pagar» se le dice que también paga con ella.
       const issuedCards = await tx.walletCard.findMany({
@@ -791,17 +815,36 @@ export class WalletChargesService {
         color: null,
         detail: { kind: 'PAYMENT' as const, id: t.id },
       })),
-      ...cashTopUps.map((t) => ({
-        kind: 'topup' as const,
-        amountCents: t.amountCents,
-        // Una recarga mal tecleada que el encargado anuló: fila negativa.
-        label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
-        labelKey: t.amountCents < 0 ? ('topUpCashVoid' as const) : ('topUpCash' as const),
-        venueName: venueName(t.tenantId),
-        at: t.createdAt.toISOString(),
-        ref: null,
-        color: null,
-      })),
+      ...cashTopUps.map((t) => {
+        const partner = t.partnerConnection?.partner.name;
+        if (partner) {
+          // «Carga · {socio}: {descripción}» / «Carga anulada · {socio}» (en el idioma de la página: wallet.mv).
+          const description = t.partnerOperation?.description ?? '';
+          return {
+            kind: 'topup' as const,
+            amountCents: t.amountCents,
+            label: t.amountCents < 0 ? `Carga anulada · ${partner}` : `Carga · ${partner}: ${description}`,
+            labelKey: t.amountCents < 0 ? ('partnerLoadVoid' as const) : ('partnerLoad' as const),
+            partnerName: partner,
+            ...(t.amountCents < 0 ? {} : { partnerText: description }),
+            venueName: venueName(t.tenantId),
+            at: t.createdAt.toISOString(),
+            ref: null,
+            color: null,
+          };
+        }
+        return {
+          kind: 'topup' as const,
+          amountCents: t.amountCents,
+          // Una recarga mal tecleada que el encargado anuló: fila negativa.
+          label: t.amountCents < 0 ? 'Recarga en efectivo anulada' : 'Recarga en efectivo',
+          labelKey: t.amountCents < 0 ? ('topUpCashVoid' as const) : ('topUpCash' as const),
+          venueName: venueName(t.tenantId),
+          at: t.createdAt.toISOString(),
+          ref: null,
+          color: null,
+        };
+      }),
       ...payouts.map((p) => ({
         kind: 'payout' as const,
         amountCents: -p.amountCents,
@@ -1409,6 +1452,8 @@ export class WalletChargesService {
       await moveWalletCards(tx, { walletId: sourceWalletId, venueId: source.tenantId }, targetWalletId);
       return { moved: source.balanceCents, tenantId: source.tenantId, balanceCents: target.balanceCents + source.balanceCents };
     });
+    // Guardado: un código de la recarga sumada ya no la identifica.
+    await this.dropLiveCodes(sourceWalletId);
     await this.audit.log({
       action: 'wallet.merged',
       tenantId: result.tenantId,
@@ -2003,6 +2048,7 @@ export class WalletChargesService {
       return { count: cards.length };
     });
     if (res.count === 0) throw new ConflictException('Este saldo no tiene ficha');
+    await this.dropLiveCodes(walletId);
     await this.audit.log({
       action: 'wallet.card_blocked',
       tenantId: actor.tenantId,
@@ -2236,6 +2282,8 @@ export class WalletChargesService {
       });
       return { kind: lock ? ('now-locked' as const) : ('wrong' as const), left: PIN_MAX_FAILS - fails };
     });
+    // Bloqueado ahora (guardado): sus códigos del móvil, anulados.
+    if (outcome.kind === 'now-locked') await this.dropLiveCodes(walletId);
     if (outcome.kind === 'wrong' || outcome.kind === 'now-locked') {
       // Quién tecleó el PIN mal: si alguien bloquea saldos ajenos, se ve.
       await this.audit.log({
@@ -2751,6 +2799,7 @@ export class WalletChargesService {
       const issued = await issueActivationToken(tx, { walletId, venueId: actor.tenantId, issuedById: actor.userId, via: 'relink' });
       return { removedKeys: removed, activation: issued };
     });
+    await this.dropLiveCodes(walletId);
     await this.audit.log({
       action: 'wallet.relinked',
       tenantId: actor.tenantId,

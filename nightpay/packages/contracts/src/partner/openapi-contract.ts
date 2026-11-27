@@ -111,3 +111,184 @@ export const PARTNER_CONNECTION_EXAMPLE = {
     }
   }
 } as const;
+
+/** Los ejemplos de `POST /wallet/balance` (components.examples del contrato). */
+export const PARTNER_WALLET_EXAMPLES = {
+  BalanceRequestFicha: {
+    summary: 'Ficha read by NFC (fixture ficha_uid)',
+    value: { qr: 'https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001', nfc_uid: '04A1B2C3D4E5F6' },
+  },
+  BalanceRequestLiveCode: {
+    summary: 'Live code scanned from the customer\'s phone',
+    value: { qr: 'OXC1:K3J7Q2M9X4T8R6V1N5B0C2D7F9' },
+  },
+  Balance5000: {
+    summary: '50.00 € available',
+    value: { object: 'wallet_balance', available: 5000, currency: 'EUR', livemode: false },
+  },
+} as const;
+
+/** Los ejemplos de las cargas, del resumen y de la lista (components.examples del contrato). */
+export const PARTNER_LOAD_EXAMPLES = {
+  "LoadRequestCash": {
+    "summary": "20.00 € in cash on the fixture ficha_uid (Idempotency-Key ATM0042-20261205-000731-K7QM)",
+    "value": {
+      "qr": "https://demo-operator.oxiopay.example/?ficha=demo-ficha-uid-0000001",
+      "nfc_uid": "04A1B2C3D4E5F6",
+      "amount": 2000,
+      "description": "Recarga en cajero 0042",
+      "reference": "ATM0042-20261205-000731-K7QM",
+      "funding": "cash",
+      "device": "ATM0042"
+    }
+  },
+  "LoadCreated": {
+    "summary": "Load created",
+    "value": {
+      "object": "wallet_load",
+      "id": "wl_8b2e6f1a9c3d4e5f8a7b6c5d4e3f2a1b",
+      "status": "succeeded",
+      "amount": 2000,
+      "currency": "EUR",
+      "description": "Recarga en cajero 0042",
+      "reference": "ATM0042-20261205-000731-K7QM",
+      "funding": "cash",
+      "device": "ATM0042",
+      "created_at": "2026-12-05T22:41:07Z",
+      "void_until": "2026-12-05T22:51:07Z",
+      "balance_after": 7000,
+      "terms": {
+        "url": "https://demo-api.oxiopay.example/legal/condiciones#saldo",
+        "version": "2026-11-17",
+        "summary_es": "El saldo se gasta en este local y en los de su grupo que lo aceptan. No se devuelve en dinero, ni en efectivo ni a la tarjeta.",
+        "summary_en": "The balance is spent at this venue and at the venues of its group that accept it. It is not refunded in money, neither in cash nor to a card."
+      },
+      "livemode": false
+    }
+  },
+  "LoadRead": {
+    "summary": "The same load read later",
+    "value": {
+      "object": "wallet_load",
+      "id": "wl_8b2e6f1a9c3d4e5f8a7b6c5d4e3f2a1b",
+      "status": "succeeded",
+      "amount": 2000,
+      "currency": "EUR",
+      "description": "Recarga en cajero 0042",
+      "reference": "ATM0042-20261205-000731-K7QM",
+      "funding": "cash",
+      "device": "ATM0042",
+      "created_at": "2026-12-05T22:41:07Z",
+      "void_until": "2026-12-05T22:51:07Z",
+      "balance_after": 7000,
+      "terms": {
+        "url": "https://demo-api.oxiopay.example/legal/condiciones#saldo",
+        "version": "2026-11-17",
+        "summary_es": "El saldo se gasta en este local y en los de su grupo que lo aceptan. No se devuelve en dinero, ni en efectivo ni a la tarjeta.",
+        "summary_en": "The balance is spent at this venue and at the venues of its group that accept it. It is not refunded in money, neither in cash nor to a card."
+      },
+      "voided_at": null,
+      "livemode": false
+    }
+  },
+  "VoidRequest": {
+    "summary": "The notes went back to the customer",
+    "value": {
+      "reason": "Billetes devueltos al cliente"
+    }
+  },
+  "LoadVoided": {
+    "summary": "A voided load (fixture active)",
+    "value": {
+      "object": "wallet_load",
+      "id": "wl_2a4c6e8f0b1d3f5a7c9e1b3d5f7a9c0e",
+      "status": "voided",
+      "amount": 5000,
+      "currency": "EUR",
+      "description": "Recarga en cajero 0042",
+      "reference": "ATM0042-20261205-000733-P2XD",
+      "funding": "cash",
+      "device": "ATM0042",
+      "created_at": "2026-12-05T23:02:15Z",
+      "void_until": "2026-12-05T23:12:15Z",
+      "balance_after": 10000,
+      "terms": {
+        "url": "https://demo-api.oxiopay.example/legal/condiciones#saldo",
+        "version": "2026-11-17",
+        "summary_es": "El saldo se gasta en este local y en los de su grupo que lo aceptan. No se devuelve en dinero, ni en efectivo ni a la tarjeta.",
+        "summary_en": "The balance is spent at this venue and at the venues of its group that accept it. It is not refunded in money, neither in cash nor to a card."
+      },
+      "voided_at": "2026-12-05T23:04:50Z",
+      "livemode": false
+    }
+  },
+  "LoadListByReference": {
+    "summary": "GET /wallet/operations?business_date=2026-12-05&reference=ATM0042-20261205-000731-K7QM",
+    "value": {
+      "object": "list",
+      "data": [
+        {
+          "object": "wallet_load",
+          "id": "wl_8b2e6f1a9c3d4e5f8a7b6c5d4e3f2a1b",
+          "status": "succeeded",
+          "amount": 2000,
+          "currency": "EUR",
+          "description": "Recarga en cajero 0042",
+          "reference": "ATM0042-20261205-000731-K7QM",
+          "funding": "cash",
+          "device": "ATM0042",
+          "created_at": "2026-12-05T22:41:07Z",
+          "void_until": "2026-12-05T22:51:07Z",
+          "balance_after": 7000,
+          "terms": {
+            "url": "https://demo-api.oxiopay.example/legal/condiciones#saldo",
+            "version": "2026-11-17",
+            "summary_es": "El saldo se gasta en este local y en los de su grupo que lo aceptan. No se devuelve en dinero, ni en efectivo ni a la tarjeta.",
+            "summary_en": "The balance is spent at this venue and at the venues of its group that accept it. It is not refunded in money, neither in cash nor to a card."
+          },
+          "voided_at": null,
+          "livemode": false
+        }
+      ],
+      "has_more": false,
+      "next_cursor": null
+    }
+  },
+  "StatementNight": {
+    "summary": "The night of 2026-12-05 (08:00 to 08:00 Madrid, winter time)",
+    "value": {
+      "object": "statement",
+      "from": "2026-12-05T07:00:00Z",
+      "to": "2026-12-06T07:00:00Z",
+      "currency": "EUR",
+      "livemode": false,
+      "loads": {
+        "count": 3,
+        "amount": 9000,
+        "by_funding": {
+          "cash": {
+            "count": 3,
+            "amount": 9000
+          },
+          "card": {
+            "count": 0,
+            "amount": 0
+          },
+          "transfer": {
+            "count": 0,
+            "amount": 0
+          },
+          "bank_app": {
+            "count": 0,
+            "amount": 0
+          }
+        }
+      },
+      "load_voids": {
+        "count": 1,
+        "amount": 5000
+      },
+      "net_loads": 4000
+    }
+  }
+} as const;

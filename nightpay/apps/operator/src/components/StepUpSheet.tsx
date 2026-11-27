@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useId, useState, type FormEvent } from 'react';
 import { passkeysSupported, type RequestOptionsJSON } from '@nightpay/api-client';
 import { unlockName, type StepUpStatus } from '@nightpay/contracts';
-import { Button, Input, Modal } from '@nightpay/ui';
+import { Button, FormError, Input, Sheet } from '@nightpay/ui';
 import { fetchStepUp, passkeyChallenge, passkeyConfirm, stepUpErrorText, verifyStepUpWithCode } from '@/lib/api-step-up';
 
 /**
@@ -19,6 +19,7 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const formId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -76,11 +77,26 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
 
   const method = status?.method ?? null;
   return (
-    <Modal open={open} onClose={onClose} title="Verificarte">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Verificarte"
+      footer={
+        method === 'totp' ? (
+          <Button type="submit" form={formId} loading={busy} disabled={code.length !== 6}>
+            Verificar
+          </Button>
+        ) : method === 'passkey' ? (
+          <Button onClick={() => void withPasskey()} loading={busy} disabled={!challenge}>
+            Confirmar con {unlock}
+          </Button>
+        ) : undefined
+      }
+    >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
         <p style={{ margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-text-mute)' }}>Para ver más de este cobro. Vale 5 minutos.</p>
         {method === 'totp' ? (
-          <form onSubmit={(e) => void withCode(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+          <form id={formId} onSubmit={(e) => void withCode(e)} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             <Input
               label="Código de tu app de verificación"
               inputMode="numeric"
@@ -90,25 +106,13 @@ export function StepUpSheet({ open, onClose, onVerified }: { open: boolean; onCl
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
               autoFocus
             />
-            <Button type="submit" loading={busy} disabled={code.length !== 6}>
-              Verificar
-            </Button>
           </form>
-        ) : null}
-        {method === 'passkey' ? (
-          <Button onClick={() => void withPasskey()} loading={busy} disabled={!challenge}>
-            Confirmar con {unlock}
-          </Button>
         ) : null}
         {status !== null && method === null ? (
           <p style={{ margin: 0 }}>Para ver más, da de alta tu llave de acceso: en el menú, «Llave de acceso».</p>
         ) : null}
-        {error ? (
-          <p role="alert" style={{ margin: 0, color: 'var(--np-danger)', fontSize: 'var(--np-fs-14)' }}>
-            {error}
-          </p>
-        ) : null}
+        {error ? <FormError>{error}</FormError> : null}
       </div>
-    </Modal>
+    </Sheet>
   );
 }

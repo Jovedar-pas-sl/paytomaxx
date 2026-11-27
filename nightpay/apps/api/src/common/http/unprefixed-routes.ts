@@ -79,6 +79,8 @@ export const UNPREFIXED_ROUTES: readonly UnprefixedRoute[] = Object.freeze([
   // «He perdido mi NFC»: el cliente lo bloquea con su Face ID.
   { path: 'w/:token/lost-nfc/challenge', method: RequestMethod.POST },
   { path: 'w/:token/lost-nfc', method: RequestMethod.POST },
+  // «Pagar o recargar en otro sistema»: el código del móvil para la API de socios (60 s, solo identifica).
+  { path: 'w/:token/live-code', method: RequestMethod.POST },
   // «Aviso en cada cobro»: el service worker, el manifiesto (pantalla de inicio),
   // apuntar o quitar este navegador y «No he sido yo» (el enlace firmado del aviso).
   { path: 'w/aviso-sw.js', method: RequestMethod.GET },

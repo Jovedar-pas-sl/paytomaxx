@@ -156,3 +156,23 @@ describe('describeSaFailure', () => {
     expect(isTotpFailure(new Error('x'))).toBe(false);
   });
 });
+
+describe('Socios (API de socios), como A7', () => {
+  it('alta y reanudar, con 2FA; reanudar, motivo opcional', () => {
+    expect(SA_ACTION_RULES['partner.create']).toEqual({ totp: true, reason: 'none' });
+    expect(SA_ACTION_RULES['partner.resume']).toEqual({ totp: true, reason: 'optional' });
+    expect(SA_ACTION_RULES['partner.connectionResume']).toEqual({ totp: true, reason: 'optional' });
+  });
+
+  it('suspender, congelar y anular una conexión: 2FA y motivo', () => {
+    expect(SA_ACTION_RULES['partner.suspend']).toEqual({ totp: true, reason: 'required' });
+    expect(SA_ACTION_RULES['partner.freeze']).toEqual({ totp: true, reason: 'required' });
+    expect(SA_ACTION_RULES['partner.connectionRevoke']).toEqual({ totp: true, reason: 'required' });
+  });
+
+  it('editar: 2FA solo si cambian permisos, IP, KYB o contrato de datos; pausar una conexión: el motivo', () => {
+    expect(SA_ACTION_RULES['partner.update']).toEqual({ totp: false, reason: 'none' });
+    expect(SA_ACTION_RULES['partner.updateSensitive']).toEqual({ totp: true, reason: 'none' });
+    expect(SA_ACTION_RULES['partner.connectionPause']).toEqual({ totp: false, reason: 'required' });
+  });
+});

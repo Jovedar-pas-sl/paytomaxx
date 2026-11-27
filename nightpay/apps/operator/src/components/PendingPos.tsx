@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Card, EmptyState, formatRelative, haptic, Icon, Input } from '@nightpay/ui';
+import { Button, Card, EmptyState, formatRelative, FormError, haptic, Icon, Input } from '@nightpay/ui';
 import {
   confirmPosPayment,
   fetchPendingPos,
@@ -193,11 +193,7 @@ export function PendingPos({ onConfirmed, focusPaymentId, onFocusConsumed }: Pro
         </div>
       ) : null}
 
-      {error ? (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
 
       {loading && pending.length === 0 ? (
         <SkelRows />
@@ -409,11 +405,7 @@ function ConfirmForm({
         ) : null}
       </div>
 
-      {error ? (
-        <p role="alert" style={errorStyle}>
-          {error}
-        </p>
-      ) : null}
+      {error ? <FormError>{error}</FormError> : null}
 
       <Button onClick={handleConfirm} loading={submitting} size="lg">
         <Icon name="check" size={20} className="np-icon-lead" />
@@ -534,12 +526,6 @@ const hintStyle: CSSProperties = {
   margin: '0.25rem 0 0',
   fontSize: 'var(--np-t-label)',
   color: 'var(--np-text-mute)',
-};
-
-const errorStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--np-fs-14)',
-  color: 'var(--np-danger)',
 };
 
 const emptyStateStyle: CSSProperties = {

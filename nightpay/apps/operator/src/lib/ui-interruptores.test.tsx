@@ -277,13 +277,16 @@ describe('en el panel', () => {
     'PayoutConfirmModal.tsx': 1,
     // Entrega 9 (Cobros): los estados del filtro «Estado» y las columnas de más de «Columnas» (2).
     'CobrosToolbar.tsx': 2,
+    // API de socios (PR 1 B): al conectar una plataforma, sus permisos y sus IP (2), y «Sin caducidad» (1).
+    'settings/partners/ConnectSheet.tsx': 2,
+    'settings/partners/ExpiryField.tsx': 1,
   };
 
-  it('27 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas, las 4 de pagar a todas y las 2 de los menús de Cobros', () => {
+  it('30 <Checkbox: los 12 que esperaban a «Guardar», las 9 casillas nativas, las 4 de pagar a todas, las 2 de los menús de Cobros y las 3 de conectar otra plataforma', () => {
     const found = countIn([[...ADMIN]], /<Checkbox\b/g);
     const expected = Object.fromEntries(Object.entries(CHECKBOXES).map(([file, n]) => [`apps/admin/src/components/${file}`, n]));
     expect(found).toEqual(expected);
-    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(27);
+    expect(Object.values(found).reduce((a, b) => a + b, 0)).toBe(30);
   });
 
   it('casillas nativas, solo las que tocan a otras entregas (y la pieza)', () => {
