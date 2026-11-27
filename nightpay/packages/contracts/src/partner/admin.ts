@@ -12,6 +12,7 @@ import {
   type PartnerPauseReason,
   type PartnerScope,
 } from './common';
+import type { StatementBody } from './wallet';
 
 // Gestión de las conexiones con otras plataformas: el dueño
 // (/v1/admin/partner-connections) y la consola del super-admin
@@ -159,6 +160,23 @@ export interface PartnerLoadAdminView {
   /** «K7Q-•••»: el código del saldo, tapado. */
   codeHint: string;
 }
+
+/** «Movimientos» por cajero (`device`): cada carga a su hora y cada anulación a la suya, con el cajero de su carga. */
+export interface PartnerDeviceTotals {
+  /** null = las cargas sin cajero («Sin cajero»). */
+  device: string | null;
+  loadsCount: number;
+  voidsCount: number;
+  /** Cargas − anulaciones (puede ser negativo). */
+  netCents: number;
+}
+
+/**
+ * El resumen de una noche como lo ve el dueño: el `/statement` del socio
+ * (sin cambiar) más `byDevice`, que solo sale aquí. La suma de `netCents` de
+ * `byDevice` es `net_loads`.
+ */
+export type PartnerOwnerStatement = StatementBody & { byDevice: PartnerDeviceTotals[] };
 
 export interface PartnerLoadsPage {
   loads: PartnerLoadAdminView[];

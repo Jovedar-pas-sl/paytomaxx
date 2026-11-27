@@ -121,6 +121,13 @@ export interface MoneyMapWhere {
   /** Lo que debería haber en la caja (como el arqueo del cierre: fondo + entradas − salidas en efectivo). */
   cashBoxCents: number;
   cashBox: { openingFloatCents: number | null; inCents: number; outCents: number };
+  /**
+   * «En cajeros de otras plataformas»: el efectivo que cobraron los cajeros de
+   * la API de socios (no está en la caja de recepción). Suma una sola vez al
+   * total. Solo sale si no es 0 (puede ser negativo: una noche con solo una
+   * anulación del panel); los mapas de antes no lo traen.
+   */
+  partnerCashCents?: number;
   totalCents: number;
   /**
    * De quién es ese total (suman lo mismo): lo del personal de este periodo

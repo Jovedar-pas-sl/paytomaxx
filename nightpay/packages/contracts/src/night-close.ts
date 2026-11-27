@@ -99,6 +99,23 @@ export interface NightCash {
   cashOutCents: number;
   /** Fondo + entradas − salidas (con el fondo guardado; sin él, como si fuera 0). */
   expectedCents: number;
+  /**
+   * El efectivo que cobraron los cajeros de otras plataformas (API de socios):
+   * es del local, pero NO está en este cajón (no entra en cashInCents ni en
+   * expectedCents). Una línea por conexión con efectivo en la ventana: cargas
+   * menos anulaciones (también las del panel), por nombre. Sin ninguna (o API
+   * anterior), el campo no sale. Se cuenta aparte, contra «Movimientos».
+   */
+  partnerCash?: NightPartnerCash[];
+}
+
+/** «Caja · {socio}»: el efectivo de los cajeros de una conexión en la ventana del Z. */
+export interface NightPartnerCash {
+  name: string;
+  /** Cargas − anulaciones (como walletCashTopUpsCount). */
+  count: number;
+  /** Cargas − anulaciones; negativo si en la ventana solo hubo anulaciones. */
+  cents: number;
 }
 
 /** Lo que hay que pagar a una chica al cerrar. */
