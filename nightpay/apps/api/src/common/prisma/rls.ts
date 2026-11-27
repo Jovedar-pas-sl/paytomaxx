@@ -66,6 +66,8 @@ export const FORCED_RLS_TABLES = [
   'staff_cards',
   // API de socios (20261126100000): socio × local, con el hash de la clave y su enlace de un uso.
   'partner_connections',
+  // API de socios (20261127100000): el libro de las cargas de los socios (solo de añadir).
+  'partner_wallet_operations',
 ] as const;
 
 export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
@@ -100,6 +102,7 @@ export const FORCED_RLS_MODELS: ReadonlySet<string> = new Set([
   'StaffPushSubscription',
   'StaffCard',
   'PartnerConnection',
+  'PartnerWalletOperation',
 ]);
 
 const FORCED_TABLE_RE = new RegExp(`\\b(${FORCED_RLS_TABLES.join('|')})\\b`);

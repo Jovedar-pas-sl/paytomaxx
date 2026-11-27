@@ -34,7 +34,9 @@ locales. Apagada de serie (`PARTNER_API_ENABLED=false`) hasta el PR 8.
 | Nº | Español | English |
 |---|---|---|
 | 2 | [Claves y seguridad](guides/es/02-claves-y-seguridad.md) | [Keys and security](guides/en/02-keys-and-security.md) |
+| 3 | [Identificar al cliente](guides/es/03-identificar-al-cliente.md) | [Identifying the customer](guides/en/03-identifying-the-customer.md) |
+| 4 | [Cargar saldo en un cajero](guides/es/04-cargar-saldo.md) | [Loading balance at an ATM](guides/en/04-loading-balance.md) |
+| 6 | [Cuadre](guides/es/06-cuadre.md) | [Reconciliation](guides/en/06-reconciliation.md) |
 
-Los demás capítulos (empezar, identificar al cliente, cargar, errores, cuadre,
-demo, salida) llegan con su entrega; hasta entonces, las guías completas del
-piloto están en `pilot/`.
+Los demás capítulos (empezar, errores, demo, salida) llegan con su entrega;
+hasta entonces, las guías completas del piloto están en `pilot/`.

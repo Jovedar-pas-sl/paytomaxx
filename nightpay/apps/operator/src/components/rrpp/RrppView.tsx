@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, EmptyState } from '@nightpay/ui';
+import { Button, EmptyState, Importe } from '@nightpay/ui';
 import type { MyPromoterReservation, MyPromoterView } from '@nightpay/contracts';
-import { formatBps, formatEur } from '@/lib/money';
+import { formatBps } from '@/lib/money';
 import { commissionText, nightLabel, RRPP_PATH, statusTone, upcomingText } from '@/lib/rrpp';
 import { CobroQr } from '../cobrar/CobroQr';
 import { Chevron } from '../TonightCard';
@@ -93,7 +93,9 @@ function MoneyRow({ label, cents }: { label: string; cents: number }) {
   return (
     <div className={styles.moneyRow}>
       <dt>{label}</dt>
-      <dd className="np-num">{formatEur(cents)}</dd>
+      <dd className="np-num">
+        <Importe cents={cents} decimals="always" />
+      </dd>
     </div>
   );
 }
@@ -131,14 +133,20 @@ function ReservationItem({ r }: { r: MyPromoterReservation }) {
       </p>
       <p className={styles.amounts}>
         <span>
-          Precio <b className="np-num">{formatEur(r.priceCents)}</b>
+          Precio <b className="np-num">
+            <Importe cents={r.priceCents} decimals="always" />
+          </b>
         </span>
         <span>
-          Pagado <b className="np-num">{formatEur(r.paidCents)}</b>
+          Pagado <b className="np-num">
+            <Importe cents={r.paidCents} decimals="always" />
+          </b>
         </span>
         {r.pendingCents > 0 ? (
           <span>
-            Falta <b className="np-num">{formatEur(r.pendingCents)}</b>
+            Falta <b className="np-num">
+            <Importe cents={r.pendingCents} decimals="always" />
+          </b>
           </span>
         ) : null}
       </p>

@@ -64,6 +64,8 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'StaffCard',
   // API de socios (20261126100000): la conexión de un socio con el local.
   'PartnerConnection',
+  // API de socios (20261127100000): las cargas y anulaciones de una conexión del local.
+  'PartnerWalletOperation',
 ]);
 
 // Operaciones de lectura a filtrar y de escritura a inyectar tenantId

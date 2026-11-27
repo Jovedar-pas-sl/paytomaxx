@@ -161,10 +161,23 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           keyHint: 'oxp_test_…0000', keyCreatedAt: new Date(), keyExpiresAt: new Date(Date.now() + 30 * 86_400_000), createdById: owner,
         },
       });
+      // API de socios: una carga en efectivo de esa conexión (su fila de caja y la del libro).
+      const partnerCash = await tx.walletCashTopUp.create({
+        data: { tenantId, walletId: wallet.id, amountCents: 700, partnerConnectionId: partnerConnection.id, idempotencyKey: `partner:rls-${tag}-${r}` },
+      });
+      const partnerLoad = await tx.partnerWalletOperation.create({
+        data: {
+          tenantId, connectionId: partnerConnection.id, kind: 'LOAD', walletId: wallet.id, amountCents: 700,
+          balanceBeforeCents: 0, balanceAfterCents: 700, description: 'Recarga en cajero 0042', funding: 'cash',
+          cashTopupId: partnerCash.id, refKind: 'ficha', idempotencyKey: `rls-${tag}-${r}-load`, requestHash: 'a'.repeat(64),
+          response: { object: 'wallet_load' }, createdAt: new Date(),
+        },
+      });
       return {
         tenantId,
         rows: {
           partner_connections: partnerConnection.id,
+          partner_wallet_operations: partnerLoad.id,
           reservation_packages: pkg.id,
           promoters: promoter.id,
           reservations: reservation.id,

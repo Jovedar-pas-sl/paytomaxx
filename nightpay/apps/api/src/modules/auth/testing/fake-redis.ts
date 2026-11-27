@@ -41,6 +41,8 @@ function globToRegExp(pattern: string): RegExp {
 
 export class FakeRedis {
   private readonly store = new Map<string, Entry>();
+  /** Conjuntos ordenados (ZADD…): miembro → puntuación, con su caducidad. */
+  private readonly zsets = new Map<string, { members: Map<string, number>; expiresAt: number | null }>();
   private readonly scripts = new Map<string, ScriptHandler>();
   /** Como Redis: un script detrás de otro (sin esto, dos a la vez se intercalarían en los await). */
   private scriptQueue: Promise<unknown> = Promise.resolve();
@@ -86,7 +88,39 @@ export class FakeRedis {
     return next;
   }
 
+  async zadd(key: string, score: number | string, member: string): Promise<number> {
+    const z = this.zalive(key) ?? { members: new Map<string, number>(), expiresAt: null };
+    const added = z.members.has(member) ? 0 : 1;
+    z.members.set(member, Number(score));
+    this.zsets.set(key, z);
+    return added;
+  }
+
+  async zremrangebyscore(key: string, min: number | string, max: number | string): Promise<number> {
+    const z = this.zalive(key);
+    if (!z) return 0;
+    const lo = min === '-inf' ? -Infinity : Number(min);
+    const hi = max === '+inf' ? Infinity : Number(max);
+    let removed = 0;
+    for (const [m, score] of z.members) {
+      if (score >= lo && score <= hi) {
+        z.members.delete(m);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  async zcard(key: string): Promise<number> {
+    return this.zalive(key)?.members.size ?? 0;
+  }
+
   async expire(key: string, seconds: number): Promise<number> {
+    const z = this.zalive(key);
+    if (z) {
+      z.expiresAt = Date.now() + seconds * 1000;
+      return 1;
+    }
     const current = this.alive(key);
     if (!current) return 0;
     this.store.set(key, { ...current, expiresAt: Date.now() + seconds * 1000 });
@@ -122,6 +156,16 @@ export class FakeRedis {
 
   multi(): FakeMulti {
     return new FakeMulti(this);
+  }
+
+  private zalive(key: string): { members: Map<string, number>; expiresAt: number | null } | null {
+    const z = this.zsets.get(key);
+    if (!z) return null;
+    if (z.expiresAt !== null && z.expiresAt <= Date.now()) {
+      this.zsets.delete(key);
+      return null;
+    }
+    return z;
   }
 
   private alive(key: string): Entry | null {

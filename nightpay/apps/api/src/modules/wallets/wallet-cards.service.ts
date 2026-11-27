@@ -33,6 +33,7 @@ import {
   type CardBy,
 } from './wallet-card-ops';
 import { formatWalletCode, normalizeWalletCode, sameWalletGroup } from './wallet-rules';
+import { WalletLiveCodeService } from './wallet-live-code.service';
 
 type Actor = { userId: string; role: Role; tenantId: string };
 
@@ -51,10 +52,18 @@ const SUMMARY_NIGHTS = 14;
 export class WalletCardsService {
   private readonly prisma: PrismaService;
   private readonly audit: AuditService;
+  /** Los códigos del móvil (OXC1:): se anulan al bloquear o perder la ficha de un saldo. */
+  private readonly liveCodes: WalletLiveCodeService | null;
 
-  constructor(@Inject(PrismaService) prisma: PrismaService, @Inject(AuditService) audit: AuditService) {
+  constructor(
+    @Inject(PrismaService) prisma: PrismaService,
+    @Inject(AuditService) audit: AuditService,
+    // Sin @Optional(): sin él la API no arranca. Opcional solo para los `new` de las pruebas.
+    @Inject(WalletLiveCodeService) liveCodes?: WalletLiveCodeService,
+  ) {
     this.prisma = prisma;
     this.audit = audit;
+    this.liveCodes = liveCodes ?? null;
   }
 
   // ─── «Preparar fichas» (personal o datáfono) ───────────────────────────
@@ -305,6 +314,8 @@ export class WalletCardsService {
       return changed;
     });
     if (res.count === 0) throw new ConflictException('La ficha acaba de cambiar: vuelve a cargar la lista');
+    // Guardado: los códigos del móvil de su saldo, anulados (si falla, viven sus 60 s).
+    if (card.walletId) await this.liveCodes?.dropWallet(card.walletId).catch(() => undefined);
     await this.audit.log({
       action: action === 'lost' ? 'wallet.card_lost' : 'wallet.card_blocked',
       tenantId: actor.tenantId,

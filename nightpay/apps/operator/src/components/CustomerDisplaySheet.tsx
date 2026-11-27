@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { CUSTOMER_DISPLAY_CODE_LENGTH, type CustomerDisplayCode, type CustomerDisplayStatus } from '@nightpay/contracts';
-import { Button, Modal, formatClock, useNow } from '@nightpay/ui';
+import { Button, FormError, Sheet, formatClock, useNow } from '@nightpay/ui';
 import { createDisplayCode, fetchDisplayStatus, unpairDisplayFromStaff } from '@/lib/customer-display-api';
 
 /** Mientras se enseña el código: ¿ya lo metió la tablet? Sin agobiar al API. */
@@ -99,7 +99,27 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
   const pantallaUrl = typeof window === 'undefined' ? '/pantalla' : `${window.location.host}/pantalla`;
 
   return (
-    <Modal open={open} onClose={onClose} title="Pantalla del cliente">
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Pantalla del cliente"
+      footer={
+        !codeLive || status?.paired ? (
+          <div className="np-pregunta-pie">
+            {status?.paired ? (
+              <Button variant="ghost" onClick={() => void unpair()} disabled={busy}>
+                Desemparejar
+              </Button>
+            ) : null}
+            {!codeLive ? (
+              <Button onClick={() => void pair()} loading={busy}>
+                {pairLabel(status?.paired === true)}
+              </Button>
+            ) : null}
+          </div>
+        ) : undefined
+      }
+    >
       <div style={col}>
         <p style={text}>
           Una tablet en la barra, mirando al cliente (vale un móvil viejo). Cuando cobras, enseña el importe y el QR; ahí el
@@ -128,23 +148,9 @@ export function CustomerDisplaySheet({ open, onClose }: { open: boolean; onClose
         ) : status ? (
           <p style={dim}>{code ? 'El código ha caducado. Pide otro.' : 'Sin pantalla emparejada.'}</p>
         ) : null}
-        {error ? (
-          <p style={err} role="alert">
-            {error}
-          </p>
-        ) : null}
-        {!codeLive ? (
-          <Button onClick={() => void pair()} loading={busy}>
-            {pairLabel(status?.paired === true)}
-          </Button>
-        ) : null}
-        {status?.paired ? (
-          <Button variant="ghost" onClick={() => void unpair()} disabled={busy}>
-            Desemparejar
-          </Button>
-        ) : null}
+        {error ? <FormError>{error}</FormError> : null}
       </div>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -161,7 +167,6 @@ const steps: CSSProperties = {
   lineHeight: 1.4,
 };
 const ok: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-16)', fontWeight: 600 };
-const err: CSSProperties = { margin: 0, fontSize: 'var(--np-fs-14)', color: 'var(--np-danger-text)' };
 const codeStyle: CSSProperties = {
   margin: '0.25rem 0',
   textAlign: 'center',

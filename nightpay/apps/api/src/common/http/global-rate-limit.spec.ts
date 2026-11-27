@@ -86,6 +86,11 @@ describe('límite global: API de socios', () => {
     on();
     expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', { authorization: `Bearer ${KEY}` }))).toBe(true);
     expect(isGlobalRateLimitExempt(req('/v1/partner/me?x=1', '203.0.113.5', { authorization: `Bearer ${KEY}` }))).toBe(true);
+    // Las cargas (PR 3), también con `{id}`.
+    const auth = { authorization: `Bearer ${KEY}` };
+    expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/loads', '203.0.113.5', auth, 'POST'))).toBe(true);
+    expect(isGlobalRateLimitExempt(req(`/v1/partner/wallet/loads/wl_${'a'.repeat(32)}/void`, '203.0.113.5', auth, 'POST'))).toBe(true);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/operations?business_date=2026-12-05', '203.0.113.5', auth))).toBe(true);
   });
 
   it('un Bearer inventado no quita el límite en /openapi.json, en rutas que no existen ni con la API apagada', () => {
@@ -93,7 +98,9 @@ describe('límite global: API de socios', () => {
     const auth = { authorization: `Bearer ${KEY}` };
     expect(isGlobalRateLimitExempt(req('/v1/partner/openapi.json', '203.0.113.5', auth))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner/no-existe', '203.0.113.5', auth))).toBe(false);
-    expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/loads', '203.0.113.5', auth, 'POST'))).toBe(false);
+    // Una del contrato aún sin hacer (la demo, PR 8): sin ruta, el límite de siempre.
+    expect(isGlobalRateLimitExempt(req('/v1/partner/test/live-codes', '203.0.113.5', auth, 'POST'))).toBe(false);
+    expect(isGlobalRateLimitExempt(req('/v1/partner/wallet/loads', '203.0.113.5', auth, 'GET'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner/me', '203.0.113.5', auth, 'POST'))).toBe(false);
     expect(isGlobalRateLimitExempt(req('/v1/partner', '203.0.113.5', auth))).toBe(false);
     vi.stubEnv('PARTNER_API_ENABLED', 'false');
