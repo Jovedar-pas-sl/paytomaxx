@@ -28,6 +28,7 @@ import { NightsService } from '../../src/modules/nights/nights.service';
 import { signStaffToken } from '../../src/modules/operators/staff-qr';
 import { CobrosService } from '../../src/modules/money-map/cobros.service';
 import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
+import { YavinCancelHook } from '../../src/modules/payments/yavin-cancel.hook';
 
 process.env.JWT_SECRET ??= 'clave-de-las-pruebas-de-integracion-0123456789';
 
@@ -258,6 +259,38 @@ describe('un cobro, dos formas de pagar', () => {
 });
 
 describe('gana el saldo: el cobro con tarjeta se cancela', () => {
+  // Yavin de mentira (cancel_link) y el gancho de verdad, como en la API (ModuleRef).
+  const cancelLink = vi.fn(async (_tenantId: string, _cartId: string) => undefined);
+  const yavinHook = new YavinCancelHook(prisma, payments, { cancelLink } as never);
+  const withYavin = new WalletChargesService(prisma as never, audit as never, { get: () => yavinHook } as never, {} as never);
+  const payNfcWithYavin = (chargeId: string, w: { card: string; uid: string }) =>
+    inVenue(V, () => withYavin.payQrChargeWithCard(carlosActor(), chargeId, { card: w.card, uid: w.uid }));
+
+  it('el cliente abrió el enlace de Yavin y paga con el saldo: el enlace se anula en Yavin (no paga dos veces)', async () => {
+    cancelLink.mockClear();
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    const cart = `cart-${r}-a`;
+    await sys((tx) => tx.paymentAttempt.create({ data: { paymentId: c.id, tenantId: V, provider: 'YAVIN', providerTxId: cart, amountCents: 1000, tipCents: 0 } }));
+    await expect(payNfcWithYavin(c.saldo!.chargeId, w)).resolves.toMatchObject({ status: 'ACCEPTED' });
+    expect((await state(c.id, c.saldo!.chargeId)).payment.status).toBe('CANCELED');
+    expect(cancelLink).toHaveBeenCalledWith(V, cart);
+  });
+
+  it('si Yavin falla al anular el enlace, el pago con el saldo sigue hecho', async () => {
+    cancelLink.mockClear();
+    cancelLink.mockRejectedValueOnce(new Error('Yavin caído'));
+    const w = await wallet(5000);
+    const c = await cobro([{ serviceItemId: copa }]);
+    const cart = `cart-${r}-b`;
+    await sys((tx) => tx.paymentAttempt.create({ data: { paymentId: c.id, tenantId: V, provider: 'YAVIN', providerTxId: cart, amountCents: 1000, tipCents: 0 } }));
+    await expect(payNfcWithYavin(c.saldo!.chargeId, w)).resolves.toMatchObject({ status: 'ACCEPTED', newBalanceCents: 4000 });
+    const s = await state(c.id, c.saldo!.chargeId, w.id);
+    expect(s.charge.status).toBe('ACCEPTED');
+    expect(s.balance).toBe(4000);
+    expect(cancelLink).toHaveBeenCalledWith(V, cart);
+  });
+
   it('NFC sin PIN: PAGADO del saldo, líneas al saldo, la tarjeta ya no se autoriza', async () => {
     const w = await wallet(5000);
     const c = await cobro([{ serviceItemId: copa }]);
