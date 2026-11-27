@@ -23,7 +23,7 @@ import type { Queue } from 'bullmq';
 import type { FastifyRequest } from 'fastify';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Provider } from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { Public } from '../../common/decorators/public.decorator';
@@ -35,7 +35,14 @@ import { PeanpeAdapter } from '../gateways/peanpe.adapter';
 import { WipayAdapter } from '../gateways/wipay.adapter';
 import { sealTokenizationData } from '../payments/tokenization-seal';
 import { RedsysAdapter } from '../gateways/redsys.adapter';
-import { YavinAdapter, cartIsPaid, noticeTokenHash } from '../gateways/yavin.adapter';
+import {
+  YAVIN_UNKNOWN_STATUS_EVENT,
+  YAVIN_UNKNOWN_STATUS_REASON,
+  YavinAdapter,
+  cartIsPaid,
+  cartStatusKnown,
+  noticeTokenHash,
+} from '../gateways/yavin.adapter';
 import { boundedInput } from '../../common/pipes/input-limits';
 import { parseWebhookBody } from '../gateways/header-utils';
 import { WEBHOOKS_INGEST_QUEUE } from '../queues/queue-tokens';
@@ -370,7 +377,7 @@ export class WebhooksController {
     const attempt = await this.prisma.asSystem((tx) =>
       tx.paymentAttempt.findUnique({
         where: { noticeTokenHash: hash },
-        select: { id: true, tenantId: true, provider: true, providerTxId: true, noticeTokenHash: true },
+        select: { id: true, paymentId: true, tenantId: true, provider: true, providerTxId: true, noticeTokenHash: true },
       }),
     );
     // La búsqueda es por la huella; además, comparación en tiempo constante.
@@ -396,6 +403,8 @@ export class WebhooksController {
         throw new HttpException('Yavin no responde ahora', HttpStatus.SERVICE_UNAVAILABLE);
       }
       if (!cartIsPaid(found.cart)) {
+        // Un estado que no sabemos leer no es «sin pagar»: a Incidencias, para mirarlo en Yavin.
+        if (!cartStatusKnown(found.cart)) await this.recordYavinUnknownStatus(attempt, cartId, found.cart.status);
         this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
         return { received: true };
       }
@@ -412,6 +421,44 @@ export class WebhooksController {
     await this.processNowOrQueue(provider, externalEventId, delivery.id);
     this.metrics.webhooksReceived.inc({ provider, outcome: 'valid' });
     return { received: true };
+  }
+
+  /**
+   * Aviso de Yavin con un estado del carrito que no conocemos (los nombres de
+   * Yavin no están confirmados): no se da por pagado ni por «sin pagar» en
+   * silencio; queda una incidencia en el cobro (una por carrito y estado).
+   */
+  private async recordYavinUnknownStatus(
+    attempt: { paymentId: string; tenantId: string },
+    cartId: string,
+    status: unknown,
+  ): Promise<void> {
+    const shown = typeof status === 'string' ? status.slice(0, 60) : '(sin estado)';
+    this.logger.error(`webhook yavin: estado desconocido (${shown}) en el carrito ${cartId}: queda en Incidencias`);
+    await this.prisma.asSystem(async (tx) => {
+      const already = await tx.paymentEvent.findFirst({
+        where: {
+          paymentId: attempt.paymentId,
+          eventType: YAVIN_UNKNOWN_STATUS_EVENT,
+          AND: [
+            { payload: { path: ['reason'], equals: YAVIN_UNKNOWN_STATUS_REASON } },
+            { payload: { path: ['providerTxId'], equals: cartId } },
+            { payload: { path: ['status'], equals: shown } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (already) return;
+      await tx.paymentEvent.create({
+        data: {
+          paymentId: attempt.paymentId,
+          tenantId: attempt.tenantId,
+          eventType: YAVIN_UNKNOWN_STATUS_EVENT,
+          payload: { provider: 'YAVIN', source: 'yavin', providerTxId: cartId, reason: YAVIN_UNKNOWN_STATUS_REASON, status: shown },
+          traceId: randomUUID(),
+        },
+      });
+    });
   }
 
   /**

@@ -17,6 +17,7 @@ import { assertYavinFirstRefund } from '../../src/modules/refunds/yavin-refund';
 import { PaymentsController } from '../../src/modules/payments/payments.controller';
 import { SuperAdminYavinService } from '../../src/modules/superadmin/yavin-venue.service';
 import { yavinUsableIn } from '../../src/modules/gateways/card-gateway';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import type { CheckoutChoice } from '../../src/modules/payments/pay-redirect';
 
 const KEK = process.env.ENCRYPTION_KEK!;
@@ -230,6 +231,25 @@ describe('Yavin: el aviso (sin firma)', () => {
     expect((await paymentOf(p.id)).status).toBe('AUTHORIZING');
     expect(await deliveriesOf(cartId)).toBe(0);
     expect(calls.filter((c) => c.path === '/api/v5/ecommerce/get_cart_information/')).toHaveLength(1);
+    // «pending» es un estado conocido: sin incidencia.
+    expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: p.id, eventType: 'payment.approval_unverified' } }))).toBe(0);
+  });
+
+  it('estado que no conocemos → no se da por pagado, pero queda en Incidencias (una vez aunque el aviso se repita)', async () => {
+    const p = await newPayment();
+    const { cartId, token } = await openWithYavin(p);
+    carts.get(cartId)!.status = 'authorised_pending_capture';
+    await expect(webhooks.receiveYavin(token)).resolves.toEqual({ received: true });
+    await expect(webhooks.receiveYavin(token)).resolves.toEqual({ received: true });
+    expect((await paymentOf(p.id)).status).toBe('AUTHORIZING');
+    expect(await deliveriesOf(cartId)).toBe(0);
+    const events = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unverified' } }));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ provider: 'YAVIN', source: 'yavin', providerTxId: cartId, status: 'authorised_pending_capture' });
+    const incidents = await inCtx(A, () => new IncidentsService(prisma as never, {} as never).list(A));
+    expect(incidents).toContainEqual(
+      expect.objectContaining({ kind: 'approval_unverified', paymentId: p.id, title: 'Yavin avisa con un estado que no conocemos' }),
+    );
   });
 
   it('pagado → PAGADO una sola vez aunque el aviso llegue dos veces', async () => {

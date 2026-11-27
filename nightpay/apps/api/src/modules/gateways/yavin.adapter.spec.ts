@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import {
+  cartStatusKnown,
   YAVIN_SECOND_REFUND_TEXT,
   YavinAdapter,
   cartPaidFor,
@@ -286,5 +287,16 @@ describe('YavinAdapter: el aviso guardado', () => {
     expect(a.token).not.toBe(b.token);
     expect(a.hash).toBe(noticeTokenHash(a.token));
     expect(a.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('Yavin: estados del carrito que sabemos leer', () => {
+  it('pagado, sin pagar y cerrado: conocidos', () => {
+    for (const status of ['paid', 'PAID', 'pending', 'PENDING', 'cancelled', 'expired']) expect(cartStatusKnown({ status })).toBe(true);
+  });
+
+  it('otro estado, o sin estado: desconocido (va a Incidencias)', () => {
+    expect(cartStatusKnown({ status: 'authorised_pending_capture' })).toBe(false);
+    expect(cartStatusKnown({})).toBe(false);
   });
 });

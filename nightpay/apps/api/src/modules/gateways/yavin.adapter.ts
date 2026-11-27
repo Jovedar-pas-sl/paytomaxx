@@ -104,6 +104,25 @@ const PAID_STATUSES = new Set(['paid', 'PAID', 'succeeded', 'SUCCEEDED']);
 // shortcut: valores de estado «ya no se puede pagar» sin confirmar.
 const CLOSED_STATUSES = new Set(['cancelled', 'canceled', 'CANCELLED', 'CANCELED', 'expired', 'EXPIRED']);
 
+// shortcut: valores de estado «aún sin pagar» sin confirmar.
+const PENDING_STATUSES = new Set([
+  'pending', 'PENDING', 'created', 'CREATED', 'open', 'OPEN', 'waiting', 'WAITING', 'in_progress', 'IN_PROGRESS', 'processing', 'PROCESSING',
+]);
+
+/**
+ * ¿Es un estado que sabemos leer (pagado, sin pagar o cerrado)? Los nombres
+ * no están confirmados: uno distinto (o sin estado) no se da por «sin pagar»
+ * en silencio, se lleva a Incidencias.
+ */
+export function cartStatusKnown(cart: YavinCart): boolean {
+  const { status } = cart;
+  return typeof status === 'string' && (PAID_STATUSES.has(status) || PENDING_STATUSES.has(status) || CLOSED_STATUSES.has(status));
+}
+
+/** Tipo y motivo de la incidencia de un aviso de Yavin con un estado que no conocemos. */
+export const YAVIN_UNKNOWN_STATUS_EVENT = 'payment.approval_unverified';
+export const YAVIN_UNKNOWN_STATUS_REASON = 'yavin-estado-desconocido';
+
 export function cartIsPaid(cart: YavinCart): boolean {
   return typeof cart.status === 'string' && PAID_STATUSES.has(cart.status);
 }

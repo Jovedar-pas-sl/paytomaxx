@@ -294,7 +294,9 @@ export class IncidentsService {
            AND e."eventType" IN ('payment.approval_unverified', 'payment.amount_mismatch', 'payment.approval_unbooked', 'payment.bitcoin_overpaid')
            AND e."occurredAt" >= ${since}
            AND (e."eventType" <> 'payment.approval_unverified' OR p.status::text IN ('AUTHORIZING', 'ORPHAN')
-                OR e.payload->>'source' = 'btcpay')
+                OR e.payload->>'source' = 'btcpay'
+                -- Estado de Yavin desconocido: también con el cobro cancelado o caducado (el cliente pudo pagar).
+                OR (e.payload->>'source' = 'yavin' AND p.status::text NOT IN ('AUTHORIZED', 'REFUNDED', 'PARTIALLY_REFUNDED')))
            AND NOT EXISTS (SELECT 1 FROM incident_acks k
                             WHERE k."tenantId" = e."tenantId"
                               AND k.kind IN ('amount_mismatch', 'approval_unbooked', 'bitcoin_overpaid')
