@@ -1,5 +1,6 @@
 import { SERVICE_FEE_LABEL, evaluateCash, withServiceFee, type CashReason, type MoneyMap, type WalletsAdminStats, type NightCash, type NightCloseCheck, type NightCloseStep } from '@nightpay/contracts';
 import { CASH_TOP_UP_LABEL } from '../reports/export-summary';
+import type { PeriodTotals } from '../reports/period-totals';
 import type { NightView } from './nights.service';
 
 /**
@@ -219,3 +220,25 @@ export function blindWalletStats(s: WalletsAdminStats): WalletsAdminStats {
     cashHidden: true,
   };
 }
+
+/**
+ * Totales de un periodo (las métricas del panel) sin el efectivo: ni las
+ * recargas en efectivo (con su comisión del servicio), ni el saldo devuelto
+ * en efectivo. Lo cobrado y el neto salen como si no lo hubiera habido.
+ */
+export function blindCashTotals(t: PeriodTotals): PeriodTotals {
+  const { walletCashTopUpFeeCents: _fee, ...rest } = t;
+  return {
+    ...rest,
+    walletCashTopUpCount: 0,
+    walletCashTopUpCents: 0,
+    walletCashPayoutCount: 0,
+    walletCashPayoutCents: 0,
+  };
+}
+
+/** Lo que responde una ruta que no puede cegar el efectivo de la noche abierta: «se ve al cerrar». */
+export const BLIND_CASH_CONFLICT = {
+  message: 'Se ve al cerrar la noche: con la noche abierta, el efectivo de caja lo ve solo el dueño (cierre a ciegas). Pide un periodo que acabe antes de abrirla.',
+  code: 'BLIND_CASH',
+} as const;

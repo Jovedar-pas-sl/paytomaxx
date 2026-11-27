@@ -14,6 +14,10 @@ import { CloseCheckService } from '../../src/modules/nights/close-check.service'
 import { NightsController } from '../../src/modules/nights/nights.controller';
 import { NightsService } from '../../src/modules/nights/nights.service';
 import { ReportsService } from '../../src/modules/reports/reports.service';
+import { PeriodReportsController } from '../../src/modules/reports/period-reports.controller';
+import { PeriodReportsService } from '../../src/modules/reports/period-reports.service';
+import { ReportsController } from '../../src/modules/reports/reports.controller';
+import { madridDay } from '../../src/common/time/madrid';
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
@@ -104,5 +108,36 @@ describe('cierre a ciegas de la encargada (Postgres real)', () => {
     // Cierra con lo contado bien, sin decir el primer recuento: el Z guarda el del registro (0 €).
     const closed = await asStaff(() => controller.close(as('MANAGER'), night.id, { acknowledged: [], cashCountedCents: 27_700 }));
     expect(closed.z.caja).toMatchObject({ expectedCents: 27_700, countedCents: 27_700, firstCountedCents: 0, diffCents: 0 });
+  });
+
+  it('las métricas del panel y los CSV de efectivo: a ciegas para la encargada con la noche abierta', async () => {
+    const metrics = new PeriodReportsController(new PeriodReportsService(prisma));
+    const csv = new ReportsController(reports);
+    const sent: { body?: string } = {};
+    const reply = { status: () => reply, header: () => reply, send: (b: string) => ((sent.body = b), reply) } as never;
+    await asStaff(() => nights.open(tenantId, manager, 5_000));
+    const wallet = await seed((tx) =>
+      tx.clientWallet.create({
+        data: { tenantId, balanceCents: 4_400, qrToken: `ccw2-${r}`, shortCode: `D${r}`.slice(0, 6).toUpperCase(), walletGroup: `gcc-${r}` },
+      }),
+    );
+    await seed((tx) =>
+      tx.walletCashTopUp.create({ data: { tenantId, walletId: wallet.id, amountCents: 4_400, takenByUserId: manager, idempotencyKey: `cc2-${r}` } }),
+    );
+    await new Promise((res) => setTimeout(res, 50));
+
+    // Hoy lleva las dos recargas en efectivo (177 € de la noche cerrada + 44 € de esta).
+    const full = await asStaff(() => metrics.metrics(as('OWNER'), tenantId));
+    expect(full.today.walletCashTopUpCents).toBe(22_100);
+    const blind = await asStaff(() => metrics.metrics(as('MANAGER'), tenantId));
+    expect(blind).toMatchObject({ cashHidden: true, today: { walletCashTopUpCents: 0, walletCashPayoutCents: 0, chargedCents: 0 } });
+    expect(JSON.stringify(blind)).not.toMatch(/22100|4400|17700/);
+
+    const today = madridDay(new Date());
+    const err = await asStaff(() => csv.export(as('MANAGER'), tenantId, 'recargas-efectivo', today, today, reply)).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ConflictException);
+    expect((err as ConflictException).message).toMatch(/Se ve al cerrar la noche/);
+    await asStaff(() => csv.export(as('OWNER'), tenantId, 'recargas-efectivo', today, today, reply));
+    expect(sent.body).toContain('44,00');
   });
 });

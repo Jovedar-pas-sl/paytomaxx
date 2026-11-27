@@ -30,7 +30,7 @@ type VatReportQuery = z.infer<typeof VatReportQuerySchema>;
 /**
  * Métricas del panel, Z de un periodo e IVA 303 (mismas rutas que tenían en
  * AdminController). Las cuentas, en PeriodReportsService.
- *  - GET /v1/admin/metrics
+ *  - GET /v1/admin/metrics (con la noche abierta, a la encargada sin el efectivo de caja: cierre a ciegas)
  *  - GET /v1/admin/reports/z?from=&to= (el dueño, y el encargado si le deja ver los informes;
  *    con la noche abierta, la encargada no puede pedir un periodo que llegue a ella: cierre a ciegas)
  *  - GET /v1/admin/reports/vat-303?quarter=Q1-2026 (solo el dueño: datos fiscales)
@@ -46,8 +46,11 @@ export class PeriodReportsController {
 
   @Get('metrics')
   @Roles('OWNER', 'MANAGER')
-  async metrics(@Tenant() tenantId: string) {
-    return this.reports.metrics(tenantId);
+  async metrics(@CurrentUser() user: JwtPayload, @Tenant() tenantId: string) {
+    // Cierre a ciegas: hoy y la semana acaban ahora, así que con la noche abierta la llevan dentro.
+    const now = new Date();
+    const blindCash = user.role === 'MANAGER' && blindsCash(user.role, overlapsOpenNight(now, await this.reports.openNightStart(tenantId)));
+    return this.reports.metrics(tenantId, now, { blindCash });
   }
 
   @Get('reports/z')

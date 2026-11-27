@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { evaluateCash, type MoneyMap } from '@nightpay/contracts';
 import { blindMoneyMap, blindNightView, blindsCash } from './blind-cash';
 import { blindCashCountResult } from './nights.service';
 import { summarize } from '../reports/export-csv';
 import type { PagoSaldoRow, RecargaEfectivoRow } from '../reports/export-rows';
 import { PeriodReportsController } from '../reports/period-reports.controller';
+import { PeriodReportsService } from '../reports/period-reports.service';
+import { ReportsController } from '../reports/reports.controller';
+import { EMPTY_TOTALS } from '../reports/period-totals';
 import { buildMoneyMap, type MoneyMapInput, type SaleRow } from '../money-map/money-map-rules';
 import { AdminWalletsController } from '../wallets/wallets.controller';
 import { CASH_TOP_UP_LABEL } from '../reports/export-summary';
@@ -179,6 +182,53 @@ describe('cierre a ciegas: las otras vías del API', () => {
     await expect(c.zReport(user('MANAGER'), 't-1', { from: q.from, to: '2026-11-26T20:30:00.000Z' })).resolves.toBeTruthy();
     open = null;
     await expect(c.zReport(user('MANAGER'), 't-1', q)).resolves.toBeTruthy();
+  });
+
+  it('GET /admin/metrics: con la noche abierta, a la encargada sin recargas ni saldo devuelto en efectivo (ni en lo cobrado o el neto); al dueño o sin noche, igual', async () => {
+    // 500 € con tarjeta + 1.770 € de recargas en efectivo (5 € de comisión) − 60 € devueltos en efectivo.
+    const totals = {
+      ...EMPTY_TOTALS, paymentCount: 4, grossCents: 50_000, walletCashTopUpCount: 12, walletCashTopUpCents: 177_000,
+      walletCashTopUpFeeCents: 500, walletCashPayoutCount: 1, walletCashPayoutCents: 6_000,
+    };
+    const svc = new PeriodReportsService({} as never);
+    Object.assign(svc, { totals: async () => totals, statusCounts: async () => [] });
+    let open: Date | null = openFrom;
+    svc.openNightStart = async () => open;
+    const c = new PeriodReportsController(svc);
+    const blind = (await c.metrics(user('MANAGER'), 't-1')) as Record<string, unknown> & { today: Record<string, number> };
+    expect(blind.cashHidden).toBe(true);
+    expect(blind.today).toMatchObject({ walletCashTopUpCents: 0, walletCashPayoutCents: 0, chargedCents: 50_000, netCents: 50_000 });
+    expect(JSON.stringify(blind)).not.toMatch(/177000|177500|6000\b|227|221/);
+    const full = await c.metrics(user('OWNER'), 't-1');
+    expect(full.today).toMatchObject({ walletCashTopUpCents: 177_000, walletCashPayoutCents: 6_000, chargedCents: 227_500, netCents: 221_500 });
+    open = null;
+    expect(await c.metrics(user('MANAGER'), 't-1')).toEqual(full);
+  });
+
+  it('GET /admin/export/*: con la noche abierta, la encargada no descarga lo de efectivo de un periodo que llegue a ella (409 «Se ve al cerrar la noche»)', async () => {
+    let open: Date | null = openFrom;
+    const reports = {
+      openNightStart: async () => open,
+      cobros: async () => [], devoluciones: async () => [], liquidaciones: async () => [], consumos: async () => [],
+      pagosSaldo: async () => [], recargasEfectivo: async () => [], venueName: async () => 'Local', sectionLabeler: async () => () => '',
+    };
+    const c = new ReportsController(reports as never);
+    const reply = () => {
+      const r = { status: () => r, header: () => r, send: () => r };
+      return r as never;
+    };
+    for (const kind of ['recargas-efectivo', 'saldo-devuelto', 'resumen', 'liquidaciones', 'devoluciones']) {
+      const err = await c.export(user('MANAGER'), 't-1', kind, '2026-11-01', '2026-11-26', reply()).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).message).toMatch(/Se ve al cerrar la noche/);
+      await expect(c.export(user('OWNER'), 't-1', kind, '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
+      // Un periodo que acaba antes de abrir la noche (hasta el 25 incluido): sí.
+      await expect(c.export(user('MANAGER'), 't-1', kind, '2026-11-01', '2026-11-25', reply())).resolves.toBeUndefined();
+    }
+    // Los cobros (con tarjeta) no llevan efectivo de caja.
+    await expect(c.export(user('MANAGER'), 't-1', 'cobros', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
+    open = null;
+    await expect(c.export(user('MANAGER'), 't-1', 'resumen', '2026-11-01', '2026-11-26', reply())).resolves.toBeUndefined();
   });
 
   it('Saldos → las recargas y lo devuelto de esta noche, sin el efectivo para la encargada', async () => {

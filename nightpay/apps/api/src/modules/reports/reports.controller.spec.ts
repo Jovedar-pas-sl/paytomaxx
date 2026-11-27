@@ -4,6 +4,8 @@ import type { FastifyReply } from 'fastify';
 import { venueSectionLabeler } from './export-rows';
 import { ReportsController } from './reports.controller';
 
+const owner = { sub: 'u-1', tenantId: 't-1', role: 'OWNER' } as never;
+
 function fakeReply() {
   const sent: { status?: number; body?: string; headers: Record<string, string> } = { headers: {} };
   const reply = {
@@ -43,7 +45,7 @@ describe('GET /v1/admin/export/:kind', () => {
   it('descarga el CSV del mes con nombre de archivo y sin caché', async () => {
     const { controller, reports } = makeController();
     const { reply, sent } = fakeReply();
-    await controller.export('t-1', 'cobros', '2026-10-01', '2026-10-31', reply);
+    await controller.export(owner, 't-1', 'cobros', '2026-10-01', '2026-10-31', reply);
     expect(reports.cobros).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-10-01' }));
     expect(sent.headers['Content-Type']).toBe('text/csv; charset=utf-8');
     expect(sent.headers['Content-Disposition']).toBe('attachment; filename="cobros-2026-10.csv"');
@@ -54,7 +56,7 @@ describe('GET /v1/admin/export/:kind', () => {
   it('el resumen junta cobros, devoluciones y pagos del local', async () => {
     const { controller, reports } = makeController();
     const { reply, sent } = fakeReply();
-    await controller.export('t-1', 'resumen', '2026-07-01', '2026-09-30', reply);
+    await controller.export(owner, 't-1', 'resumen', '2026-07-01', '2026-09-30', reply);
     expect(reports.devoluciones).toHaveBeenCalled();
     expect(reports.liquidaciones).toHaveBeenCalled();
     expect(sent.body).toContain('Resumen para la gestoría;Local Centro');
@@ -67,21 +69,21 @@ describe('GET /v1/admin/export/:kind', () => {
   it('«recargas-efectivo» y «saldo-devuelto»: el detalle del efectivo para la gestoría', async () => {
     const { controller, reports } = makeController();
     const one = fakeReply();
-    await controller.export('t-1', 'recargas-efectivo', '2026-10-01', '2026-10-31', one.reply);
+    await controller.export(owner, 't-1', 'recargas-efectivo', '2026-10-01', '2026-10-31', one.reply);
     expect(reports.recargasEfectivo).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-10-01' }));
     expect(one.sent.headers['Content-Disposition']).toBe('attachment; filename="recargas-efectivo-2026-10.csv"');
     const two = fakeReply();
-    await controller.export('t-1', 'saldo-devuelto', '2026-10-01', '2026-10-31', two.reply);
+    await controller.export(owner, 't-1', 'saldo-devuelto', '2026-10-01', '2026-10-31', two.reply);
     expect(two.sent.body).toMatch(/;80,00;Efectivo;/);
   });
 
   it('informe desconocido o fechas mal → 400 sin consultar nada', async () => {
     const { controller, reports } = makeController();
     const { reply } = fakeReply();
-    await expect(controller.export('t-1', 'nominas', '2026-10-01', '2026-10-31', reply)).rejects.toThrow(
+    await expect(controller.export(owner, 't-1', 'nominas', '2026-10-01', '2026-10-31', reply)).rejects.toThrow(
       BadRequestException,
     );
-    await expect(controller.export('t-1', 'cobros', undefined, '2026-10-31', reply)).rejects.toThrow(
+    await expect(controller.export(owner, 't-1', 'cobros', undefined, '2026-10-31', reply)).rejects.toThrow(
       BadRequestException,
     );
     expect(reports.cobros).not.toHaveBeenCalled();
@@ -118,11 +120,11 @@ describe('los CSV de la gestoría con los nombres de sección del local', () => 
     reports.sectionLabeler.mockResolvedValue(venueSectionLabeler({ VENUE_FOOD: { label: 'Cocina' } }));
     reports.cobros.mockResolvedValue([NACHOS]);
     const libro = fakeReply();
-    await controller.export('t-1', 'cobros', '2026-10-01', '2026-10-31', libro.reply);
+    await controller.export(owner, 't-1', 'cobros', '2026-10-01', '2026-10-31', libro.reply);
     expect(libro.sent.body).toContain(';Cocina;Cocina;Paula;');
     expect(libro.sent.body).toContain(';Cocina 9,00');
     const resumen = fakeReply();
-    await controller.export('t-1', 'resumen', '2026-10-01', '2026-10-31', resumen.reply);
+    await controller.export(owner, 't-1', 'resumen', '2026-10-01', '2026-10-31', resumen.reply);
     expect(resumen.sent.body).toContain('Cocina;9,00;1');
     for (const body of [libro.sent.body, resumen.sent.body]) expect(body).not.toContain('Comida');
     expect(reports.sectionLabeler).toHaveBeenCalledWith('t-1');

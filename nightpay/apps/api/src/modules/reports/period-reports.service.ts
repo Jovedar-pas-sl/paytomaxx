@@ -17,6 +17,7 @@ import {
 import { madridQuarter, madridRecentDaysWindow, madridTodayWindow } from './reporting-window';
 import { buildVat303, vatExempt } from './vat-303';
 import { openNightStart } from '../nights/open-night-start';
+import { blindCashTotals } from '../nights/blind-cash';
 
 /** La semana de las métricas: hoy y los 7 días anteriores (como antes). */
 const METRICS_PAST_DAYS = 7;
@@ -37,14 +38,22 @@ export class PeriodReportsService {
   }
 
   /** Hoy y la semana (días de Madrid). El panel lo pide cada pocos segundos: pocas consultas. */
-  async metrics(tenantId: string, now: Date = new Date()) {
+  /**
+   * Con `blindCash` (cierre a ciegas: la encargada con la noche abierta, que
+   * cae dentro de hoy y de la semana), sin el efectivo de caja.
+   */
+  async metrics(tenantId: string, now: Date = new Date(), opts: { blindCash?: boolean } = {}) {
     const today = madridTodayWindow(now);
     const [todayTotals, weekTotals, statuses] = await Promise.all([
       this.totals(tenantId, today),
       this.totals(tenantId, madridRecentDaysWindow(now, METRICS_PAST_DAYS)),
       this.statusCounts(tenantId, today),
     ]);
-    return buildMetrics({ today: todayTotals, week: weekTotals, statuses });
+    if (!opts.blindCash) return buildMetrics({ today: todayTotals, week: weekTotals, statuses });
+    return {
+      ...buildMetrics({ today: blindCashTotals(todayTotals), week: blindCashTotals(weekTotals), statuses }),
+      cashHidden: true as const,
+    };
   }
 
   /** Z (cierre de caja) de un periodo cualquiera. */
