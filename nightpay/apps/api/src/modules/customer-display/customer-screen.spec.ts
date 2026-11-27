@@ -19,12 +19,14 @@ function card(over: Partial<ScreenPayment> = {}): ScreenPayment {
     qrExpiresAt: LATER,
     captureMethod: null,
     walletId: null,
+    tipCents: 0,
+    tipGoesTo: null,
     ...over,
   };
 }
 
 function saldo(over: Partial<ScreenCharge> = {}): ScreenCharge {
-  return { id: CHARGE_ID, status: 'PENDING', amountCents: 3300, expiresAt: LATER, payToken: null, ...over };
+  return { id: CHARGE_ID, status: 'PENDING', amountCents: 3300, expiresAt: LATER, payToken: null, tipCents: 0, ...over };
 }
 
 function input(over: Partial<ScreenInput> = {}): ScreenInput {
@@ -38,7 +40,7 @@ function input(over: Partial<ScreenInput> = {}): ScreenInput {
     cleared: false,
     now: NOW,
     urls: URLS,
-    tip: { on: true, presets: {}, toStaff: false, chosenCents: 0 },
+    tip: { on: true, presets: {}, creatorRole: 'WAITER', chosenCents: 0 },
     pinKeypad: 'fixed',
     noPinMaxCents: 2000,
     ...over,
@@ -153,6 +155,8 @@ describe('pantalla del cliente: qué enseña', () => {
       // `message`: el texto que el local escribe para su reposo (nada del cliente ni del personal).
       'state', 'venueName', 'fichas', 'message', 'pairedUntil', 'key', 'currency', 'amountCents', 'totalCents', 'cardAmountCents',
       'qrUrl', 'tip', 'pinKeypad', 'noPinMaxCents', 'ficha', 'paying', 'topUp', 'reason',
+      // Lo pagado en el «Pagado» (idea 70): un importe, nada de nadie.
+      'paidCents',
     ]);
     for (const view of views) {
       for (const field of Object.keys(view)) expect(allowed.has(field), field).toBe(true);
@@ -175,28 +179,28 @@ describe('pantalla del cliente: qué enseña', () => {
       tip: { presets: [{ cents: 200, percent: null }, { cents: 500, percent: null }], maxCents: 3300, chosenCents: 0 },
     });
     const chosen = screenViewOf(
-      input({ payment: card({ serviceFeeCents: 330 }), charge: saldo(), tip: { on: true, presets: {}, toStaff: true, chosenCents: 500 } }),
+      input({ payment: card({ serviceFeeCents: 330 }), charge: saldo(), tip: { on: true, presets: {}, creatorRole: 'OPERATOR', chosenCents: 500 } }),
     );
     // 33 € + 3,30 € de comisión (sobre los 33) + 5 € de propina.
     expect(chosen).toMatchObject({ totalCents: 3800, cardAmountCents: 4130, tip: { chosenCents: 500, toStaff: true } });
     expect(chosen.state === 'waiting' ? chosen.qrUrl : null).toBe('https://api.oxio.test/pay/tok-qr-123?tip=500');
     // Por encima de 40 €, los porcentajes del local.
     const big = screenViewOf(
-      input({ payment: card({ amountCents: 10000 }), tip: { on: true, presets: { percents: [10] }, toStaff: false, chosenCents: 0 } }),
+      input({ payment: card({ amountCents: 10000 }), tip: { on: true, presets: { percents: [10] }, creatorRole: 'WAITER', chosenCents: 0 } }),
     );
     expect(big).toMatchObject({ tip: { presets: [{ cents: 1000, percent: 10 }] } });
   });
 
   it('«Otra»: euros enteros hasta el tope (como en /pay); céntimos sueltos o de más no cuentan', () => {
     const other = (chosenCents: number) =>
-      screenViewOf(input({ payment: card(), tip: { on: true, presets: {}, toStaff: false, chosenCents } }));
+      screenViewOf(input({ payment: card(), tip: { on: true, presets: {}, creatorRole: 'WAITER', chosenCents } }));
     expect(other(700)).toMatchObject({ totalCents: 4000, tip: { chosenCents: 700 }, qrUrl: 'https://api.oxio.test/pay/tok-qr-123?tip=700' });
     expect(other(3300)).toMatchObject({ totalCents: 6600 });
     for (const bad of [750, 3400]) expect(other(bad)).toMatchObject({ totalCents: 3300, tip: { chosenCents: 0 } });
   });
 
   it('sin propinas, en una recarga o con datáfono: sin propina', () => {
-    expect(screenViewOf(input({ payment: card(), tip: { on: false, presets: {}, toStaff: false, chosenCents: 0 } }))).toMatchObject({
+    expect(screenViewOf(input({ payment: card(), tip: { on: false, presets: {}, creatorRole: 'WAITER', chosenCents: 0 } }))).toMatchObject({
       tip: null,
     });
     expect(screenViewOf(input({ payment: card({ walletId: 'w1' }) }))).toMatchObject({ tip: null });
@@ -204,7 +208,51 @@ describe('pantalla del cliente: qué enseña', () => {
   });
 
   it('solo saldo con propina: el QR del saldo la lleva (?tip=) y el total la suma', () => {
-    const view = screenViewOf(input({ charge: saldo({ payToken: 'pt1' }), tip: { on: true, presets: {}, toStaff: false, chosenCents: 200 } }));
+    const view = screenViewOf(input({ charge: saldo({ payToken: 'pt1' }), tip: { on: true, presets: {}, creatorRole: 'WAITER', chosenCents: 200 } }));
     expect(view).toMatchObject({ qrUrl: 'https://api.oxio.test/s/pt1?tip=200', totalCents: 3500, pinKeypad: 'fixed' });
+  });
+});
+
+describe('pantalla del cliente: el «Pagado» lleva lo pagado (idea 70)', () => {
+  it('con tarjeta: lo vendido + la comisión + la propina', () => {
+    const view = screenViewOf(input({ payment: card({ status: 'AUTHORIZED', serviceFeeCents: 330, tipCents: 300 }), charge: saldo({ status: 'CANCELED' }) }));
+    expect(view).toMatchObject({ state: 'paid', paidCents: 3930 });
+  });
+
+  it('con la ficha: lo vendido + la propina (sin comisión, aunque el cobro con tarjeta la tuviera)', () => {
+    const view = screenViewOf(
+      input({ payment: card({ status: 'CANCELED', serviceFeeCents: 330 }), charge: saldo({ status: 'ACCEPTED', tipCents: 200 }) }),
+    );
+    expect(view).toMatchObject({ state: 'paid', paidCents: 3500 });
+    expect(screenViewOf(input({ charge: saldo({ status: 'ACCEPTED' }) }))).toMatchObject({ state: 'paid', paidCents: 3300 });
+  });
+});
+
+describe('pantalla del cliente: a quién va la propina (idea 66)', () => {
+  const tipTo = (over: Partial<ScreenInput>) => {
+    const view = screenViewOf(input(over));
+    return view.state === 'waiting' ? view.tip?.toStaff : undefined;
+  };
+  const tip = (creatorRole: string | null, served = false) => ({ on: true, presets: {}, creatorRole, served, chosenCents: 0 });
+
+  it('con tarjeta, la del cobro (tipGoesTo), como en /pay', () => {
+    expect(tipTo({ payment: card({ tipGoesTo: 'operator' }), tip: tip('OPERATOR') })).toBe(true);
+    expect(tipTo({ payment: card({ tipGoesTo: 'venue' }), tip: tip('OPERATOR') })).toBe(false);
+    expect(tipTo({ payment: card({ tipGoesTo: 'beneficiary' }), tip: tip('WAITER') })).toBe(true);
+    expect(tipTo({ payment: card({ tipGoesTo: 'operator' }), tip: tip('WAITER') })).toBe(false);
+    // «shared» (nadie lo usa hoy): cuenta como del local.
+    expect(tipTo({ payment: card({ tipGoesTo: 'shared' }), tip: tip('OPERATOR') })).toBe(false);
+  });
+
+  it('sin regla en el cobro o solo saldo: la de quien cobra (una chica: para ella; si no, del local)', () => {
+    expect(tipTo({ payment: card(), tip: tip('OPERATOR') })).toBe(true);
+    expect(tipTo({ payment: card(), tip: tip('WAITER') })).toBe(false);
+    expect(tipTo({ charge: saldo(), tip: tip('OPERATOR') })).toBe(true);
+    expect(tipTo({ charge: saldo(), tip: tip('MANAGER') })).toBe(false);
+  });
+
+  it('cobrado por el encargado a nombre de una compañera: para ella (como en /pay)', () => {
+    expect(tipTo({ payment: card(), tip: tip('MANAGER', true) })).toBe(true);
+    expect(tipTo({ charge: saldo(), tip: tip('MANAGER', true) })).toBe(true);
   });
 });

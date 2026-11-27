@@ -22,6 +22,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { publicBaseUrls } from '../payments/pay-qr-url';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { servedOperators } from '../payments/charge-store';
 import { chargeRightsFor } from '../venues/charge-rights';
 import { WalletChargesService } from '../wallets/wallet-charges.service';
 import { PinRequiredException } from '../wallets/wallet-nopin';
@@ -287,18 +288,27 @@ export class CustomerDisplayService {
               qrExpiresAt: true,
               captureMethod: true,
               walletId: true,
+              tipCents: true,
+              tipGoesTo: true,
             },
           })
         : null,
       charge: display.chargeId
         ? await tx.walletChargeRequest.findFirst({
             where: { id: display.chargeId, tenantId: display.tenantId, requestedByUserId: display.userId },
-            select: { id: true, status: true, amountCents: true, expiresAt: true, payToken: true },
+            select: { id: true, status: true, amountCents: true, expiresAt: true, payToken: true, tipCents: true },
           })
         : null,
     }));
     const methods = paymentMethodsOf(venue.paymentMethods);
     const night = nightSettingsOf(venue.nightSettings);
+    const tipsOn = methods.tips && tipsRight;
+    // Cobrado por el encargado a nombre de una compañera (#68): la propina es de ella, como en /pay.
+    const served =
+      tipsOn && display.role !== 'OPERATOR' && !payment?.walletId && (payment || charge)
+        ? (await this.prisma.asSystem((tx) => servedOperators(tx, { paymentIds: [payment?.id ?? null], walletChargeIds: [charge?.id ?? null] })))
+            .size > 0
+        : false;
     return screenViewOf({
       venueName: venue.name,
       fichas: methods.wallet && methods.nfc,
@@ -310,10 +320,11 @@ export class CustomerDisplayService {
       now,
       urls: publicBaseUrls(),
       tip: {
-        on: methods.tips && tipsRight,
+        on: tipsOn,
         presets: { flatCents: methods.tipFlatCents, percents: methods.tipPercents },
-        // Como al pagar: la propina es entera de la chica que cobra; si cobra otra persona, del local.
-        toStaff: display.role === 'OPERATOR',
+        // Como al pagar (tipGoesToStaff): la regla del cobro con tarjeta o la de quien cobra (una chica: suya; si no, del local).
+        creatorRole: display.role,
+        served,
         chosenCents: display.tipCents,
       },
       pinKeypad: night.pinKeypad,
