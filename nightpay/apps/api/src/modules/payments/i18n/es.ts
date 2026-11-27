@@ -240,6 +240,7 @@ const pay: PayText = {
     serviceFee: 'Comisión del servicio',
     tip: 'Propina',
     total: 'Total cobrado',
+    refunded: 'Devuelto',
     method: 'Método',
     wallet: 'Apple Pay o Google Pay',
     card: 'Tarjeta',

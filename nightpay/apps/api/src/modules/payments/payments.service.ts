@@ -1670,6 +1670,10 @@ export class PaymentsService implements OnApplicationBootstrap {
         orderBy: { createdAt: 'asc' },
         select: { providerTxId: true, payMethod: true, claimHash: true },
       });
+      // Lo devuelto (las devoluciones hechas), nunca más de lo cobrado: «Devuelto: X €».
+      const refunds = await tx.refund.aggregate({ where: { paymentId: payment.id, status: 'SUCCEEDED' }, _sum: { amountCents: true } });
+      const chargedCents = payment.amountCents + payment.serviceFeeCents + payment.tipCents;
+      const refundedCents = Math.min(Math.max(refunds._sum.amountCents ?? 0, 0), chargedCents);
       return {
         paymentId: payment.id,
         amountCents: payment.amountCents,
@@ -1686,6 +1690,7 @@ export class PaymentsService implements OnApplicationBootstrap {
         concept: payment.serviceName ?? null,
         cardLast4: payment.cardLast4 ?? null,
         approvedClaimHash: charged?.claimHash ?? null,
+        ...(refundedCents > 0 ? { refundedCents } : {}),
       };
     });
   }

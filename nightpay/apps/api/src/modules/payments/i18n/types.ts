@@ -256,6 +256,8 @@ export interface PayText {
     serviceFee: string;
     tip: string;
     total: string;
+    /** Lo devuelto del cobro (devolución total o parcial): «Devuelto: 38,00 €». */
+    refunded: string;
     method: string;
     wallet: string;
     card: string;

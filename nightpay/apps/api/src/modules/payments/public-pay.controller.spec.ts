@@ -1195,6 +1195,22 @@ describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', (
     expect((await page({ cookie: COOKIE, correo: '<b>' })).html).not.toContain('role="status"');
   });
 
+  it('devuelto (parcial o total): «Devuelto» con lo devuelto tras el total, en los cuatro idiomas; sin devolución, nada', async () => {
+    expect((await page()).html).not.toMatch(/Devuelto|Refunded/);
+    for (const [lang, label, amount] of [
+      ['es', 'Devuelto', '11,00 €'],
+      ['en', 'Refunded', '€11.00'],
+      ['fr', 'Remboursé', '11,00 €'],
+      ['pt', 'Devolvido', '11,00 €'],
+    ] as const) {
+      const { controller } = makeController({ receipt: { ...RECEIPT, refundedCents: 1100 }, email: { enabled: true } });
+      const { reply, sent } = fakeReply();
+      await controller.receipt('qr-token-1', lang, undefined, reply, undefined);
+      const html = nb(sent.body!);
+      expect(html).toMatch(new RegExp(`<div class="tot"><dt>[^<]+</dt><dd>[^<]+</dd></div><div><dt>${label}</dt><dd>${amount.replace('.', '\\.')}</dd></div>`));
+    }
+  });
+
   it('en los cuatro idiomas', async () => {
     for (const [lang, text] of [
       ['en', 'Email it to me'],
@@ -1286,6 +1302,15 @@ describe('POST /pay/:token/receipt/email — el justificante por correo', () => 
     expect(mail.text).toContain('Pagado a: Sala <Aurora>');
     expect(mail.html).toContain('Sala &lt;Aurora&gt;');
     expect(mail.html).not.toContain('Sala <Aurora>');
+  });
+
+  it('el correo de un cobro devuelto lo dice: «Devuelto: 35,00 €» tras el total (texto y HTML)', async () => {
+    const { email } = await post({ receipt: { ...RECEIPT, refundedCents: 3500 } });
+    const mail = (email.send.mock.calls[0] as unknown as [{ text: string; html: string }])[0];
+    expect(mail.text.replace(/[\u00a0\u202f]/g, ' ')).toContain('Total cobrado: 35,00 €\nDevuelto: 35,00 €\n');
+    expect(mail.html.replace(/[\u00a0\u202f]/g, ' ')).toMatch(/>Devuelto<\/td><td[^>]*>35,00 €<\/td>/);
+    const plain = await post({});
+    expect((plain.email.send.mock.calls[0] as unknown as [{ text: string }])[0].text).not.toContain('Devuelto');
   });
 
   it('en el idioma de la página', async () => {

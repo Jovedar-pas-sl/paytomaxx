@@ -426,6 +426,7 @@ export function renderReceiptPage(
     ...((r.serviceFeeCents ?? 0) > 0 ? [[rt.serviceFee, fmt(r.serviceFeeCents ?? 0)] as [string, string]] : []),
     ...(r.tipCents > 0 ? [[rt.tip, fmt(r.tipCents)] as [string, string]] : []),
     [rt.total, total, true],
+    ...((r.refundedCents ?? 0) > 0 ? [[rt.refunded, fmt(r.refundedCents ?? 0)] as [string, string]] : []),
     ...(method ? [[rt.method, method] as [string, string]] : []),
     ...(r.authCode ? [[rt.authCode, r.authCode] as [string, string]] : []),
     ...(r.order ? [[rt.order, r.order] as [string, string]] : []),

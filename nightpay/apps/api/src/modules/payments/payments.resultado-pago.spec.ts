@@ -103,6 +103,8 @@ function makeService(setup: Setup = {}) {
         return where.paymentId === undefined ? { paymentId: PAYMENT_ID } : { status: hit.status };
       }),
     },
+    // Las devoluciones hechas del cobro (el «Devuelto» del justificante): aquí, ninguna.
+    refund: { aggregate: vi.fn(async () => ({ _sum: { amountCents: null } })) },
     // La compañera del servicio de un cobro hecho por otra persona (cobro por el encargado): aquí, ninguna.
     $queryRaw: vi.fn(async () => []),
     gatewayCredential: {

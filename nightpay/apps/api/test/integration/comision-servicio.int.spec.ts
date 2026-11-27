@@ -387,8 +387,14 @@ describe('con la comisión del servicio ENCENDIDA (10 % tarjeta y datáfono, 12 
     const first = await sys((tx) => tx.refund.findFirstOrThrow({ where: { paymentId: direct } }));
     expect(first).toMatchObject({ status: 'SUCCEEDED', amountCents: 1100, serviceFeeCents: 95 });
     expect(await earningsOf(direct)).toMatchObject([{ reversedCents: 910 }]);
+    // El justificante lo dice: «Devuelto: 11,00 €» (antes de devolver, sin esa línea).
+    const directToken = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: direct }, select: { qrToken: true } }))).qrToken;
+    expect(await inVenue(undefined, () => payments.getReceipt(directToken))).toMatchObject({ refundedCents: 1100 });
+    const posToken = (await sys((tx) => tx.payment.findUniqueOrThrow({ where: { id: posPay }, select: { qrToken: true } }))).qrToken;
+    expect(await inVenue(undefined, () => payments.getReceipt(posToken))).not.toHaveProperty('refundedCents');
     // El datáfono, devuelto entero: toda su comisión.
     await inVenue(L.V, () => refunds.refund({ paymentId: posPay, amountCents: 3630, reason: 'Todo', idempotencyKey: randomUUID() }, ownerActor(L)));
+    expect(await inVenue(undefined, () => payments.getReceipt(posToken))).toMatchObject({ amountCents: 3300, serviceFeeCents: 330, refundedCents: 3630 });
     expect(await sys((tx) => tx.refund.findFirstOrThrow({ where: { paymentId: posPay } }))).toMatchObject({ serviceFeeCents: 330 });
     expect(await paymentOf(posPay)).toMatchObject({ status: 'REFUNDED', availableAmountCents: 0 });
     expect(await earningsOf(posPay)).toMatchObject([{ reversedCents: 2970 }]);
