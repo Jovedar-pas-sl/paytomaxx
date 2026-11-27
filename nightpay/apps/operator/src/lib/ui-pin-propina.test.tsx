@@ -56,9 +56,9 @@ describe('PIN: cada propina con el total', () => {
   it('«+3 €» y debajo el total con ella; «Sin propina» con el total; sin «%»', () => {
     const [none, three, six, other] = tipButtons(pin());
     expect(text(none!)).toBe('Sin propina No tip 33 €');
-    expect(none).toContain('aria-label="Sin propina. Total 33 €"');
+    expect(none).toContain('aria-label="Sin propina. Total 33\u00a0€"');
     expect(text(three!)).toBe('+3 € 36 €');
-    expect(three).toContain('aria-label="Propina de 3 €. Total 36 €"');
+    expect(three).toContain('aria-label="Propina de 3\u00a0€. Total 36\u00a0€"');
     expect(text(six!)).toBe('+6 € 39 €');
     expect(text(other!)).toBe('Otra Other');
     expect(text(pin())).not.toContain('%');

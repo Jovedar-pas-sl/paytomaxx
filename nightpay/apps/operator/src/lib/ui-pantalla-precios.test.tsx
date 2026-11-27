@@ -17,7 +17,7 @@ import type { WaitingView } from './pantalla-state';
 
 const read = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const CSS = read('../components/pantalla/pantalla.module.css');
-const text = (html: string): string => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').replace(/ /g, ' ').trim();
+const text = (html: string): string => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** El cuerpo de la primera regla con ese selector exacto (desde `from`). */
 function rule(css: string, selector: string, from = 0): string {
@@ -105,15 +105,15 @@ describe('tablet: dos precios igual de grandes', () => {
 describe('tablet: propinas con el total, y a quién van', () => {
   it('un precio: «+3 €» y debajo el total con ella; «Sin propina» con el total; sin «%»', () => {
     const html = waiting(view({ cardAmountCents: null }));
-    expect(html).toContain('aria-label="Propina de 3 €. Total 36 €"');
-    expect(html).toContain('aria-label="Sin propina. Total 33 €"');
+    expect(html).toContain('aria-label="Propina de 3\u00a0€. Total 36\u00a0€"');
+    expect(html).toContain('aria-label="Sin propina. Total 33\u00a0€"');
     expect(text(html)).toContain('+3 € 36 €');
     expect(text(html)).not.toContain('%');
   });
 
   it('solo tarjeta con comisión: la base es su precio sin la propina elegida', () => {
     const html = waiting(view({ ficha: false, totalCents: 3600, cardAmountCents: 3930, tip: { ...view().tip!, chosenCents: 300 } }));
-    expect(html).toContain('aria-label="Propina de 5 €. Total 41,30 €"');
+    expect(html).toContain('aria-label="Propina de 5\u00a0€. Total 41,30\u00a0€"');
   });
 
   it('con dos precios, sin total debajo', () => {
