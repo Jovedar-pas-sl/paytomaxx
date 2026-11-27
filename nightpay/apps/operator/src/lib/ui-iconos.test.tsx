@@ -66,6 +66,7 @@ describe('Icon', () => {
       'tag',
       'ticket',
       'undo',
+      'user',
       'users',
       'wallet',
       'wifi-off',

@@ -5,7 +5,6 @@
 
 import {
   MONEY_MAP_TIPS,
-  formatMoney,
   isDefaultSectionColor,
   isSectionCode,
   sectionMeta,
@@ -14,11 +13,7 @@ import {
   type VenueSection,
 } from '@nightpay/contracts';
 import { SECTIONS, sectionColor } from '@nightpay/ui';
-
-/** Euros sin céntimos si son redondos y con el punto de los miles siempre: «5.300 €», «12,50 €», «−70 €». */
-export function eurShort(cents: number): string {
-  return formatMoney(cents, { compact: true });
-}
+import { formatEur } from './money';
 
 /** Nombre y color de una sección: el nombre del local; el color de la marca, salvo que el dueño lo cambiara. */
 export function sectionPaint(sections: readonly VenueSection[], code: string): { label: string; color: string } {
@@ -117,7 +112,7 @@ function serviceFeeLine(m: MoneyMap): MoneyMapView['serviceFee'] {
   const fee = m.serviceFee;
   const cents = m.inflow.serviceFeeCents ?? 0;
   if (!fee || cents === 0) return null;
-  const detail = [fee.salesCents ? `cobros ${eurShort(fee.salesCents)}` : null, fee.topUpsCents ? `recargas ${eurShort(fee.topUpsCents)}` : null]
+  const detail = [fee.salesCents ? `cobros ${formatEur(fee.salesCents)}` : null, fee.topUpsCents ? `recargas ${formatEur(fee.topUpsCents)}` : null]
     .filter(Boolean)
     .join(' · ');
   return { cents, detail };
@@ -157,7 +152,7 @@ function whereNote(m: MoneyMap): string | null {
   const owed = m.where.owed;
   if (owed) {
     const total = owed.chicasCents + owed.camarerosCents;
-    if (total !== m.where.owners.staffCents) parts.push(`deuda total al personal ${when}: ${eurShort(total)}`);
+    if (total !== m.where.owners.staffCents) parts.push(`deuda total al personal ${when}: ${formatEur(total)}`);
   }
   if (parts.length === 0) return null;
   const text = parts.join(' · ');
@@ -216,9 +211,9 @@ export function moneyMapView(m: MoneyMap, sections: readonly VenueSection[]): Mo
         ? {
             cents: i.topUps.totalCents,
             detail: [
-              i.topUps.cashCents ? `efectivo ${eurShort(i.topUps.cashCents)}` : null,
-              i.topUps.cardCents ? `tarjeta ${eurShort(i.topUps.cardCents)}` : null,
-              i.topUps.bitcoinCents ? `bitcoin ${eurShort(i.topUps.bitcoinCents)}` : null,
+              i.topUps.cashCents ? `efectivo ${formatEur(i.topUps.cashCents)}` : null,
+              i.topUps.cardCents ? `tarjeta ${formatEur(i.topUps.cardCents)}` : null,
+              i.topUps.bitcoinCents ? `bitcoin ${formatEur(i.topUps.bitcoinCents)}` : null,
             ]
               .filter(Boolean)
               .join(' · '),

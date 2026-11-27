@@ -16,7 +16,8 @@ import type {
 } from '@nightpay/contracts';
 import { formatBps, formatPercent } from '@nightpay/ui';
 import { dayInZone, formatDateTime } from './dates';
-import { eurShort, sectionPaint, type Segment } from './money-map-view';
+import { formatEur } from './money';
+import { sectionPaint, type Segment } from './money-map-view';
 
 export interface Stat {
   key: string;
@@ -55,12 +56,12 @@ const METHOD_WORD: Readonly<Record<ChargeMethod, string>> = {
   BITCOIN: 'bitcoin',
 };
 
-/** «96», «9,50», sin el símbolo (la parte en pequeño de la maqueta). */
+/** «96,00», «9,50», sin el símbolo (la parte en pequeño de la maqueta). */
 export function bareEur(cents: number): string {
-  return eurShort(cents).replace(/\s*€$/u, '').trim();
+  return formatEur(cents).replace(/\s*€$/u, '').trim();
 }
 
-/** «+96» o «−12» (la parte de la chica de un cobro). */
+/** «+96,00» o «−12,00» (la parte de la chica de un cobro). */
 export function signed(cents: number): string {
   return `${cents < 0 ? '−' : '+'}${bareEur(Math.abs(cents))}`;
 }
@@ -114,7 +115,7 @@ function topUpFeeNote(t: WalletFichaTopUp): string | null {
   const fee = t.serviceFeeCents ?? 0;
   if (fee === 0) return null;
   const sign = t.amountCents < 0 ? '−' : '';
-  return `pagó ${sign}${eurShort(Math.abs(t.amountCents + fee))} (${eurShort(Math.abs(fee))} de comisión del servicio)`;
+  return `pagó ${sign}${formatEur(Math.abs(t.amountCents + fee))} (${formatEur(Math.abs(fee))} de comisión del servicio)`;
 }
 
 function topUpRow(t: WalletFichaTopUp, first: boolean, tz: string): TimelineRow {
@@ -126,7 +127,7 @@ function topUpRow(t: WalletFichaTopUp, first: boolean, tz: string): TimelineRow 
     color: null,
     title: voided ? `Recarga anulada · ${topUpWord(t)}` : `${first ? 'Alta' : 'Recarga'} · ${topUpWord(t)}`,
     sub: joinParts([t.terminalLabel, t.by?.name ?? (voided ? null : 'sin personal'), t.note ? `«${t.note}»` : null, topUpFeeNote(t)]),
-    amount: `${voided ? '−' : '+'}${eurShort(Math.abs(t.amountCents))}`,
+    amount: `${voided ? '−' : '+'}${formatEur(Math.abs(t.amountCents))}`,
     share: null,
     undone: false,
   };
@@ -143,7 +144,7 @@ function consumptionRow(c: CobroRow, sections: readonly VenueSection[], tz: stri
     color: paint?.color ?? 'var(--np-sec-otros)',
     title: joinParts([c.ref, c.service ?? label ?? 'Cobro']),
     sub: joinParts([label, c.person?.name, c.via]),
-    amount: `−${eurShort(c.amountCents + c.tipCents)}`,
+    amount: `−${formatEur(c.amountCents + c.tipCents)}`,
     share: null,
     undone: c.status === 'REVERSED',
   };
@@ -168,7 +169,7 @@ export function walletSheet(f: WalletFicha, sections: readonly VenueSection[], t
         color: null,
         title: `Devolución · ${r.method === 'CASH' ? 'efectivo' : 'tarjeta'}`,
         sub: joinParts([r.by?.name, r.bankReference ? `ref. ${r.bankReference}` : null, r.status === 'PENDING' ? 'apuntándose en el banco' : null]),
-        amount: `−${eurShort(r.amountCents)}`,
+        amount: `−${formatEur(r.amountCents)}`,
         share: null,
         undone: false,
       }),
@@ -215,7 +216,7 @@ export interface StaffSheet {
 }
 
 function shareValue(share: Extract<StaffRate, { kind: 'invitation' }>['share']): string {
-  return share.kind === 'PERCENT' ? formatBps(share.bps) : eurShort(share.cents);
+  return share.kind === 'PERCENT' ? formatBps(share.bps) : formatEur(share.cents);
 }
 
 export function rateChips(rates: readonly StaffRate[], sections: readonly VenueSection[]): RateChip[] {
@@ -242,7 +243,7 @@ function refundRow(r: StaffFichaRow, chargedAt: string, sections: readonly Venue
       `cobro del ${dayShort(chargedAt, tz)}`,
       r.chargedBy ? `cobró ${r.chargedBy.name}` : r.method ? METHOD_WORD[r.method] : null,
     ]),
-    amount: `−${eurShort(r.amountCents)}`,
+    amount: `−${formatEur(r.amountCents)}`,
     share: signed(r.shareCents),
     undone: false,
   };
@@ -263,7 +264,7 @@ function staffRow(r: StaffFichaRow, sections: readonly VenueSection[], tz: strin
     color: paint.color,
     title: joinParts([r.ref, r.title]),
     sub,
-    amount: eurShort(r.amountCents),
+    amount: formatEur(r.amountCents),
     share: signed(r.shareCents),
     undone: r.undone,
   };
@@ -277,7 +278,7 @@ export function staffSheet(
   const camarero = f.person.role === 'WAITER';
   const chipSection = camarero ? 'VENUE_BAR' : 'CHICA_SERVICE';
   const chip = sectionPaint(sections, chipSection);
-  const payouts = f.payouts.map((p) => `${dayShort(p.at, tz)}: ${eurShort(p.cents)}`);
+  const payouts = f.payouts.map((p) => `${dayShort(p.at, tz)}: ${formatEur(p.cents)}`);
   return {
     title: f.person.name,
     subtitle: `${camarero ? 'Camarero' : 'Compañera'} · ${f.window.open || f.window.nightId ? 'esta noche' : 'desde el último cierre'}`,
@@ -295,5 +296,5 @@ export function staffSheet(
 
 /** «Pagar 271 € a Lola» (o «Pedir pago de …» si lo aprueba el dueño). */
 export function payButtonLabel(mode: 'pay' | 'pay_2fa' | 'request', cents: number, name: string): string {
-  return mode === 'request' ? `Pedir pago de ${eurShort(cents)} para ${name}` : `Pagar ${eurShort(cents)} a ${name}`;
+  return mode === 'request' ? `Pedir pago de ${formatEur(cents)} para ${name}` : `Pagar ${formatEur(cents)} a ${name}`;
 }

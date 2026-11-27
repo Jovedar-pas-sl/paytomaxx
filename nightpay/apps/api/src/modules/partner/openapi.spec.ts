@@ -28,12 +28,6 @@ const readJson = (path: string) => JSON.parse(readFileSync(path, 'utf8')) as Jso
 const generated = buildPartnerOpenApi();
 const pilot = readJson(join(DOCS, 'pilot/openapi-piloto.json'));
 
-/** Rutas del contrato que llegan con su entrega (al hacerlas, se quitan de aquí). */
-const PILOT_PENDING = [
-  'POST /test/live-codes',
-  'POST /test/fixtures/reset',
-];
-
 /** Palabras que solo describen (no cambian qué vale): fuera al comparar. */
 const ANNOTATIONS = new Set(['description', 'summary', 'example', 'examples', 'title', 'x-decided-in-contract', 'x-demo-only', 'deprecated']);
 
@@ -152,10 +146,22 @@ describe('contrato del piloto (docs/partner-api/pilot/openapi-piloto.json)', () 
   const ours = operations(generated);
   const theirs = operations(pilot);
 
-  it('cada ruta del contrato está hecha o en PILOT_PENDING, y las pendientes no están hechas', () => {
-    expect([...theirs.keys()].filter((k) => !ours.has(k) && !PILOT_PENDING.includes(k))).toEqual([]);
-    expect(PILOT_PENDING.filter((k) => ours.has(k))).toEqual([]);
-    expect(PILOT_PENDING.filter((k) => !theirs.has(k))).toEqual([]);
+  it('cada ruta del contrato está hecha (ya no queda ninguna pendiente)', () => {
+    expect([...theirs.keys()].filter((k) => !ours.has(k))).toEqual([]);
+  });
+
+  it('las dos ayudas de la demo, iguales al contrato también en servers y x-demo-only; ninguna otra lleva x-demo-only', () => {
+    const demo = ['POST /test/live-codes', 'POST /test/fixtures/reset'];
+    for (const key of demo) {
+      expect(ours.get(key)!.servers, key).toEqual(theirs.get(key)!.servers);
+      expect(ours.get(key)!['x-demo-only'], key).toBe(true);
+      expect(theirs.get(key)!['x-demo-only'], key).toBe(true);
+    }
+    expect([...ours.entries()].filter(([, op]) => 'x-demo-only' in op).map(([k]) => k).sort()).toEqual([...demo].sort());
+    expect([...ours.entries()].filter(([k, op]) => !demo.includes(k) && 'servers' in op).map(([k]) => k)).toEqual([]);
+    const reset = ours.get('POST /test/fixtures/reset')!.responses as Json;
+    expect(reset['204']).toEqual((theirs.get('POST /test/fixtures/reset')!.responses as Json)['204']);
+    expect('content' in (reset['204'] as Json)).toBe(false);
   });
 
   it('ninguna ruta nuestra que no esté en el contrato', () => {

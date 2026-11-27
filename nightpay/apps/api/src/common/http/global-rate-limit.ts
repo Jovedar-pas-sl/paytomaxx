@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import type { RateLimitPluginOptions } from '@fastify/rate-limit';
 import { PARTNER_KEY_RE, PARTNER_ROUTES } from '@nightpay/contracts';
 import { partnerApiOn } from '../../modules/partner/partner-flag';
+import { partnerTestHelpersEnabled } from '../../config/partner-test-mode';
 import { bearerToken, verifyStaffToken } from '../guards/staff-token';
 import { clientIp, normalizeIp, rateLimitIpKey, type ClientIpRequest } from './client-ip';
 
@@ -85,12 +86,14 @@ const REDSYS_NOTICE = /^\/v1\/webhooks\/redsys(\?|$)/;
  * (modules/partner). El cubo de 300/min por IP frenaría la nube de un socio
  * que atiende varios locales desde una IP. Lo demás (sin clave, /openapi.json,
  * rutas que no existen, la API apagada), el límite de siempre: ahí no corre
- * ningún tope de socios.
+ * ningún tope de socios. Las ayudas de la demo (`demoOnly`), solo donde
+ * existen (PARTNER_API_MODE=test con PARTNER_TEST_HELPERS=1).
  */
-const PARTNER_KEY_ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = Object.values(PARTNER_ROUTES)
+const PARTNER_KEY_ROUTES: ReadonlyArray<{ method: string; path: RegExp; demoOnly: boolean }> = Object.values(PARTNER_ROUTES)
   .filter((def) => def.scopes.length > 0)
   .map((def) => ({
     method: def.method,
+    demoOnly: 'demoOnly' in def && def.demoOnly === true,
     // `{id}` de la ruta, un segmento cualquiera; lo demás, tal cual.
     path: new RegExp(
       `^/v1/partner${def.path
@@ -102,7 +105,7 @@ const PARTNER_KEY_ROUTES: ReadonlyArray<{ method: string; path: RegExp }> = Obje
 
 function isPartnerKeyRoute(req: LimitedRequest): boolean {
   const path = req.url.split(/[?#]/)[0] ?? req.url;
-  return PARTNER_KEY_ROUTES.some((r) => r.method === req.method && r.path.test(path));
+  return PARTNER_KEY_ROUTES.some((r) => r.method === req.method && r.path.test(path) && (!r.demoOnly || partnerTestHelpersEnabled()));
 }
 const LOOPBACK = new Set(['127.0.0.1', '::1']);
 

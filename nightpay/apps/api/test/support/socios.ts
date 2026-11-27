@@ -34,6 +34,7 @@ import { MetricsService } from '../../src/modules/metrics/metrics.service';
 import { hashPartnerKey, partnerKeyHint } from '../../src/modules/partner/auth/partner-key';
 import { installPartnerBodyLimit, installPartnerReceivedAt, installPartnerUrlCheck } from '../../src/modules/partner/http/partner-hooks';
 import { PartnerModule } from '../../src/modules/partner/partner.module';
+import { partnerTestHelpersImports } from '../../src/modules/partner/test-helpers/partner-test-helpers.module';
 import { WEB_PUSH_ENV } from '../../src/modules/wallets/charge-alert/charge-alert.service';
 import { PUSH_SENDER, type PushSender } from '../../src/modules/wallets/charge-alert/push-sender';
 
@@ -132,6 +133,8 @@ export async function mountSocios(): Promise<Socios> {
       InfraModule,
       AuthModule,
       PartnerModule,
+      // Las ayudas de la demo, como en app.module.ts: solo si la prueba puso PARTNER_TEST_HELPERS=1.
+      ...partnerTestHelpersImports(),
     ],
     providers: [
       { provide: APP_GUARD, useClass: IpRateLimitGuard },

@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_SECTIONS, SECTION_CODES, type MoneyMap, type VenueSection } from '@nightpay/contracts';
 import { moneyMapDetails } from './money-map-details';
-import { barSegments, eurShort, legendFlex, moneyMapView, railNote, sectionPaint } from './money-map-view';
+import * as view from './money-map-view';
+import { barSegments, legendFlex, moneyMapView, railNote, sectionPaint } from './money-map-view';
+import { formatEur } from './money';
 
 const SECTIONS: VenueSection[] = SECTION_CODES.map((code) => ({ code, ...DEFAULT_SECTIONS[code] }));
 /** Intl pone un espacio duro antes del €: aquí, uno normal. */
 const sp = (s: string | null | undefined) => s?.replace(/\u00a0/g, ' ');
-const eur = (cents: number) => sp(eurShort(cents));
+const eur = (cents: number) => sp(formatEur(cents));
 
 /** La noche de la maqueta 8 (cifras inventadas). */
 function map(o: Partial<MoneyMap> = {}): MoneyMap {
@@ -56,11 +58,13 @@ function map(o: Partial<MoneyMap> = {}): MoneyMap {
 }
 
 describe('importes del mapa', () => {
-  it('sin céntimos si son redondos, con el punto de los miles', () => {
-    expect(eur(530_000)).toBe('5.300 €');
+  // Entrega 10 A: el panel, siempre con céntimos (antes, eurShort los quitaba si eran redondos).
+  it('siempre con céntimos, con el punto de los miles; ya no hay eurShort', () => {
+    expect(eur(530_000)).toBe('5.300,00 €');
     expect(eur(1_250)).toBe('12,50 €');
-    expect(eur(0)).toBe('0 €');
-    expect(eur(-7_000)).toBe('\u221270 €');
+    expect(eur(0)).toBe('0,00 €');
+    expect(eur(-7_000)).toBe('\u221270,00 €');
+    expect('eurShort' in view).toBe(false);
   });
 });
 
@@ -103,7 +107,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
       ['Del saldo', 185_000],
     ]);
     expect(v.topUps?.cents).toBe(307_000);
-    expect(sp(v.topUps?.detail)).toBe('efectivo 1.070 € · tarjeta 2.000 €');
+    expect(sp(v.topUps?.detail)).toBe('efectivo 1.070,00 € · tarjeta 2.000,00 €');
     expect(v.sections.map((s) => [s.label, s.pct])).toEqual([
       ['Servicios', 100],
       ['Copas', 58],
@@ -114,7 +118,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
     ]);
   });
 
-  it('cómo entra: un canal a 0 € no sale (aquí el efectivo entra como recarga); sin ventas, ninguno', () => {
+  it('cómo entra: un canal a 0,00 € no sale (aquí el efectivo entra como recarga); sin ventas, ninguno', () => {
     const noCash = moneyMapView(map({ inflow: { ...map().inflow, cashCents: 0 } }), SECTIONS);
     expect(noCash.inflow.map((s) => s.key)).toEqual(['card', 'saldo']);
     const onlyCash = moneyMapView(
@@ -122,7 +126,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
       SECTIONS,
     );
     expect(onlyCash.inflow.map((s) => s.key)).toEqual(['cash']);
-    expect(sp(onlyCash.topUps?.detail)).toBe('efectivo 50 €');
+    expect(sp(onlyCash.topUps?.detail)).toBe('efectivo 50,00 €');
     const none = moneyMapView(map({ inflow: { ...map().inflow, cardRailCents: 0, cashCents: 0, saldoCents: 0 } }), SECTIONS);
     expect(none.inflow).toEqual([]);
   });
@@ -175,7 +179,7 @@ describe('maqueta 8 · A, barras apiladas', () => {
     expect(v.split.map((x) => [x.label, x.cents])).toEqual([['Local', 1], ['Personal', 601], ['Comisiones', 150]]);
     expect(v.split.find((x) => x.key === 'fees')?.color).toBe('var(--np-mm-comision)');
     expect(v.split.map((x) => x.color)).not.toContain('var(--np-mm-saldo)');
-    expect(sp(v.where.note)).toBe('Deuda total al personal ahora: 7 €');
+    expect(sp(v.where.note)).toBe('Deuda total al personal ahora: 7,00 €');
   });
 
   it('un periodo, sin recargas y con una sección apagada sin ventas: no sale', () => {
@@ -277,7 +281,7 @@ describe('con la «Comisión del servicio» (la paga el cliente, se debe a OxioP
   it('cómo entra: la comisión, aparte (no es venta) y de quién es', () => {
     const v = moneyMapView(withFee(), SECTIONS);
     expect(v.serviceFee).toEqual({ cents: 18_600, detail: expect.any(String) });
-    expect(sp(v.serviceFee!.detail)).toBe('cobros 66 € · recargas 120 €');
+    expect(sp(v.serviceFee!.detail)).toBe('cobros 66,00 € · recargas 120,00 €');
   });
 
   it('dónde está: una parte es de OxioPay; y sale lo que se le debe', () => {

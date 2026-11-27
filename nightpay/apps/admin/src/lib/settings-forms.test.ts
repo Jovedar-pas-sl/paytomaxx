@@ -200,8 +200,8 @@ describe('Ajustes → Reglas: la «Comisión del servicio al cliente» (solo se 
     const t = serviceFeeRulesText(on);
     expect(t.status).toBe('Encendida');
     expect(t.lines.map(sp)).toEqual([
-      'Pagos con tarjeta, Apple Pay, Google Pay o datáfono: 10 % encima (un cobro de 33 € → el cliente paga 36,30 €).',
-      'Recargas del saldo (tarjeta o efectivo): 12 % encima (recarga 50 € → paga 56 €; le quedan 50 € de saldo).',
+      'Pagos con tarjeta, Apple Pay, Google Pay o datáfono: 10 % encima (un cobro de 33,00 € → el cliente paga 36,30 €).',
+      'Recargas del saldo (tarjeta o efectivo): 12 % encima (recarga 50,00 € → paga 56,00 €; le quedan 50,00 € de saldo).',
       'Gastar del saldo y las propinas no la llevan. El saldo cargado antes de encenderla sigue pagando la comisión de la plataforma al gastarse. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
     ]);
   });

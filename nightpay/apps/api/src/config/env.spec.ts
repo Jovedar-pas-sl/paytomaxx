@@ -289,7 +289,15 @@ describe('entorno: API de socios', () => {
     const live = { ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'live' };
     expect(() => parseEnv(live)).toThrow(/ORIGIN_AUTH_SECRET/);
     expect(parseEnv({ ...live, ORIGIN_AUTH_SECRET: 'secreto-de-cloudflare-0123456789' }).PARTNER_API_MODE).toBe('live');
-    expect(parseEnv({ ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'test' }).PARTNER_API_MODE).toBe('test');
+    // PR 8 A1: en producción, el modo prueba solo con la dirección, la base y Redis de la demo (partner-test-mode.spec.ts).
+    const demo = {
+      ...PROD,
+      NEXT_PUBLIC_API_URL: 'https://demo-api.paytomaxx.com',
+      DATABASE_URL: 'postgresql://u:p@nightpay-demo-postgres:5432/db',
+      REDIS_URL: 'redis://nightpay-demo-redis:6379',
+    };
+    expect(parseEnv({ ...demo, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'test' }).PARTNER_API_MODE).toBe('test');
+    expect(() => parseEnv({ ...PROD, PARTNER_API_ENABLED: 'true', PARTNER_API_MODE: 'test' })).toThrow(/DATABASE_URL/);
   });
 
   it('NIGHTPAY_DISABLE_PARTNER_SWEEP=1 avisa en producción', () => {

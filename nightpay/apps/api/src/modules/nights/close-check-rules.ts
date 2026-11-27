@@ -432,14 +432,14 @@ export function incidenciasStep(incidents: ReadonlyArray<Incident>): NightCloseS
   );
 }
 
-// ─── 7. Congelar el Z ───────────────────────────────────────────────
+// ─── 7. Informe Z ─────────────────────────────────────────────────────
 
 export function zStep(): NightCloseStep {
   return {
     key: 'z',
     status: 'ok',
-    title: 'Congelar el Z',
-    detail: 'Al congelarlo, el Z de la noche ya no cambia: lo que llegue después irá como ajuste del Z siguiente.',
+    title: 'Informe Z',
+    detail: 'Al cerrar, el informe Z ya no cambia: lo que llegue después irá como ajuste en el de la noche siguiente.',
     count: 0,
     link: null,
     items: [],

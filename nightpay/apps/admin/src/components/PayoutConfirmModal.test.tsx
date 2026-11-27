@@ -94,20 +94,20 @@ describe('«Marcar pagado» durante la espera: ni se envía ni se gasta el códi
   it('a su cuenta, el botón sigue apagado y el sexto número no envía nada; en efectivo, sí se puede', () => {
     act(() => root.render(<PayoutConfirmModal {...base} payoutHoldUntil={inTwoDays} />));
     click(document.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
-    expect(button('Confirmar liquidación').disabled).toBe(true);
+    expect(button('Apuntar el pago').disabled).toBe(true);
     typeCode('123456');
     expect(createOperatorPayout).not.toHaveBeenCalled();
     click(button('Pagarle en efectivo'));
-    expect(button('Confirmar liquidación').disabled).toBe(false);
+    expect(button('Apuntar el pago').disabled).toBe(false);
   });
 
   it('con el titular sin confirmar, igual: a su cuenta no se envía; en efectivo, sí', () => {
     act(() => root.render(<PayoutConfirmModal {...base} payoutHolderUnconfirmed />));
     click(document.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
-    expect(button('Confirmar liquidación').disabled).toBe(true);
+    expect(button('Apuntar el pago').disabled).toBe(true);
     typeCode('123456');
     expect(createOperatorPayout).not.toHaveBeenCalled();
     click(button('Pagarle en efectivo'));
-    expect(button('Confirmar liquidación').disabled).toBe(false);
+    expect(button('Apuntar el pago').disabled).toBe(false);
   });
 });

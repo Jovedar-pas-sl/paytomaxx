@@ -1,4 +1,4 @@
-// Operadoras: alta, edición, ganancias, liquidaciones y tesorería.
+// Compañeras: alta, edición, ganancias, liquidaciones y tesorería.
 
 import {
   PAYOUT_BATCH_CHANGED,
@@ -190,12 +190,12 @@ export interface CreateOperatorResponse {
   notice?: string;
 }
 
-// ─── Operadoras ────────────────────────────────────────────────────
+// ─── Compañeras ────────────────────────────────────────────────────
 
 /** Las chicas; con 'WAITER', los camareros (su parte de las invitaciones se les paga igual). */
 export async function fetchOperators(role: 'OPERATOR' | 'WAITER' = 'OPERATOR'): Promise<Operator[]> {
   const res = await authedFetch(role === 'WAITER' ? '/v1/admin/operators?role=WAITER' : '/v1/admin/operators');
-  if (!res.ok) throw new Error(role === 'WAITER' ? 'Error cargando los camareros' : 'Error cargando operadoras');
+  if (!res.ok) throw new Error(role === 'WAITER' ? 'Error cargando los camareros' : 'No se pudieron cargar las compañeras');
   return res.json();
 }
 
@@ -303,7 +303,7 @@ export async function revealOperatorPayoutAccount(id: string, totpCode: string):
 }
 
 /**
- * Genera (o rota) un link self-onboarding 72h para la operadora. El admin
+ * Genera (o rota) un link self-onboarding 72h para la compañera. El admin
  * copia el link y se lo manda a la chica vía WhatsApp. Ella lo abre sin login.
  */
 export async function createSelfOnboardingLink(
@@ -318,7 +318,7 @@ export async function createSelfOnboardingLink(
 }
 
 /**
- * Re-emite invite link 24h para una operadora todavía sin activar (estado
+ * Re-emite invite link 24h para una compañera todavía sin activar (estado
  * "pendiente"). Si la chica ya activó pass → 409, usar resetOperatorPassword.
  */
 export async function regenerateInvite(
@@ -333,7 +333,7 @@ export async function regenerateInvite(
 }
 
 /**
- * Resetea la contraseña de la operadora. Si `password` es null → backend
+ * Resetea la contraseña de la compañera. Si `password` es null → backend
  * genera una random 12 chars. Devuelve la pass en CLARO una sola vez para
  * que el admin la copie y la mande por WhatsApp.
  */
