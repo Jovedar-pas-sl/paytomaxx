@@ -49,6 +49,7 @@ import { ReservationsModule } from './modules/reservations/reservations.module';
 import { LegalModule } from './modules/legal/legal.module';
 import { PartyModule } from './modules/party/party.module';
 import { PartnerModule } from './modules/partner/partner.module';
+import { partnerTestHelpersImports } from './modules/partner/test-helpers/partner-test-helpers.module';
 
 @Module({
   imports: [
@@ -122,6 +123,8 @@ import { PartnerModule } from './modules/partner/partner.module';
     PartyModule,
     // API de socios (/v1/partner): apagada salvo PARTNER_API_ENABLED.
     PartnerModule,
+    // Solo en la demo (PARTNER_API_MODE=test y PARTNER_TEST_HELPERS=1): /v1/partner/test/….
+    ...partnerTestHelpersImports(),
   ],
   controllers: [HealthController],
   // Orden importa: IpRateLimit corre antes que AuthGuard para que un ataque de

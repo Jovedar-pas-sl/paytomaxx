@@ -400,6 +400,143 @@ En **Environment** basta `NEXT_TELEMETRY_DISABLED=1`.
 
 ---
 
+## Fase H — Demo de la API de socios
+
+La demo en modo prueba para que los cajeros prueben la API de socios
+(`/v1/partner`) **sin dinero real**: claves `oxp_test_`, las ayudas
+`/v1/partner/test/…` y las fichas de prueba del capítulo 7 de la guía
+([`partner-api/guides/es/07-pruebas-en-la-demo.md`](partner-api/guides/es/07-pruebas-en-la-demo.md)).
+La monta **OxioPay con el visto bueno por escrito del dueño**, nunca un agente.
+Las direcciones (`demo-api.`, `demo-admin.` y `demo-operator.` del dominio, en
+un servidor pequeño aparte) son las recomendadas en la pregunta 1 de
+`partner-api/pilot`: hasta que el dueño diga sí, no se monta.
+
+El arranque protege lo que puede: con `PARTNER_TEST_HELPERS=1` el API **no
+arranca** si no está en `test`, si Redsys no es el sandbox, con «Pagar con
+bitcoin» encendido, con cualquier credencial de cobro, o (en producción) si
+`NEXT_PUBLIC_API_URL` no es de demo o la base o Redis no son los
+`nightpay-demo-…` (`src/config/partner-test-mode.ts`). Lo que no puede ver
+(otro servidor, secretos nuevos, sin datos de producción) es esta fase.
+
+### H.1 Proyecto
+
+1. **Projects → Create Project** → `nightpay-demo` (proyecto nuevo: no se
+   reutiliza otra demo ni ningún servicio de `nightpay`).
+2. `nightpay-demo-postgres` y `nightpay-demo-redis` como en la Fase B, con
+   **contraseñas nuevas** y **sin puerto externo**. Sin copias a R2.
+3. `nightpay-demo-api`, `nightpay-demo-admin` y `nightpay-demo-operator` como
+   en las Fases D y E (rama `main`, **sin autodeploy**: se despliega a mano).
+   Ni `tpv` ni `web-client`.
+4. En las webs, los **Build Args** de la demo (si no, hablan con producción):
+
+   ```
+   NEXT_PUBLIC_API_URL=https://demo-api.paytomaxx.com
+   NEXT_PUBLIC_WS_URL=wss://demo-api.paytomaxx.com
+   ```
+
+### H.2 Variables del API de la demo
+
+Las de D.2 **salvo** estas (las de D.2 son las de producción):
+
+```env
+DATABASE_URL=postgresql://np:<contraseña nueva>@nightpay-demo-postgres-<sufijo>:5432/nightpay?connection_limit=20&pool_timeout=10
+REDIS_URL=redis://default:<contraseña nueva>@nightpay-demo-redis-<sufijo>:6379
+
+# Secretos NUEVOS (openssl rand -hex 32), nunca los de producción: con otra
+# ENCRYPTION_KEK la demo no puede abrir nada cifrado en producción.
+JWT_SECRET=<nuevo>
+COOKIE_SECRET=<nuevo>
+ENCRYPTION_KEK=<nuevo>
+ORIGIN_AUTH_SECRET=<nuevo, distinto del de producción>
+METRICS_TOKEN=<nuevo>
+
+NEXT_PUBLIC_API_URL=https://demo-api.paytomaxx.com
+NEXT_PUBLIC_OPERATOR_URL=https://demo-operator.paytomaxx.com
+OPERATOR_BASE_URL=https://demo-operator.paytomaxx.com
+CORS_ORIGINS=https://demo-admin.paytomaxx.com,https://demo-operator.paytomaxx.com
+
+# Redsys: el sandbox, sin comercio (sin REDSYS_MERCHANT_CODE, _TERMINAL ni _SECRET_KEY).
+REDSYS_API_URL=https://sis-t.redsys.es:25443/sis/realizarPago
+PEANPE_API_URL=https://peanpe.invalid/api
+PEANPE_WEBHOOK_SECRET=<cualquier cadena de 8+>
+
+# La API de socios en modo prueba, con las ayudas.
+PARTNER_API_ENABLED=true
+PARTNER_API_MODE=test
+PARTNER_TEST_HELPERS=1
+```
+
+**Sin** `TELEGRAM_*`, Resend (`RESEND_*`), `BACKUP_*`, `SENTRY_DSN`,
+`BTCPAY_ENABLED`, credenciales de cobro (`PAYTEF_API_TOKEN`, `PEANPE_API_KEY`,
+`VIVA_API_KEY`, `WIPAY_*`) ni ningún dato de producción (nunca una copia de la
+base de producción).
+
+**Cloudflare** (Fase F): `demo-api`, `demo-admin` y `demo-operator` →
+`<IP del servidor de la demo>` en naranja, Full (strict) y su propia regla
+`X-Origin-Auth: <ORIGIN_AUTH_SECRET de la demo>` en `demo-api.paytomaxx.com`.
+
+`PARTNER_TEST_HELPERS` **nunca** en `nightpay-api` (producción): ahí el API no
+arrancaría, y así tiene que ser.
+
+### H.3 Primer local y fichas de prueba
+
+Dokploy → `nightpay-demo-api` → **Terminal**:
+
+```bash
+cd /repo/packages/db
+./node_modules/.bin/tsx scripts/cli.ts create-venue --name "Local Demo Centro" --slug demo-centro
+./node_modules/.bin/tsx scripts/cli.ts create-owner --venue demo-centro --email <correo de OxioPay>
+./node_modules/.bin/tsx scripts/cli.ts set-super-admin --email <correo de OxioPay>
+./node_modules/.bin/tsx scripts/cli.ts enroll-totp --email <correo de OxioPay>
+cd /repo/apps/api
+node --import tsx scripts/partner-demo-seed.ts --carga 300
+# [partner-demo-seed] sociedades=2 locales=3 fichas=9 carga=300
+```
+
+La semilla crea «Empresa Demo S.L.» (`B00000000`) y «Otra Empresa Demo S.L.»
+(`B00000001`), «Local Demo Centro» (grupo `demo-grupo`), «Local Demo Otra
+Sociedad» y «Local Demo Otro Grupo», las 9 fichas del capítulo 7 y 300 fichas
+`demo-carga-…` vacías para la prueba de carga. Se puede repetir (mismos
+recuentos). Se niega, sin tocar la base, si el API no está en `test` o sin
+`PARTNER_TEST_HELPERS=1`. Para dejar las fichas como al principio no hace
+falta: `POST /v1/partner/test/fixtures/reset` con cualquier clave de prueba.
+
+### H.4 Socios y claves (consola, con 2FA)
+
+1. Socios **«Cajeros Demo»** y **«Pruebas OxioPay»**: razón social «Cajeros
+   Demo S.L.» y «Pruebas OxioPay S.L.», NIF `B00000002` y `B00000003`, correo
+   de OxioPay, techo `wallet:balance` + `wallet:load`, `venue_collects`,
+   `in_venue`; KYB y contrato de datos **inventados** (hoy:
+   `PROCESSOR_OF_VENUE`, versión `demo`, país `ES`; sin ellos la clave da
+   `PARTNER_NOT_READY`).
+2. Una conexión de cada uno en **Local Demo Centro**: los dos permisos, un año,
+   «La copio yo».
+3. «Cajeros Demo»: con las IP fijas de los cajeros (mejor ya las de real). Su
+   clave, en mano o por un gestor de contraseñas; **nunca por chat ni correo**.
+4. «Pruebas OxioPay»: sin IP y con 50.000 € por noche. Su clave y la dirección
+   (`https://demo-api.paytomaxx.com/v1/partner`) van como `OXP_DEMO_KEY` y
+   `OXP_DEMO_BASE` en el environment `demo` de GitHub (solo la rama `main`).
+
+Una clave de la demo filtrada solo toca datos inventados: se anula en la
+consola de la demo y se cambia el secreto.
+
+### H.5 Estados a petición
+
+Lo que piden los cajeros para ver cada respuesta (y quitarlo después):
+
+| Estado | Cómo |
+|---|---|
+| `method_disabled` | «Recarga en efectivo» apagada en Ajustes → Formas de cobro de Local Demo Centro |
+| `venue_paused` | Pausar Local Demo Centro en la consola |
+| `partner_api_frozen` | Congelar la API de socios en `money` (consola) |
+| `connection_paused` | Pausar la conexión del socio |
+| `scope_paused` | 3 cargas por encima del máximo por recarga en 10 minutos; se reanuda con 2FA |
+
+El efectivo de recepción en una ficha de prueba (para `cash_limit_reached`) y
+las fichas propias de los cajeros, con la app del personal de la demo.
+
+---
+
 ## Problemas frecuentes
 
 ### El build falla en `pnpm install --frozen-lockfile`
@@ -458,4 +595,5 @@ Fase D  API: variables, salud/parada, deploy (migra solo), primer usuario
 Fase E  Webs (NEXT_PUBLIC_* como Build Args)
 Fase F  Cloudflare: DNS, Full (strict), X-Origin-Auth, WebSockets
 Fase G  Monitor externo → Telegram, alertas del API, métricas
+Fase H  (aparte) Demo de la API de socios: otro proyecto, modo prueba, semilla
 ```

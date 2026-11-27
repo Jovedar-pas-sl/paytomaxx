@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { PartnerScope } from './common';
 import { PartnerConnectionSchema } from './connection';
+import { TestLiveCode, TestLiveCodeRequest } from './demo';
 import type { PartnerErrorResponseName } from './errors';
 import { Statement, WalletBalance, WalletBalanceRequest, WalletLoad, WalletLoadList, WalletLoadRequest, WalletLoadVoidRequest } from './wallet';
 
@@ -203,8 +204,14 @@ export interface PartnerRouteDef {
   /** Mueve dinero: la congelación `money` y el tope de 120/min. */
   readonly money: boolean;
   readonly successStatus: 200 | 201 | 204;
-  /** Lo que sale de verdad: el interceptor lo pasa por aquí (lo de más se quita). */
-  readonly response: z.ZodType;
+  /** Lo que sale de verdad: el interceptor lo pasa por aquí (lo de más se quita). null = 204 sin cuerpo. */
+  readonly response: z.ZodType | null;
+  /**
+   * Solo en la demo (PARTNER_API_MODE=test con PARTNER_TEST_HELPERS=1): en el
+   * OpenAPI lleva sus `servers` (los de la demo) y `x-demo-only: true`, y el
+   * guard la contesta 404 en cualquier otro despliegue.
+   */
+  readonly demoOnly?: true;
   readonly successHeaders: readonly PartnerHeaderName[];
   readonly parameters: readonly PartnerParameterName[];
   readonly errorResponses: PartnerErrorResponses;
@@ -448,6 +455,41 @@ export const PARTNER_ROUTES = {
     parameters: [],
     errorResponses: { '404': 'ApiOff', '429': 'RateLimited', '5XX': 'ServerError' },
   },
+  createTestLiveCode: {
+    method: 'POST',
+    path: '/test/live-codes',
+    operationId: 'createTestLiveCode',
+    tag: 'Test helpers (demo only)',
+    summary: 'Demo only: mint an identify-only live code for a fixture',
+    description:
+      "**Demo only.** Mints a live code for a fixture wallet, the same as the code the customer would show from their\nwallet page. In this pilot every live code is identify-only: it serves for balance and loads and lives 60\nseconds. Show it as a QR code (alphanumeric mode) on a phone or a screen to test the ATM's scanner, or send\nit as `qr` directly.\n\nThis is the only answer that carries a live code, and only for made-up fixtures.\n",
+    scopes: ['any'],
+    money: false,
+    demoOnly: true,
+    successStatus: 201,
+    response: TestLiveCode,
+    successHeaders: ['RequestId'],
+    parameters: ['AcceptLanguage', 'XRequestId'],
+    errorResponses: { ...ANY_KEY_ERRORS, '422': 'ValidationFailedFixture' },
+    body: TestLiveCodeRequest,
+  },
+  resetTestFixtures: {
+    method: 'POST',
+    path: '/test/fixtures/reset',
+    operationId: 'resetTestFixtures',
+    tag: 'Test helpers (demo only)',
+    summary: 'Demo only: put every fixture back to its seeded state',
+    description:
+      "**Demo only.** Gives every fixture a fresh wallet with its seeded balance and state; the fixtures keep the same\nficha links and chip UIDs. Loads already made stay in `/wallet/operations` and `/statement` but no longer count\ntoward the fixtures' limits; the connection's own night limit (`connection_night`) still counts them. Live\ncodes minted before stop working. The fixtures are shared by everyone testing on the demo: expect loads and\nresets by other testers. No body (send no `Content-Type`).\n",
+    scopes: ['any'],
+    money: false,
+    demoOnly: true,
+    successStatus: 204,
+    response: null,
+    successHeaders: ['RequestId'],
+    parameters: ['AcceptLanguage', 'XRequestId'],
+    errorResponses: ANY_KEY_ERRORS,
+  },
 } as const satisfies Record<string, PartnerRouteDef>;
 
 export type PartnerRouteName = keyof typeof PARTNER_ROUTES;
@@ -462,4 +504,6 @@ export const PARTNER_SUCCESS_DESCRIPTIONS: Readonly<Record<PartnerRouteName, str
   listWalletOperations: 'A page of loads.',
   getStatement: 'The totals.',
   getOpenApi: 'The OpenAPI 3.1 document of the partner API.',
+  createTestLiveCode: 'A new live code.',
+  resetTestFixtures: 'The fixtures are back to their seeded state.',
 };

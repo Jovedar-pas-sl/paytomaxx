@@ -684,6 +684,158 @@
           }
         }
       }
+    },
+    "/test/live-codes": {
+      "post": {
+        "operationId": "createTestLiveCode",
+        "tags": [
+          "Test helpers (demo only)"
+        ],
+        "summary": "Demo only: mint an identify-only live code for a fixture",
+        "description": "**Demo only.** Mints a live code for a fixture wallet, the same as the code the customer would show from their\nwallet page. In this pilot every live code is identify-only: it serves for balance and loads and lives 60\nseconds. Show it as a QR code (alphanumeric mode) on a phone or a screen to test the ATM's scanner, or send\nit as `qr` directly.\n\nThis is the only answer that carries a live code, and only for made-up fixtures.\n",
+        "x-demo-only": true,
+        "servers": [
+          {
+            "url": "https://{demo_api_host}/v1/partner",
+            "variables": {
+              "demo_api_host": {
+                "default": "demo-api.oxiopay.example"
+              }
+            }
+          }
+        ],
+        "x-required-scope": [
+          "any"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/XRequestId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestLiveCodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "A new live code.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestLiveCode"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenAnyScope"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiOff"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailedFixture"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/TryLater"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/test/fixtures/reset": {
+      "post": {
+        "operationId": "resetTestFixtures",
+        "tags": [
+          "Test helpers (demo only)"
+        ],
+        "summary": "Demo only: put every fixture back to its seeded state",
+        "description": "**Demo only.** Gives every fixture a fresh wallet with its seeded balance and state; the fixtures keep the same\nficha links and chip UIDs. Loads already made stay in `/wallet/operations` and `/statement` but no longer count\ntoward the fixtures' limits; the connection's own night limit (`connection_night`) still counts them. Live\ncodes minted before stop working. The fixtures are shared by everyone testing on the demo: expect loads and\nresets by other testers. No body (send no `Content-Type`).\n",
+        "x-demo-only": true,
+        "servers": [
+          {
+            "url": "https://{demo_api_host}/v1/partner",
+            "variables": {
+              "demo_api_host": {
+                "default": "demo-api.oxiopay.example"
+              }
+            }
+          }
+        ],
+        "x-required-scope": [
+          "any"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/AcceptLanguage"
+          },
+          {
+            "$ref": "#/components/parameters/XRequestId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The fixtures are back to their seeded state.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/RequestId"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/ForbiddenAnyScope"
+          },
+          "404": {
+            "$ref": "#/components/responses/ApiOff"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "503": {
+            "$ref": "#/components/responses/TryLater"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1606,6 +1758,40 @@
           }
         }
       },
+      "ValidationFailedFixture": {
+        "description": "A field breaks its rule; `param` names it.",
+        "headers": {
+          "Request-Id": {
+            "$ref": "#/components/headers/RequestId"
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "enum": [
+                        "validation_failed"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "examples": {
+              "validation_failed": {
+                "$ref": "#/components/examples/ProblemValidationFixture"
+              }
+            }
+          }
+        }
+      },
       "VenuePaused": {
         "description": "The venue (or its company) is paused.",
         "headers": {
@@ -1930,6 +2116,22 @@
       "ErrorCode": {
         "type": "string",
         "description": "Stable snake_case code. Codes that can appear in this pilot:\n`invalid_request`, `idempotency_key_missing`, `api_key_in_url`, `api_key_in_body`, `invalid_api_key`,\n`api_key_rotated`, `api_key_revoked`, `api_key_expired`, `api_key_suspended`, `wrong_environment`,\n`limit_exceeded`, `cash_limit_reached`, `scope_missing`, `scope_paused`, `ip_not_allowed`,\n`browser_not_allowed`, `partner_suspended`, `connection_paused`, `partner_api_frozen`, `wallet_not_found`,\n`load_not_found`, `not_found`, `wallet_blocked`, `wallet_closed`, `ficha_lost`, `ficha_blocked`,\n`ficha_copy_suspected`, `method_disabled`, `void_window_passed`, `balance_already_spent`, `body_too_large`,\n`validation_failed`, `wallet_ref_unrecognized`, `wallet_ref_not_accepted`, `live_code_invalid`,\n`description_invalid`, `description_personal_data`, `funding_not_allowed`, `idempotency_key_reused`,\n`range_too_long`, `venue_paused`, `rate_limited`, `try_later`, `internal_error`.\n"
+      },
+      "Fixture": {
+        "type": "string",
+        "enum": [
+          "active",
+          "empty",
+          "ficha_uid",
+          "blocked",
+          "closed",
+          "lost_ficha",
+          "ficha_blocked",
+          "other_group",
+          "other_company"
+        ],
+        "x-decided-in-contract": true,
+        "description": "Demo fixtures (made-up data). Each has a fixed ficha link `https://demo-operator.oxiopay.example/?ficha=<token>`:\n\n| fixture | token | chip UID stored | balance | what it answers |\n|---|---|---|---|---|\n| `active` | `demo-ficha-active-0001` | none | 5000 | works |\n| `empty` | `demo-ficha-empty-00001` | none | 0 | balance 0; a load works |\n| `ficha_uid` | `demo-ficha-uid-0000001` | `04A1B2C3D4E5F6` | 5000 | works; another UID → `409 ficha_copy_suspected` |\n| `blocked` | `demo-ficha-blocked-001` | none | 5000 | `409 wallet_blocked` |\n| `closed` | `demo-ficha-closed-0001` | none | 0 | `409 wallet_closed` |\n| `lost_ficha` | `demo-ficha-lost-000001` | none | 5000 | the ficha → `409 ficha_lost`; a live code of its wallet works |\n| `ficha_blocked` | `demo-ficha-fblocked-01` | none | 5000 | the ficha → `409 ficha_blocked`; a live code of its wallet works |\n| `other_group` | `demo-ficha-othergroup1` | none | 5000 | `404 wallet_not_found` (another wallet group) |\n| `other_company` | `demo-ficha-othercomp01` | none | 5000 | `404 wallet_not_found` (same group, another company) |\n\nNo fixture has a contact phone. Every test key is issued for the demo venue \"Local Demo Centro\" (or another\nvenue of its company and wallet group), the only venues that reach these fixtures; they are shared by everyone\ntesting on the demo.\n\nDemo sample texts. The refusal depends only on the text's shape, so these made-up texts give these answers:\n\n| `qr` | answer |\n|---|---|\n| `https://demo-api.oxiopay.example/c/demoGoogleWalletPass00000000000000000000001` | `422 wallet_ref_not_accepted`, `reason: wallet_pass` |\n| `https://demo-api.oxiopay.example/w/demoPrivateLink000000001` | `reason: private_link` |\n| `NPF:K7Q4M2:demoReceptionProof0001` | `reason: reception_qr` |\n| `K7Q4M2` | `reason: short_code` |\n| `https://demo-api.oxiopay.example/pay/demoChargeLink000000000000000001` | `reason: charge_link` |\n| `https://demo-api.oxiopay.example/w/a/demoActivationLink000001` | `reason: other_link` |\n| `https://example.org/carta` | `422 wallet_ref_unrecognized` |\n\nOn request, OxioPay puts the demo connection or venue in the states that answer `method_disabled`,\n`venue_paused`, `partner_api_frozen`, `connection_paused` and `scope_paused`, and back.\n"
       },
       "Funding": {
         "type": "string",
@@ -2327,6 +2529,50 @@
           "summary_en"
         ],
         "description": "The balance terms. The ATM shows `summary_es` or `summary_en` (the customer's language) from `GET /me` on screen before taking the money, and prints the `terms` of the load answer (summary, `url` and `version`) on the ticket. The summary, `url` and `version` always come from OxioPay, never from a copy kept in the ATM's code.",
+        "x-decided-in-contract": true
+      },
+      "TestLiveCode": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "const": "test_live_code"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^OXC1:[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "An identify-only live code for the fixture's wallet."
+          },
+          "expires_in": {
+            "type": "integer",
+            "const": 60,
+            "description": "Seconds the code stays valid."
+          },
+          "livemode": {
+            "type": "boolean",
+            "const": false
+          }
+        },
+        "required": [
+          "object",
+          "code",
+          "expires_in",
+          "livemode"
+        ],
+        "x-decided-in-contract": true
+      },
+      "TestLiveCodeRequest": {
+        "type": "object",
+        "properties": {
+          "fixture": {
+            "$ref": "#/components/schemas/Fixture"
+          }
+        },
+        "required": [
+          "fixture"
+        ],
+        "additionalProperties": false,
+        "description": "In this pilot only `fixture`; `can_pay` and `max` come with paying with balance.",
         "x-decided-in-contract": true
       },
       "Timestamp": {
@@ -2989,6 +3235,18 @@
           "status": 403,
           "code": "scope_paused",
           "detail": "Loads are paused for this connection until the owner resumes them.",
+          "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+        }
+      },
+      "ProblemValidationFixture": {
+        "summary": "Not a fixture of the demo",
+        "value": {
+          "type": "https://docs.oxiopay.example/errors/validation_failed",
+          "title": "Validation failed",
+          "status": 422,
+          "code": "validation_failed",
+          "detail": "fixture must be one of the demo fixtures.",
+          "param": "fixture",
           "request_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
         }
       },
