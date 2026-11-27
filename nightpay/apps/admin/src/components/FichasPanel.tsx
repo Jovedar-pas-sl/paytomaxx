@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input, Select } from '@nightpay/ui';
+import { Button, Card, Input, Select, useConfirm } from '@nightpay/ui';
+import { splitQuestion } from '@/lib/confirm-text';
 import {
   fetchFichas,
   fetchFichasSummary,
@@ -51,6 +52,7 @@ export function FichasPanel() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   /** La ficha a la que se le está poniendo el número impreso, y lo tecleado. */
   const [numbering, setNumbering] = useState<{ id: string; draft: string } | null>(null);
@@ -80,7 +82,8 @@ export function FichasPanel() {
   }
 
   async function mark(row: WalletCardRow, action: 'block' | 'lost'): Promise<void> {
-    if (!window.confirm(fichaConfirmText(row, action))) return;
+    const labels = action === 'lost' ? { confirmLabel: 'Marcar perdida' } : { confirmLabel: 'Bloquear ficha', cancelLabel: 'No bloquear' };
+    if (!(await confirm({ ...splitQuestion(fichaConfirmText(row, action)), ...labels }))) return;
     setBusy(row.id);
     setActionError(null);
     try {
@@ -306,6 +309,7 @@ export function FichasPanel() {
           </div>
         )}
       </Card>
+      {dialog}
     </div>
   );
 }

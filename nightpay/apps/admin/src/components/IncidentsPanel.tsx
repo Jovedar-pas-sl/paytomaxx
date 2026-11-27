@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
-import { Button, Input, useNow } from '@nightpay/ui';
+import { Button, FormError, Input, useNow } from '@nightpay/ui';
 import type { Incident } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { fixTabFor, incidentHeading, incidentHint, incidentKey, kindMeta, type ResolvedIncident } from '@/lib/incident-inbox';
@@ -237,9 +237,9 @@ function OpenItem({
       )}
 
       {failed ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+        <FormError>
           No se marcó como resuelta: {failed}
-        </p>
+        </FormError>
       ) : null}
     </li>
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Button, formatRelative, Input, useNow } from '@nightpay/ui';
+import { Button, formatRelative, FormError, Input, useNow } from '@nightpay/ui';
 import { PASSKEY_REQUIRED_CODE, stepUpActions, type PayoutMethod, type StepUpProof } from '@nightpay/contracts';
 import { approveApproval, fetchApprovals, rejectApproval, type ApprovalView } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
@@ -279,9 +279,9 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
       {!item.canDecide ? (
         <p className="np-approval-meta">La pediste tú: la aprueba otra persona.</p>
       ) : needsEnrol ? (
-        <p role="alert" className="np-approval-error">
+        <FormError>
           {needsEnrol}
-        </p>
+        </FormError>
       ) : mode === 'approve' ? (
         <form onSubmit={(e) => void approve(e)} className="np-approval-form">
           <ConfirmLine>{approveSummary(item, venue.name ?? venue.slug, methodLabel)}</ConfirmLine>
@@ -312,9 +312,9 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
             />
           )}
           {error ? (
-            <p role="alert" className="np-approval-error">
+            <FormError>
               {error}
-            </p>
+            </FormError>
           ) : null}
           <div className="np-approval-actions">
             <Button type="submit" loading={busy} disabled={(!withKey && locked) || (withKey && !keyProof)}>
@@ -337,9 +337,9 @@ function ApprovalCard({ item, now, onDone }: { item: ApprovalView; now: Date; on
             required
           />
           {error ? (
-            <p role="alert" className="np-approval-error">
+            <FormError>
               {error}
-            </p>
+            </FormError>
           ) : null}
           <div className="np-approval-actions">
             <Button type="submit" variant="danger" loading={busy}>

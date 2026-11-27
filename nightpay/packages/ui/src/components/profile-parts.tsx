@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, type CSSProperties, type ReactNode } from 'react';
+import { FormError } from './FormError';
 import { Icon } from './Icon';
 
 // Piezas de «Mi perfil»: bloque con título, selector de opciones y mensajes.
@@ -74,9 +75,11 @@ export function Segmented<T extends string>({
 
 /** El resultado de un guardado: verde si salió bien, rojo si no (con texto, nunca solo color). */
 export function Notice({ kind, children }: { kind: 'ok' | 'error'; children: ReactNode }) {
+  // Lo que falló al guardar va donde todos los errores: en FormError, sobre el botón.
+  if (kind === 'error') return <FormError>{children}</FormError>;
   return (
-    <p role={kind === 'error' ? 'alert' : 'status'} style={{ ...noticeStyle, color: kind === 'error' ? 'var(--np-danger-text)' : 'var(--np-text)' }}>
-      {kind === 'ok' ? <Icon name="check" size={20} className="np-icon-lead" /> : null}
+    <p role="status" style={{ ...noticeStyle, color: 'var(--np-text)' }}>
+      <Icon name="check" size={20} className="np-icon-lead" />
       {children}
     </p>
   );

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { InvitableStaff } from '@nightpay/contracts';
-import { EmptyState } from '@nightpay/ui';
+import { EmptyState, FormError } from '@nightpay/ui';
 import { fetchInvitables } from '@/lib/api-cobro';
 import { formatEur } from '@/lib/money';
 import { SkelRows } from '../loading-shapes';
@@ -62,9 +62,9 @@ export function ElegirChica({
       />
       <div className={styles.body}>
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : list === null ? (
           // Cuatro filas como las de la lista (56 de alto, solo el nombre).
           <SkelRows count={4} line="40%" height="3.5rem" />
@@ -85,9 +85,9 @@ export function ElegirChica({
           </p>
         ) : null}
         {chargeError ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {chargeError}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </div>

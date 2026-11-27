@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Checkbox, Input } from '@nightpay/ui';
+import { Banner, Button, Card, Checkbox, FormError, Input } from '@nightpay/ui';
 import {
   fetchBankStatement,
   fetchBankStatements,
@@ -239,9 +239,9 @@ function UploadCard({ onDone }: { onDone: (s: BankStatementSummary) => void }) {
           </div>
         ) : null}
         {error ? (
-          <p role="alert" style={errorStyle}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <Button type="submit" loading={busy} disabled={!file || (withDays && (!from || !to || badRange))} data-tour="banco-subir">
           Cuadrar
@@ -305,9 +305,9 @@ function StatementDetail({ id, onClose }: { id: string; onClose: () => void }) {
             </strong>
           </p>
           {statement.skippedCount > 0 ? (
-            <p style={{ ...mutedStyle, color: 'var(--np-danger)' }}>
+            <Banner tone="warning">
               {statement.skippedCount} operaciones del fichero no se pudieron leer: revísalas en el portal del banco.
-            </p>
+            </Banner>
           ) : null}
           {statement.otherCount > 0 ? (
             <p style={{ ...mutedStyle, color: 'var(--np-warning)' }}>
@@ -395,7 +395,6 @@ function period(s: BankStatementSummary): string {
 const sectionTitle: CSSProperties = { margin: 0, fontSize: '1rem', fontWeight: 600 };
 const mutedStyle: CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--np-text-mute)' };
 const mutedInline: CSSProperties = { fontSize: '0.875rem', color: 'var(--np-text-mute)' };
-const errorStyle: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--np-danger)' };
 const sourceRow: CSSProperties = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))', gap: '0.5rem' };
 const sourceBtn: CSSProperties = {
   padding: '0.75rem',

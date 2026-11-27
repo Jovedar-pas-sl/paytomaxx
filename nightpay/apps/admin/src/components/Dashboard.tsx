@@ -370,7 +370,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'operators':
       return <OperatorsPanel isOwner={isOwner} />;
     case 'treasury':
-      return <TreasuryPanel isOwner={isOwner} />;
+      return <TreasuryPanel isOwner={isOwner} onNavigate={onNavigate} />;
     case 'wallets':
       return <WalletsPanel isOwner={isOwner} />;
     case 'fichas':
