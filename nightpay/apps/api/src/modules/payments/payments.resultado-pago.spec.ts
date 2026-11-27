@@ -22,6 +22,7 @@ interface AttemptRow {
   providerTxId: string;
   status: string;
   payMethod?: string | null;
+  claimHash?: string | null;
 }
 interface Setup {
   payment?: Row | null;
@@ -95,7 +96,7 @@ function makeService(setup: Setup = {}) {
       findFirst: vi.fn(async ({ where }: { where: { paymentId?: string; providerTxId?: string; status?: string } }) => {
         if (where.status) {
           const charged = attempts.find((a) => a.status === where.status);
-          return charged ? { providerTxId: charged.providerTxId, payMethod: charged.payMethod ?? null } : null;
+          return charged ? { providerTxId: charged.providerTxId, payMethod: charged.payMethod ?? null, claimHash: charged.claimHash ?? null } : null;
         }
         const hit = attempts.find((a) => a.providerTxId === where.providerTxId);
         if (!hit) return null;
@@ -227,11 +228,17 @@ describe('idea 62: el «Pagado» dice a quién se pagó, qué y cómo, sin dígi
     await expect(service.getResultView('ORD-2')).resolves.toMatchObject({ concept: null, cardBrand: null, payMethod: null });
   });
 
-  it('el justificante: a quién se pagó y lo pedido', async () => {
-    const { service } = makeService({ payment: PAID, attempts: [{ providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'wallet' }] });
+  it('el justificante: a quién se pagó y lo pedido; los 4 últimos dígitos y la huella del intento APROBADO (parte B: el controlador solo los enseña a quien pagó)', async () => {
+    const { service } = makeService({
+      payment: PAID,
+      attempts: [
+        { providerTxId: 'ORD-1', status: 'DENIED', payMethod: 'card', claimHash: 'huella-de-otro' },
+        { providerTxId: 'ORD-2', status: 'APPROVED', payMethod: 'wallet', claimHash: 'huella-cliente' },
+      ],
+    });
     const receipt = await service.getReceipt(QR);
     expect(receipt).toMatchObject({ venueName: 'Sala Bambú (Madrid)', concept: '2× Gin tonic · Nachos', cardBrand: '1', payMethod: 'wallet' });
-    expect(receipt).not.toHaveProperty('cardLast4');
+    expect(receipt).toMatchObject({ cardLast4: '4242', approvedClaimHash: 'huella-cliente' });
   });
 });
 
@@ -400,6 +407,9 @@ describe('getReceipt — justificante del cliente', () => {
       // Idea 62: a quién se pagó y lo pedido (este cobro no lleva concepto).
       venueName: 'Sala Bambú (Madrid)',
       concept: null,
+      // Parte B: sin dígitos guardados (lo normal con Redsys) y la huella del intento aprobado (este, sin ella).
+      cardLast4: null,
+      approvedClaimHash: null,
     });
   });
 

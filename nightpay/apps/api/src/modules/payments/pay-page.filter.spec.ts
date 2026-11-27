@@ -72,6 +72,26 @@ describe('PayPageFilter — el 429 de las páginas de /pay', () => {
     }
   });
 
+  it('en un POST (el justificante por correo): vuelve a la página sin el último tramo de la ruta, nunca a repetir el POST', () => {
+    const { host: h, sent } = host({ url: '/pay/tok-1/receipt/email?lang=fr', query: { lang: 'fr' } });
+    Object.assign((h as unknown as { switchToHttp: () => { getRequest: () => { method?: string } } }).switchToHttp().getRequest(), { method: 'POST' });
+    new PayPageFilter().catch(tooMany(12), h);
+    expect(sent.status).toBe(429);
+    expect(sent.body).toContain('content="12;url=/pay/tok-1/receipt?lang=fr"');
+    // Sin consulta, igual.
+    const plain = host({ url: '/pay/tok-1/receipt/email' });
+    Object.assign((plain.host as unknown as { switchToHttp: () => { getRequest: () => { method?: string } } }).switchToHttp().getRequest(), { method: 'POST' });
+    new PayPageFilter().catch(tooMany(12), plain.host);
+    expect(plain.sent.body).toContain('content="12;url=/pay/tok-1/receipt"');
+  });
+
+  it('el justificante por correo: 20 cada 10 min por IP, sin dejar pasar si Redis falla, y con este filtro', () => {
+    const proto = PublicPayController.prototype as unknown as Record<string, (...a: unknown[]) => unknown>;
+    expect(Reflect.getMetadata('np:ip-rate-limit', proto.emailReceipt!)).toEqual({ max: 20, windowSec: 600, scope: 'pay-receipt-email' });
+    const filters = Reflect.getMetadata(EXCEPTION_FILTERS_METADATA, proto.emailReceipt!) as unknown[];
+    expect(filters.some((f) => f instanceof PayPageFilter)).toBe(true);
+  });
+
   it('lo demás, como siempre (RFC 7807)', () => {
     const { host: h, sent } = host({ url: '/pay/tok-1' });
     new PayPageFilter().catch(new NotFoundException('Payment not found'), h);

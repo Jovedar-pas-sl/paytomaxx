@@ -135,6 +135,15 @@ describe('textos legales', () => {
     expect(en).not.toContain('manage your balance and its refunds');
   });
 
+  it('privacidad: el justificante por correo (idea 68), solo para enviarlo y sin guardar la dirección', () => {
+    expect(renderLegalPage('privacidad', 'es')).toContain(
+      'Si pides el justificante por correo: tu dirección, solo para enviártelo (lo envía Resend). No la guardamos en OxioPay.',
+    );
+    expect(renderLegalPage('privacidad', 'en')).toContain(
+      'If you ask for the receipt by email: your email address, only to send it to you (Resend sends it). We do not store it in OxioPay.',
+    );
+  });
+
   it('el castellano y el inglés tienen los mismos bloques, en el mismo orden', () => {
     const es = legalDocs('es', LEGAL_OWNER);
     const en = legalDocs('en', LEGAL_OWNER);

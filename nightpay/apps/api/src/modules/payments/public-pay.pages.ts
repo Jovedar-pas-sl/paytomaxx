@@ -1,5 +1,5 @@
 import { cardBrandLabel } from './card-brand';
-import { clientMoney, escapeHtml, jsString } from './club-ui';
+import { clientMoney, escapeHtml, jsConfig, jsString } from './club-ui';
 import { langHrefWith, type LangHref } from './customer-chrome';
 import { customerPage as page } from './customer-page';
 import { LOCK_ICON, chooseCss, renderChooseBody, type ChooseContext } from './pay-choose-page';
@@ -43,11 +43,11 @@ function formatAmount(cents: number, currency: string, t: PayText): string {
  * («65,00 €», «1109,00 €»: el del idioma, sin el punto de los miles en 4
  * cifras). No usa el formato de las pantallas (decisión del dueño).
  */
-function formatFull(cents: number, currency: string, t: PayText): string {
+export function formatFull(cents: number, currency: string, t: PayText): string {
   return (cents / 100).toLocaleString(t.locale, { style: 'currency', currency });
 }
 
-function formatDateTime(d: Date, t: PayText): string {
+export function formatDateTime(d: Date, t: PayText): string {
   return d.toLocaleString(t.locale, {
     timeZone: 'Europe/Madrid',
     day: '2-digit',
@@ -59,7 +59,7 @@ function formatDateTime(d: Date, t: PayText): string {
 }
 
 /** Cómo se pagó, sin dígitos de la tarjeta: «Visa · Apple Pay o Google Pay». Sin datos, vacío. */
-function methodLabel(t: PayText, cardBrand: string | null | undefined, payMethod: string | null | undefined): string {
+export function methodLabel(t: PayText, cardBrand: string | null | undefined, payMethod: string | null | undefined): string {
   const how = payMethod === 'wallet' ? t.receipt.wallet : payMethod === 'card' ? t.receipt.card : null;
   return [cardBrandLabel(cardBrand), how].filter(Boolean).join(' · ');
 }
@@ -381,14 +381,43 @@ export function renderResultView(
 
 // ─── Justificante ───────────────────────────────────────────────────────
 
+/** Lo que pasó con el justificante por correo (?correo= tras el envío). */
+export type ReceiptMailState = 'enviado' | 'error' | 'tope' | 'mal';
+
+export function receiptMailState(raw: unknown): ReceiptMailState | null {
+  return raw === 'enviado' || raw === 'error' || raw === 'tope' || raw === 'mal' ? raw : null;
+}
+
+/** Solo 4 cifras: nunca más dígitos de la tarjeta (los guarda la pasarela así). */
+function last4Of(raw: string | null | undefined): string | null {
+  return typeof raw === 'string' && /^[0-9]{4}$/.test(raw) ? raw : null;
+}
+
 export function renderReceiptPage(
   r: PayReceiptView,
-  ctx: { lang: PayLanguage; statementName: string | null; backHref: string },
+  ctx: {
+    lang: PayLanguage;
+    statementName: string | null;
+    backHref: string;
+    /**
+     * Idea 68: «Enviármelo por correo», solo para el navegador que pagó y con
+     * el correo configurado (si no, ni sale). La ruta del POST.
+     */
+    emailAction?: string | null;
+    /** El resultado del último envío (?correo=). */
+    mail?: ReceiptMailState | null;
+  },
 ): string {
   const t = PAY_TEXT[ctx.lang];
   const rt = t.receipt;
+  const h = escapeHtml;
   const fmt = (c: number): string => formatFull(c, r.currency, t);
-  const method = methodLabel(t, r.cardBrand, r.payMethod);
+  // Idea 62 (parte B): los 4 últimos dígitos, si llegan (el controlador solo los pasa al navegador que pagó).
+  const last4 = last4Of(r.cardLast4);
+  const brand = [cardBrandLabel(r.cardBrand), last4 ? `··${last4}` : null].filter(Boolean).join(' ');
+  const how = r.payMethod === 'wallet' ? rt.wallet : r.payMethod === 'card' ? rt.card : null;
+  const method = [brand || null, how].filter(Boolean).join(' · ');
+  const total = fmt(r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents);
   // A quién se pagó y lo pedido (idea 62); una recarga sigue diciendo «Recarga».
   const rows: Array<[string, string, boolean?]> = [
     ...(r.authorizedAt ? [[rt.date, formatDateTime(r.authorizedAt, t)] as [string, string]] : []),
@@ -396,7 +425,7 @@ export function renderReceiptPage(
     [r.topUp ? rt.topUp : r.concept || rt.amount, fmt(r.amountCents)],
     ...((r.serviceFeeCents ?? 0) > 0 ? [[rt.serviceFee, fmt(r.serviceFeeCents ?? 0)] as [string, string]] : []),
     ...(r.tipCents > 0 ? [[rt.tip, fmt(r.tipCents)] as [string, string]] : []),
-    [rt.total, fmt(r.amountCents + (r.serviceFeeCents ?? 0) + r.tipCents), true],
+    [rt.total, total, true],
     ...(method ? [[rt.method, method] as [string, string]] : []),
     ...(r.authCode ? [[rt.authCode, r.authCode] as [string, string]] : []),
     ...(r.order ? [[rt.order, r.order] as [string, string]] : []),
@@ -410,20 +439,51 @@ dt{color:var(--mute)}
 dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;overflow-wrap:anywhere}
 dl div.tot dt{color:var(--fg);font-weight:600}
 dl div.tot dd{color:var(--fg);font-weight:600;font-size:1.125rem}
+.mail{width:100%;text-align:left}
+.mail summary{list-style:none}
+.mail summary::-webkit-details-marker{display:none}
+.mail form{display:flex;flex-direction:column;gap:.5rem;margin-top:.75rem}
+.mail label{font-weight:500;color:var(--fg)}
+.mail input{width:100%;min-height:3.25rem;padding:0 .875rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);color:var(--fg);font:inherit;font-size:1rem}
+.mail input:focus-visible{outline:3px solid var(--fg);outline-offset:2px;border-color:var(--fg)}
+.mail input[aria-invalid=true]{border-color:var(--bad)}
+.mail .btn{min-height:3rem}
+.mailmsg{width:100%;margin:0;padding:.75rem .875rem;border:1px solid var(--line-hi);border-radius:var(--r-field);background:var(--surface-2);color:var(--fg);font-size:.875rem;font-weight:500;text-align:left}
 @media print{body{background:#fff;color:#000}h1,dd{color:#000}dt,p{color:#333}dl{background:none}dl div.tot dd{color:#000}.noprint,.brand{display:none!important}}
 </style>`;
+  const mail = ctx.mail ?? null;
+  const msg = mail === 'enviado' ? rt.emailSent : mail === 'error' ? rt.emailError : mail === 'tope' ? rt.emailCap : null;
+  const bad = mail === 'mal';
+  // Sin JS: un formulario normal (POST y vuelta aquí con ?correo=). Plegado hasta que se toca; abierto si el correo estaba mal.
+  const mailBox = ctx.emailAction
+    ? `${msg ? `<p class="mailmsg noprint" role="status">${h(msg)}</p>` : ''}
+<details class="mail noprint" id="mail"${bad ? ' open' : ''}><summary class="btn alt">${h(rt.emailOpen)}</summary>
+<form method="post" action="${h(ctx.emailAction)}" id="mailForm" novalidate>
+<input type="hidden" name="lang" value="${ctx.lang}">
+<label for="email">${h(rt.emailLabel)}</label>
+<input id="email" name="email" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" maxlength="254" required aria-describedby="${bad ? 'mailErr ' : ''}mailWhy"${bad ? ' aria-invalid="true"' : ''}>
+${bad ? `<p class="err" id="mailErr" role="alert">${h(rt.emailBad)}</p>
+` : ''}<button class="btn" type="submit" id="mailSend">${h(rt.emailSend)}</button>
+<p class="small" id="mailWhy">${h(rt.emailWhy)}</p>
+</form></details>`
+    : '';
+  const share = rt.shareText(total);
   const body = `
-<h1>${escapeHtml(rt.title)}</h1>
-${ctx.statementName ? `<p>${escapeHtml(ctx.statementName)}</p>` : ''}
+<h1>${h(rt.title)}</h1>
+${ctx.statementName ? `<p>${h(ctx.statementName)}</p>` : ''}
 <dl>${rows
-    .map(
-      ([k, v, strong]) =>
-        `<div${strong ? ' class="tot"' : ''}><dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd></div>`,
-    )
+    .map(([k, v, strong]) => `<div${strong ? ' class="tot"' : ''}><dt>${h(k)}</dt><dd>${h(v)}</dd></div>`)
     .join('')}</dl>
-<button class="btn noprint" type="button" id="print">${escapeHtml(rt.save)}</button>
-<a class="link noprint" href="${escapeHtml(ctx.backHref)}">${escapeHtml(rt.back)}</a>
-<p class="small">${escapeHtml(rt.noPersonalData)}</p>
-<script>document.getElementById('print').addEventListener('click',function(){window.print();});</script>`;
+<button class="btn noprint" type="button" id="print">${h(rt.save)}</button>
+<button class="btn alt noprint" type="button" id="share" hidden>${h(rt.share)}</button>
+${mailBox}
+<a class="link noprint" href="${h(ctx.backHref)}">${h(rt.back)}</a>
+${last4 ? '' : `<p class="small">${h(rt.noPersonalData)}</p>`}
+<script>(function(){var C=JSON.parse(${jsConfig({ text: share, lang: ctx.lang })});
+document.getElementById('print').addEventListener('click',function(){window.print();});
+var s=document.getElementById('share');
+if(s&&navigator.share){s.hidden=false;s.addEventListener('click',function(){var u=location.href.split('?')[0].split('#')[0]+'?lang='+C.lang;var p=navigator.share({title:C.text,text:C.text,url:u});if(p&&p.catch)p.catch(function(){});});}
+var f=document.getElementById('mailForm');if(f)f.addEventListener('submit',function(){var b=document.getElementById('mailSend');if(b){b.disabled=true;b.classList.add('busy');}});
+})();</script>`;
   return page(t, rt.title, body, { head: css });
 }

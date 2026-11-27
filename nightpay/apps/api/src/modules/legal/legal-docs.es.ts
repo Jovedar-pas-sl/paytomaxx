@@ -69,6 +69,7 @@ export function legalDocsEs(o: LegalOwner): LegalDocs {
             'Tu teléfono, solo si nos lo das, para ayudarte a recuperar el saldo si pierdes la ficha.',
             'Si cargas saldo desde casa: lo mismo que en un pago, y una cookie que recuerda en tu móvil los saldos que has cargado.',
             'Si reservas: tu nombre, tu teléfono y las notas que escribas al reservar.',
+            'Si pides el justificante por correo: tu dirección, solo para enviártelo (lo envía Resend). No la guardamos en OxioPay.',
             'Si activas «Avisarme de cada cobro» en tu saldo (es opcional): los datos que da tu navegador para mandarte los avisos (su dirección de avisos y sus claves) y el idioma del aviso.',
             'Datos técnicos: dirección IP, tipo de navegador y registros de seguridad.',
           ],

@@ -188,7 +188,11 @@ export interface PayResultView {
   payMethod?: PayMethodChoice | null;
 }
 
-/** Justificante del cliente: sin datos personales (ni nombre ni dígitos de tarjeta). */
+/**
+ * Justificante del cliente: sin datos personales (ni nombre ni dígitos de
+ * tarjeta), salvo los 4 últimos dígitos para el navegador que pagó (idea 62,
+ * parte B: el controlador los quita si no es él).
+ */
 export interface PayReceiptView {
   paymentId: string;
   amountCents: number;
@@ -207,6 +211,14 @@ export interface PayReceiptView {
   /** A quién se pagó (el local) y lo pedido (idea 62). */
   venueName?: string | null;
   concept?: string | null;
+  /**
+   * Los 4 últimos dígitos de la tarjeta (nunca más; casi siempre vacío: Redsys
+   * no manda el número). Solo llegan a la página con la cookie del intento
+   * aprobado (approvedClaimHash); nunca en el correo.
+   */
+  cardLast4?: string | null;
+  /** Huella del navegador del intento aprobado (quién pagó): la cookie de este navegador tiene que dar esta. */
+  approvedClaimHash?: string | null;
 }
 
 export const PAID_STATES: ReadonlySet<PaymentMachineState> = new Set<PaymentMachineState>([

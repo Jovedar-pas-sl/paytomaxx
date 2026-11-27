@@ -60,6 +60,7 @@ import { assignChargeRef, insertChargeLines, insertInvitationEarnings, linesOf, 
 import { invitationEarnings } from './invitation-lines';
 import { cardQrUrl } from './pay-qr-url';
 import { DISPLAY_TIP_EVENT } from '../customer-display/display-tip-event';
+import { RECEIPT_EMAILED_EVENT } from './receipt-email';
 import { assertCanTopUp } from '../venues/charge-rights';
 import type { AuthorizeResult, Provider } from '@nightpay/contracts';
 import {
@@ -1543,6 +1544,8 @@ export class PaymentsService implements OnApplicationBootstrap {
           authorizedAt: true,
           authCode: true,
           cardBrand: true,
+          // Los 4 últimos (solo los ve el navegador que pagó: lo decide el controlador).
+          cardLast4: true,
           providerTxId: true,
           walletId: true,
           // A quién se pagó y lo pedido.
@@ -1554,7 +1557,7 @@ export class PaymentsService implements OnApplicationBootstrap {
       const charged = await tx.paymentAttempt.findFirst({
         where: { paymentId: payment.id, status: 'APPROVED' },
         orderBy: { createdAt: 'asc' },
-        select: { providerTxId: true, payMethod: true },
+        select: { providerTxId: true, payMethod: true, claimHash: true },
       });
       return {
         paymentId: payment.id,
@@ -1570,7 +1573,34 @@ export class PaymentsService implements OnApplicationBootstrap {
         order: charged?.providerTxId ?? payment.providerTxId,
         venueName: payment.venue?.name ?? null,
         concept: payment.serviceName ?? null,
+        cardLast4: payment.cardLast4 ?? null,
+        approvedClaimHash: charged?.claimHash ?? null,
       };
+    });
+  }
+
+  /**
+   * Cuántas veces se ha enviado ya el justificante de este cobro por correo
+   * (los apuntes `receipt.emailed`: solo los que Resend aceptó). Tope: 3.
+   */
+  async receiptEmailsSent(paymentId: string): Promise<number> {
+    return this.prisma.asSystem((tx) => tx.paymentEvent.count({ where: { paymentId, eventType: RECEIPT_EMAILED_EVENT } }));
+  }
+
+  /** Apunta un justificante enviado por correo (sin la dirección: solo el idioma). */
+  async recordReceiptEmailed(paymentId: string, lang: string): Promise<void> {
+    await this.prisma.asSystem(async (tx) => {
+      const p = await tx.payment.findUnique({ where: { id: paymentId }, select: { tenantId: true } });
+      if (!p) return;
+      await tx.paymentEvent.create({
+        data: {
+          paymentId,
+          tenantId: p.tenantId,
+          eventType: RECEIPT_EMAILED_EVENT,
+          payload: { lang },
+          traceId: this.cls.get('ctx')?.traceId ?? randomUUID(),
+        },
+      });
     });
   }
 
