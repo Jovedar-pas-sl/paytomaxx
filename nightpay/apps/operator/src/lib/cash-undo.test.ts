@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { CASH_UNDO_REASON_LABEL, UNDO_REASON_NEXT, undoOpen, undoneText } from './cash-undo';
+import { CASH_UNDO_REASON_LABEL, UNDO_REASON_NEXT, recentCashOutCents, undoOpen, undoneText } from './cash-undo';
 
 const eur = (text: string) => text.split(String.fromCharCode(160)).join(' ');
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
@@ -55,5 +55,13 @@ describe('«Me he equivocado» no se pierde al cerrar CARGADO (B4 con B3)', () =
     // Desde la primera pantalla, «Atrás» vuelve a ella.
     const model = read('../components/reception/desk/desk-model.tsx');
     expect(model).toContain("if (step.kind === 'undo') return step.fromTap ? { kind: 'tap' } : { kind: 'loaded', done: { ...step.done, seen: true } };");
+  });
+});
+
+describe('anular una recarga a ciegas (la encargada con la noche abierta)', () => {
+  it('sin importe del API, sin cifra; con él, saldo + comisión', () => {
+    expect(recentCashOutCents({ amountCents: null })).toBeNull();
+    expect(recentCashOutCents({ amountCents: 5_000, serviceFeeCents: 600 })).toBe(5_600);
+    expect(recentCashOutCents({ amountCents: 5_000 })).toBe(5_000);
   });
 });

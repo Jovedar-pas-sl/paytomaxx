@@ -121,6 +121,11 @@ export interface MoneyMapWhere {
   /** Lo que debería haber en la caja (como el arqueo del cierre: fondo + entradas − salidas en efectivo). */
   cashBoxCents: number;
   cashBox: { openingFloatCents: number | null; inCents: number; outCents: number };
+  /**
+   * Cierre a ciegas: la encargada con la noche abierta no recibe la caja esperada
+   * (va a 0, como el efectivo que la forma y el total sin él). Sin el campo: se ve.
+   */
+  cashHidden?: boolean;
   totalCents: number;
   /**
    * De quién es ese total (suman lo mismo): lo del personal de este periodo

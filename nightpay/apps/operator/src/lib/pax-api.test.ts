@@ -10,6 +10,7 @@ import {
   hasPendingResults,
   isChargeOnHold,
   isResultForReference,
+  readyForNewSale,
   saveSaleToReview,
   savePendingResult,
   sendVoid,
@@ -81,6 +82,16 @@ describe('ventas aprobadas que aún no han llegado a OxioPay', () => {
 describe('reenvío solo', () => {
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+  it('al empezar cada cobro (también en recepción, tras «Volver») se reenvía lo pendiente: si llega, se puede cobrar; si no, sigue esperando', async () => {
+    savePendingResult('A', approved('1'));
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(await readyForNewSale()).toBe(false);
+    expect(ids()).toEqual(['A']);
+    vi.stubGlobal('fetch', vi.fn(async () => json(200, { status: 'PAID', code: 'X1', message: 'ok' })));
+    expect(await readyForNewSale()).toBe(true);
+    expect(hasPendingResults()).toBe(false);
+  });
 
   it('envía las pendientes; un rechazo definitivo sale de la cola (a revisar); sin red, el resto espera a la siguiente vuelta', async () => {
     savePendingResult('A', approved('1'));

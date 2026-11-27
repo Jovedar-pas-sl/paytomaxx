@@ -111,6 +111,12 @@ export const INCIDENT_KINDS: Record<IncidentKind, KindMeta> = {
     tab: 'payments',
     hint: 'Habla con quien lo cobró. Si era de otra compañera, devuélvelo y cóbralo otra vez a su nombre.',
   },
+  promoter_commission_paid: {
+    group: 'Personal',
+    title: 'Reserva anulada con la comisión del RRPP ya pagada',
+    tab: 'operators',
+    hint: 'No se descuenta sola: habla con el RRPP y, si toca, descuéntasela de su próximo pago.',
+  },
   // Se decide en la misma bandeja (Avisos): la tarjeta de «Por aprobar».
   approval_pending: { group: 'Por aprobar', title: 'Solicitud del encargado sin decidir', tab: null },
 };

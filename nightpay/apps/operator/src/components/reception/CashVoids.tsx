@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button, EmptyState, formatRelative, Input } from '@nightpay/ui';
-import { CASH_UNDO_REASON_LABEL, fetchRecentCash, voidCashTopUp, type CashUndoReason, type RecentCash } from '@/lib/cash-undo';
+import { CASH_UNDO_REASON_LABEL, fetchRecentCash, recentCashOutCents, voidCashTopUp, type CashUndoReason, type RecentCash } from '@/lib/cash-undo';
 import { formatEur } from '@/lib/money';
 import { SkelRows } from '../loading-shapes';
 import { DESK_FIELD } from './desk/desk-parts';
@@ -59,13 +59,15 @@ export function CashVoids({ onDone }: { onDone: () => void }) {
   }
 
   if (picked) {
-    const out = picked.amountCents + picked.serviceFeeCents;
+    const out = recentCashOutCents(picked);
     return (
       <div className={r.card}>
         <p className={r.kicker}>Anular una recarga</p>
-        <p className={r.amount}>{formatEur(out)}</p>
+        {out === null ? null : <p className={r.amount}>{formatEur(out)}</p>}
         <p className={r.text}>
-          {picked.codeHint} · {time(picked.at)}. Sale de la caja{picked.serviceFeeCents > 0 ? ' con la comisión del servicio' : ''}; solo si su saldo aún la cubre.
+          {out === null
+            ? `${picked.codeHint} · ${time(picked.at)}. Con la noche abierta no se enseña el importe: al anularla te decimos lo que sale de la caja; solo si su saldo aún la cubre.`
+            : `${picked.codeHint} · ${time(picked.at)}. Sale de la caja${(picked.serviceFeeCents ?? 0) > 0 ? ' con la comisión del servicio' : ''}; solo si su saldo aún la cubre.`}
         </p>
         <p className={r.lead}>¿Qué ha pasado?</p>
         {(Object.keys(CASH_UNDO_REASON_LABEL) as CashUndoReason[]).map((why) => (
@@ -111,7 +113,7 @@ export function CashVoids({ onDone }: { onDone: () => void }) {
       {rows !== null && open.length === 0 ? <EmptyState compact icon="cash" title="Ninguna recarga que anular" /> : null}
       {open.map((row) => (
         <button key={row.id} type="button" className={r.pendRow} onClick={() => setPicked(row)}>
-          <span className={`np-num ${r.pendAmount}`}>{formatEur(row.amountCents + row.serviceFeeCents)}</span>{' '}
+          <span className={`np-num ${r.pendAmount}`}>{recentCashOutCents(row) === null ? 'Recarga' : formatEur(recentCashOutCents(row)!)}</span>{' '}
           <span className={r.pendWho}>
             {time(row.at)} · {row.codeHint}
           </span>

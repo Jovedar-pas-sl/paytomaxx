@@ -25,7 +25,38 @@ interface Opts {
 }
 
 function makeService(opts: Opts = {}) {
-  const redis = { set: vi.fn(async () => (opts.lock === undefined ? 'OK' : opts.lock)) };
+  // Un conjunto ordenado de Redis en memoria (cuándo se preguntó por cada cancelado).
+  const zset = new Map<string, number>();
+  const redis = {
+    set: vi.fn(async () => (opts.lock === undefined ? 'OK' : opts.lock)),
+    zset,
+    pipeline: () => {
+      const ids: string[] = [];
+      const pipe = {
+        zscore: (_key: string, id: string) => (ids.push(id), pipe),
+        exec: async () => ids.map((id) => [null, zset.has(id) ? String(zset.get(id)) : null]),
+      };
+      return pipe;
+    },
+    multi: () => {
+      const ops: Array<() => void> = [];
+      const m = {
+        zadd: (_key: string, ...args: Array<number | string>) => {
+          for (let i = 0; i < args.length; i += 2) ops.push(() => void zset.set(String(args[i + 1]), Number(args[i])));
+          return m;
+        },
+        zremrangebyscore: (_key: string, _min: string, max: number) => {
+          ops.push(() => {
+            for (const [id, at] of zset) if (at <= max) zset.delete(id);
+          });
+          return m;
+        },
+        pexpire: () => m,
+        exec: async () => ops.forEach((op) => op()),
+      };
+      return m;
+    },
+  };
   const prisma = {
     $queryRawUnsafe: vi.fn(async () => {
       if (opts.dbError) throw opts.dbError;
@@ -222,5 +253,84 @@ describe('listPendingPos — panel del camarero', () => {
       ['nerea@salabambu.es', null, null, '3B4C5D'],
       ['—', null, null, '8DABCD'],
     ]);
+  });
+});
+
+describe('requeueBankChecks — el repaso de cada 10 min vuelve a preguntar al banco', () => {
+  it('los cancelados de la última media hora con pedido en el banco (sin bitcoin), con tope: a la cola de conciliación', async () => {
+    const { service, prisma, orphanQueue } = makeService();
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes(`'CANCELED'`) ? [{ id: STUCK_A, tenantId: TENANT }] : [],
+    );
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    await expect(service.requeueBankChecks(NOW)).resolves.toMatchObject({ canceled: 1 });
+    const call = queryRaw.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes(`'CANCELED'`));
+    const [strings, ...values] = call as unknown as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join('?');
+    expect(sql).toContain(`status = 'CANCELED'`);
+    expect(sql).toContain('"providerTxId" IS NOT NULL');
+    expect(sql).toContain(`provider::text <> 'BTCPAY'`);
+    expect(sql).toContain('LIMIT');
+    // Cancelados desde hace 30 min.
+    expect(values).toContainEqual(new Date('2026-10-17T01:00:00+02:00'));
+    expect(orphanQueue.add).toHaveBeenCalledWith(
+      'orphan-reconcile',
+      { paymentId: STUCK_A, tenantId: TENANT },
+      expect.objectContaining({ jobId: `orphan-${STUCK_A}` }),
+    );
+  });
+
+  it('un cancelado con la autorización atascada horas (su QR caducó hace mucho) también se pregunta: no se corta por qrExpiresAt', async () => {
+    const { service, prisma } = makeService();
+    const queryRaw = vi.fn(async (_strings: TemplateStringsArray) => [] as unknown[]);
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    await service.requeueBankChecks(NOW);
+    const call = queryRaw.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes(`'CANCELED'`));
+    const sql = (call![0] as TemplateStringsArray).join('?');
+    expect(sql).not.toContain('qrExpiresAt');
+    expect(sql).toContain('"updatedAt" >=');
+  });
+
+  it('con más cancelados que el tope (51), cada repaso sigue por los que no se preguntaron: ninguno se queda sin preguntar', async () => {
+    const { service, prisma, orphanQueue, redis } = makeService();
+    // 51 cancelados en la ventana, del más antiguo al más nuevo (como los da la consulta).
+    const ids = Array.from({ length: 51 }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`);
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes(`'CANCELED'`) ? ids.map((id) => ({ id, tenantId: TENANT })) : [],
+    );
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    const asked = () => orphanQueue.add.mock.calls.map((c) => (c[1] as unknown as { paymentId: string }).paymentId);
+
+    await expect(service.requeueBankChecks(NOW)).resolves.toMatchObject({ canceled: 50 });
+    // Primero los 50 más antiguos.
+    expect(asked()).toEqual(ids.slice(0, 50));
+    orphanQueue.add.mockClear();
+
+    // El siguiente repaso empieza por el que faltaba (el 51) y luego el que hace más que se preguntó.
+    await service.requeueBankChecks(new Date(NOW.getTime() + 10 * 60_000));
+    expect(asked()[0]).toBe(ids[50]);
+    expect(new Set(asked()).size).toBe(50);
+    expect(redis.zset.size).toBe(51);
+  });
+
+  it('los que llevan más de 15 min «Comprobando…» (su comprobación se perdió: falló la cola al pedirla): a la cola otra vez', async () => {
+    const { service, prisma, orphanQueue } = makeService();
+    const queryRaw = vi.fn(async (strings: TemplateStringsArray) =>
+      strings.join('?').includes(`'AUTHORIZING'`) ? [{ id: STUCK_B, tenantId: OTHER_TENANT }] : [],
+    );
+    prisma.asSystem.mockImplementation(async (fn: (tx: unknown) => unknown) => fn({ $queryRaw: queryRaw }));
+    await expect(service.requeueBankChecks(NOW)).resolves.toEqual({ authorizing: 1, canceled: 0 });
+    const call = queryRaw.mock.calls.find((c) => (c[0] as TemplateStringsArray).join('?').includes(`'AUTHORIZING'`));
+    const [strings, ...values] = call as unknown as [TemplateStringsArray, ...unknown[]];
+    const sql = strings.join('?');
+    expect(sql).toContain('"providerTxId" IS NOT NULL');
+    expect(sql).toContain(`provider::text <> 'BTCPAY'`);
+    expect(sql).toContain('"createdAt" <');
+    expect(values).toContainEqual(new Date('2026-10-17T01:15:00+02:00'));
+    expect(orphanQueue.add).toHaveBeenCalledWith(
+      'orphan-reconcile',
+      { paymentId: STUCK_B, tenantId: OTHER_TENANT },
+      expect.objectContaining({ jobId: `orphan-${STUCK_B}` }),
+    );
   });
 });

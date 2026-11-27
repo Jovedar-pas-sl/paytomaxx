@@ -205,6 +205,24 @@ describe('bandeja de incidencias', () => {
     const [i] = await svc.list('t-1');
     expect(i).toMatchObject({ kind: 'pos_unreconciled', ackable: false, paymentId: 'p-7' });
     expect(i!.detail).toContain('Cuadrar con el datáfono');
+    // Se ve a las 24 h del cobro: es cuando se detecta (lo que mira el aviso de Telegram).
+    expect(i!.detectedAt).toBe('2026-10-13T22:00:00.000Z');
+  });
+
+  it('diferencia con el banco: se detecta al subir el fichero (createdAt), no a la hora del cobro', async () => {
+    const { svc, prisma } = makeIncidents({
+      bankItems: [
+        {
+          id: 'bi-9', status: 'NOT_IN_BANK', kind: 'SALE', source: 'REDSYS', bankAmountCents: null, oursAmountCents: 6000,
+          reference: 'R9', authCode: null, paymentId: 'p-9', operationAt: at('2026-10-10T23:00:00Z'),
+          occurredAt: at('2026-10-10T23:00:00Z'), detectedAt: at('2026-10-12T08:30:00Z'),
+        },
+      ],
+    });
+    const [i] = await svc.list('t-1', at('2026-10-12T09:00:00Z'));
+    expect(i).toMatchObject({ kind: 'bank_mismatch', occurredAt: '2026-10-10T23:00:00.000Z', detectedAt: '2026-10-12T08:30:00.000Z' });
+    const sql = prisma.$queryRaw.mock.calls.map(([q]) => (q as string[]).join('?')).find((q) => q.includes('bank_statement_items'))!;
+    expect(sql).toContain('i."createdAt" AS "detectedAt"');
   });
 
   it('saldo: una devolución pedida antes de la nueva regla (se quita sola al terminarla); el saldo que queda tras la noche ya no es aviso', async () => {
@@ -456,9 +474,21 @@ describe('alertas por Telegram', () => {
       isConfigured: (chatId?: string | null) => chatId !== '@sin_bot_aqui',
       hasBot: () => true,
     };
-    const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never);
-    return { svc, telegram, reports, incidents, prisma, redis };
+    const backups = { verdict: vi.fn().mockResolvedValue({ kind: 'ok', lastBackupAt: new Date('2026-10-13T03:00:00Z') }) };
+    const svc = new AlertsService(prisma as never, redis as never, incidents as never, reports as never, telegram as never, backups as never);
+    return { svc, telegram, reports, incidents, prisma, redis, backups };
   }
+
+  it('sin copia de seguridad reciente: un aviso al chat de operaciones (no al de cada local), una vez al día', async () => {
+    const { svc, telegram, backups } = makeAlerts([], [], [], { chatId: '-1001234567890' });
+    backups.verdict.mockResolvedValue({ kind: 'stale', lastBackupAt: new Date('2026-10-12T03:00:00Z'), error: null });
+    await svc.tick(at('2026-10-13T23:00:00Z'));
+    await svc.tick(at('2026-10-13T23:05:00Z'));
+    const sent = telegram.send.mock.calls.filter((c) => String(c[0]).includes('copia de seguridad'));
+    expect(sent).toHaveLength(1);
+    // Sin chat del local: al de TELEGRAM_CHAT_ID (el de quien opera la plataforma).
+    expect(sent[0]![1]).toBeNull();
+  });
 
   it('Ajustes → Avisos: un grupo apagado no sale; el resto va al chat del local', async () => {
     const pos: Incident = { ...incident('9'), kind: 'pos_unmatched_op', title: 'Venta del datáfono sin cobro' };
@@ -498,6 +528,20 @@ describe('alertas por Telegram', () => {
     await svc.tick(at('2026-10-14T07:30:00Z'));
     expect(telegram.send).toHaveBeenCalledTimes(1);
     expect(telegram.send.mock.calls[0]![0]).not.toContain('anoche');
+  });
+
+  it('el lunes se sube el fichero del banco del fin de semana: la diferencia se avisa (por cuándo se detecta), una sola vez', async () => {
+    const bank: Incident = {
+      ...incident('bank-1'),
+      kind: 'bank_mismatch',
+      title: 'Cobro que el banco no tiene',
+      occurredAt: '2026-10-10T23:00:00.000Z',
+      detectedAt: '2026-10-12T08:30:00.000Z',
+    };
+    const { svc, telegram } = makeAlerts([bank]);
+    await svc.tick(at('2026-10-12T08:35:00Z'));
+    await svc.tick(at('2026-10-12T08:40:00Z'));
+    expect(telegram.send.mock.calls.filter((c) => String(c[0]).includes('banco no tiene'))).toHaveLength(1);
   });
 
   it('cada incidencia se avisa una sola vez', async () => {

@@ -24,6 +24,7 @@ import {
   paymentRecordedAt,
   refundAt,
 } from './reporting-sql';
+import { openNightStart } from '../nights/open-night-start';
 
 /** Tope de filas por informe: un local con mucho movimiento hace ~10k cobros al mes. */
 export const MAX_EXPORT_ROWS = 100_000;
@@ -84,6 +85,11 @@ export class ReportsService {
 
   constructor(@Inject(PrismaService) prisma: PrismaService) {
     this.prisma = prisma;
+  }
+
+  /** Desde dónde cuenta la noche abierta (null: no hay): el cierre a ciegas de los CSV con efectivo. */
+  openNightStart(tenantId: string): Promise<Date | null> {
+    return openNightStart(this.prisma, tenantId);
   }
 
   async venueName(tenantId: string): Promise<string> {

@@ -65,6 +65,26 @@ function json(status: number, body: unknown): Response {
 const problem = (status: number, detail: string, code?: string, reason?: string): Response =>
   json(status, { detail, ...(code ? { code } : {}), ...(reason ? { reason } : {}) });
 
+const sameCode = (a: string, b: string): boolean => a.replace(/[^a-z0-9]/gi, '').toUpperCase() === b.replace(/[^a-z0-9]/gi, '').toUpperCase();
+
+/**
+ * ¿Es la ficha o el código de práctica? Una ficha, un código o un pase de
+ * verdad, no: el simulador no les contesta como si fueran el de práctica (una
+ * ficha real daba «Cargado» y el cliente se iba sin saldo). Sin ninguno (una
+ * ficha nueva sin leer), nada de verdad que tocar. Tampoco el id de un saldo de verdad.
+ */
+function isPracticeRef(ref: unknown): boolean {
+  if (!ref || typeof ref !== 'object') return true;
+  const r = ref as { card?: unknown; code?: unknown; walletId?: unknown; walletToken?: unknown };
+  // Un saldo de verdad elegido antes de entrar en práctica (recarga con tarjeta a
+  // { walletId }): solo vale el de práctica; si no, daba «Cargado» sin cargar nada.
+  if (r.walletId !== undefined) return r.walletId === PRACTICE_WALLET_ID;
+  if (typeof r.card === 'string') return r.card === PRACTICE_CARD;
+  if (typeof r.code === 'string') return sameCode(r.code, PRACTICE_CODE);
+  return r.walletToken === undefined;
+}
+const notPractice = (): Response => problem(422, 'Esta ficha no es de práctica: usa «Simular ficha».');
+
 // ─── Tiempo real de mentira: lo que el simulador «avisa» a las pantallas ───
 
 type Listener = (event: unknown) => void;
@@ -133,6 +153,7 @@ function amountOf(body: Record<string, unknown>): number {
 }
 
 function createPayment(body: Record<string, unknown>): Response {
+  if (!isPracticeRef(body.wallet)) return notPractice();
   const amountCents = amountOf(body);
   const id = newId('PAGO');
   let saldo: CobroCreado['saldo'] = null;
@@ -216,7 +237,8 @@ function deskView(): ReceptionDeskSaldo {
   };
 }
 
-function cash(body: { amountCents?: number }): Response {
+function cash(body: { amountCents?: number; wallet?: unknown }): Response {
+  if (!isPracticeRef(body.wallet)) return notPractice();
   const amountCents = body.amountCents ?? 0;
   wallet += amountCents;
   const out: CashTopUpResult = {
@@ -237,6 +259,7 @@ function cash(body: { amountCents?: number }): Response {
 function payWithPin(chargeId: string, body: { pin?: string }): Response {
   const charge = charges.get(chargeId);
   if (!charge) return problem(404, 'Cobro no encontrado.');
+  if (!isPracticeRef(body)) return notPractice();
   if (body.pin !== PRACTICE_PIN) return problem(422, 'PIN incorrecto. En práctica vale 1234.', 'WRONG_PIN');
   if (wallet < charge.amountCents) return problem(409, 'Saldo insuficiente.', 'WALLET_INSUFFICIENT');
   const payment = charge.paymentId ? payments.get(charge.paymentId) : undefined;
@@ -257,7 +280,8 @@ function readRoute(route: string, seg: string[]): Response | null {
     const polled: PolledPayment = { status: p.status, ...(p.status === 'AUTHORIZED' ? { id: p.id, tipCents: 0, payMethod: 'card' as const } : {}) };
     return json(200, polled);
   }
-  if (seg[1] === 'wallet-charges' && seg[2] === 'wallets') return json(200, lookup());
+  if (seg[1] === 'wallet-charges' && seg[2] === 'wallets') return seg[3] === PRACTICE_WALLET_ID ? json(200, lookup()) : notPractice();
+  if (seg[1] === 'wallet-charges' && seg[2] === 'lookup') return isPracticeRef({ code: seg[3] ?? '' }) ? json(200, lookup()) : notPractice();
   if (seg[1] === 'wallet-charges' && seg.length === 3 && seg[2]!.startsWith(PRACTICE_ID_PREFIX)) {
     const c = charges.get(seg[2]!);
     return c ? json(200, saldoState(c)) : problem(404, 'Cobro no encontrado.');
@@ -277,9 +301,9 @@ function writeRoute(route: string, seg: string[], body: Record<string, unknown>)
     case '/v1/reception/cash':
       return cash(body);
     case '/v1/reception/desk':
-      return json(200, deskView());
+      return isPracticeRef(body) ? json(200, deskView()) : notPractice();
     case '/v1/wallet-charges/cards/lookup':
-      return json(200, lookup());
+      return isPracticeRef(body) ? json(200, lookup()) : notPractice();
     default:
   }
   const id = seg[2] ?? '';
@@ -297,9 +321,7 @@ function writeRoute(route: string, seg: string[], body: Record<string, unknown>)
   }
   if (seg[3] === 'nfc') {
     // La ficha de práctica siempre pide su PIN (así se ensaya el teclado).
-    return body.card === PRACTICE_CARD
-      ? problem(409, 'Esta ficha necesita su PIN.', PIN_REQUIRED_CODE, 'night_cap')
-      : problem(422, 'Esta ficha no es de práctica: usa «Simular ficha».');
+    return body.card === PRACTICE_CARD ? problem(409, 'Esta ficha necesita su PIN.', PIN_REQUIRED_CODE, 'night_cap') : notPractice();
   }
   if (seg[3] === 'pin') return payWithPin(id, body as { pin?: string });
   return null;

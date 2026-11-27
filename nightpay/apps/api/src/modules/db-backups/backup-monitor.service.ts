@@ -7,6 +7,8 @@ import { DEFAULT_BACKUP_MAX_AGE_HOURS, backupVerdict, type BackupStatus, type Ba
 const CACHE_MS = 10 * 60_000;
 /** Dokploy guarda N copias; con esto sobra para encontrar la última. */
 const MAX_PAGES = 20;
+/** Tiempo máximo de cada consulta al almacenamiento (la bandeja y los avisos no esperan más). */
+const LIST_TIMEOUT_MS = 10_000;
 
 /**
  * Mira cuándo fue la última copia de la base de datos en el almacenamiento
@@ -21,6 +23,8 @@ export class BackupMonitorService {
   private readonly logger = new Logger(BackupMonitorService.name);
   private readonly config: ConfigService;
   private cache: { at: number; status: BackupStatus } | null = null;
+  /** La última copia que se vio (si luego falla la consulta, cuenta esta). */
+  private lastGood: Date | null = null;
   private client: S3Client | null = null;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
@@ -71,6 +75,7 @@ export class BackupMonitorService {
       for (let page = 0; page < MAX_PAGES; page++) {
         const out = await this.client.send(
           new ListObjectsV2Command({ Bucket: s.bucket, Prefix: s.prefix, ContinuationToken: token }),
+          { abortSignal: AbortSignal.timeout(LIST_TIMEOUT_MS) },
         );
         for (const obj of out.Contents ?? []) {
           if (obj.LastModified && (!latest || obj.LastModified > latest)) latest = obj.LastModified;
@@ -78,11 +83,12 @@ export class BackupMonitorService {
         if (!out.IsTruncated || !out.NextContinuationToken) break;
         token = out.NextContinuationToken;
       }
+      if (latest) this.lastGood = latest;
       return { configured: true, lastBackupAt: latest, error: null };
     } catch (err) {
       const message = (err as Error).name || (err as Error).message || 'error';
       this.logger.warn(`No se pudo consultar el almacenamiento de las copias: ${message}`);
-      return { configured: true, lastBackupAt: null, error: message };
+      return { configured: true, lastBackupAt: this.lastGood, error: message };
     }
   }
 }

@@ -1,4 +1,7 @@
-import { Controller, Get, Inject, NotFoundException, Query, UseGuards } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Inject, NotFoundException, Query, UseGuards } from '@nestjs/common';
+import type { JwtPayload } from '@nightpay/contracts';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { blindsCash, overlapsOpenNight } from '../nights/blind-cash';
 import { z } from 'zod';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
@@ -27,8 +30,9 @@ type VatReportQuery = z.infer<typeof VatReportQuerySchema>;
 /**
  * Métricas del panel, Z de un periodo e IVA 303 (mismas rutas que tenían en
  * AdminController). Las cuentas, en PeriodReportsService.
- *  - GET /v1/admin/metrics
- *  - GET /v1/admin/reports/z?from=&to= (el dueño, y el encargado si le deja ver los informes)
+ *  - GET /v1/admin/metrics (con la noche abierta, a la encargada sin el efectivo de caja: cierre a ciegas)
+ *  - GET /v1/admin/reports/z?from=&to= (el dueño, y el encargado si le deja ver los informes;
+ *    con la noche abierta, la encargada no puede pedir un periodo que llegue a ella: cierre a ciegas)
  *  - GET /v1/admin/reports/vat-303?quarter=Q1-2026 (solo el dueño: datos fiscales)
  */
 @Controller('admin')
@@ -42,20 +46,37 @@ export class PeriodReportsController {
 
   @Get('metrics')
   @Roles('OWNER', 'MANAGER')
-  async metrics(@Tenant() tenantId: string) {
-    return this.reports.metrics(tenantId);
+  async metrics(@CurrentUser() user: JwtPayload, @Tenant() tenantId: string) {
+    // Cierre a ciegas: hoy y la semana acaban ahora, así que con la noche abierta la llevan dentro.
+    const now = new Date();
+    const blindCash = user.role === 'MANAGER' && blindsCash(user.role, overlapsOpenNight(now, await this.reports.openNightStart(tenantId)));
+    return this.reports.metrics(tenantId, now, { blindCash });
   }
 
   @Get('reports/z')
   @Roles('OWNER', 'MANAGER')
   @UseGuards(StaffPermissionGuard)
   @RequiresPermission('reports')
-  async zReport(@Tenant() tenantId: string, @Query(new ZodValidationPipe(ZReportQuerySchema)) q: ZReportQuery) {
+  async zReport(
+    @CurrentUser() user: JwtPayload,
+    @Tenant() tenantId: string,
+    @Query(new ZodValidationPipe(ZReportQuerySchema)) q: ZReportQuery,
+  ) {
     const now = new Date();
     const from = q.from ? new Date(q.from) : madridTodayWindow(now).from;
     const to = q.to ? new Date(q.to) : now;
     if (from >= to) {
       throw new NotFoundException('from debe ser anterior a to');
+    }
+    // Cierre a ciegas: el Z de unas horas de la noche abierta trae su efectivo (y, restando, la caja).
+    if (user.role === 'MANAGER') {
+      const openFrom = await this.reports.openNightStart(tenantId);
+      if (blindsCash(user.role, openFrom !== null) && overlapsOpenNight(to, openFrom)) {
+        throw new ForbiddenException({
+          message: 'Con la noche abierta, el Z de estas horas lo ve el dueño: el cierre es a ciegas. Pide un periodo que acabe antes de abrirla, o espera al cierre.',
+          code: 'BLIND_CASH',
+        });
+      }
     }
     return this.reports.periodZ(tenantId, { from, to }, now);
   }

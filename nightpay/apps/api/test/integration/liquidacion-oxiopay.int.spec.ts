@@ -601,6 +601,23 @@ describe('devolución dentro de la semana y otra apuntada tarde con fecha de la 
   });
 });
 
+describe('cobro devuelto: OxioPay no cobra su % (como «Ver detalle»)', () => {
+  it('sin devolver 10 €; devuelto entero 0 €; devuelto en parte (40 € de 100 € + 10 € de propina) 7 €; y cuadra con el mapa', async () => {
+    const l = await local('devuelto');
+    // Tres cobros de 100 € al 10 % (la «Comisión del servicio» apagada), en la semana 42.
+    await pay(l, T('2026-10-13T21:00:00Z'), { amount: 10_000 });
+    const whole = await pay(l, T('2026-10-14T21:00:00Z'), { amount: 10_000 });
+    const part = await pay(l, T('2026-10-15T21:00:00Z'), { amount: 10_000, tip: 1_000 });
+    await refund(l, whole, T('2026-10-16T10:00:00Z'), 10_000, 0);
+    // 40 € devueltos: 10 € de la propina y 30 € del importe → el 10 % de 70 €.
+    await refund(l, part, T('2026-10-16T11:00:00Z'), 4_000, 0);
+    const s = await created(await generate(l, W42, AFTER_W42));
+    expect(s.byConcept).toEqual(c({ platformSales: 1_000 + 0 + 700 }));
+    expect(s.totalCents).toBe(1_700);
+    expect(s.periodCents).toBe(await mapOxioPay(l, W42));
+  });
+});
+
 // ─── Lo que ve cada local, y el 2FA de verdad ───────────────────────────
 
 describe('permisos: el dueño solo lo suyo (y solo lectura); la consola, con 2FA de verdad', () => {

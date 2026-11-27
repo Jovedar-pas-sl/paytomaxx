@@ -199,7 +199,7 @@ describe('OrphanReconcileProcessor — cada intento cuenta (#6)', () => {
   });
 
   it('cobro ya pagado o caducado → ni se consulta la pasarela', async () => {
-    for (const status of ['AUTHORIZED', 'EXPIRED', 'CANCELED', 'REFUNDED']) {
+    for (const status of ['AUTHORIZED', 'EXPIRED', 'REFUNDED']) {
       const m = makeProcessor({ status });
       await m.processor.process(m.job);
       expect(m.adapter.getStatus).not.toHaveBeenCalled();
@@ -304,5 +304,41 @@ describe('OrphanReconcileProcessor — cobro único pagado con el saldo', () => 
     const last = paidWithSaldo({ gateway: {}, attemptsMade: 4, maxAttempts: 5 });
     await expect(last.processor.process(last.job)).resolves.toBeUndefined();
     expect(last.payments.transition).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrphanReconcileProcessor — cancelado por el personal y pagado después en el banco (#40)', () => {
+  function canceled(o: Options = {}) {
+    const m = makeProcessor({ status: 'CANCELED', attempts: [{ providerTxId: '4444CANCEL', status: 'PENDING' }], ...o });
+    // No lo pagó el saldo (sin payment.paid_with_saldo).
+    m.tx.paymentEvent.count.mockResolvedValue(0);
+    Object.assign(m.tx, { $queryRaw: vi.fn().mockResolvedValue([]) });
+    Object.assign(m.tx.paymentAttempt, { findFirst: vi.fn().mockResolvedValue({ amountCents: 2500 }) });
+    return m;
+  }
+
+  it('el banco lo aprobó (aviso perdido) → «Pagó después de cancelar»; sigue cancelado (nunca se da por pagado)', async () => {
+    const m = canceled({ gateway: { '4444CANCEL': 'AUTHORIZED' } });
+    await m.processor.process(m.job);
+    expect(m.adapter.getStatus).toHaveBeenCalledWith(TENANT_ID, '4444CANCEL');
+    expect(m.payments.transition).not.toHaveBeenCalled();
+    expect(m.tx.paymentEvent.create.mock.calls[0]![0].data).toMatchObject({
+      eventType: 'payment.approval_unbooked',
+      payload: { reason: 'paid_after_cancel', providerTxId: '4444CANCEL', amountCents: 2500, fromStatus: 'CANCELED', source: 'conciliacion' },
+    });
+  });
+
+  it('sin aprobación (o la consulta del banco no está: Redsys da «no se sabe») → nada, y sin reintentos (lo repasa el repaso de cada 10 min)', async () => {
+    const m = canceled();
+    await expect(m.processor.process(m.job)).resolves.toBeUndefined();
+    expect(m.tx.paymentEvent.create).not.toHaveBeenCalled();
+    expect(m.payments.transition).not.toHaveBeenCalled();
+  });
+
+  it('cancelado sin pedido abierto en el banco → ni se pregunta', async () => {
+    const m = canceled({ attempts: [], providerTxId: null });
+    await m.processor.process(m.job);
+    expect(m.adapter.getStatus).not.toHaveBeenCalled();
+    expect(m.payments.transition).not.toHaveBeenCalled();
   });
 });

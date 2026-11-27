@@ -24,10 +24,9 @@ export type BackupVerdict =
 
 export function backupVerdict(status: BackupStatus, now: Date, maxAgeHours: number): BackupVerdict {
   if (!status.configured) return { kind: 'unmonitored' };
-  if (status.error) return { kind: 'stale', lastBackupAt: status.lastBackupAt, error: status.error };
-  if (!status.lastBackupAt) return { kind: 'stale', lastBackupAt: null, error: null };
-  const ageMs = now.getTime() - status.lastBackupAt.getTime();
-  return ageMs > maxAgeHours * 3_600_000
-    ? { kind: 'stale', lastBackupAt: status.lastBackupAt, error: null }
-    : { kind: 'ok', lastBackupAt: status.lastBackupAt };
+  // Con un fallo al consultar, lastBackupAt es la última copia buena que se vio:
+  // si es reciente, un fallo de un minuto del almacenamiento no es «sin copia».
+  const last = status.lastBackupAt;
+  if (last && now.getTime() - last.getTime() <= maxAgeHours * 3_600_000) return { kind: 'ok', lastBackupAt: last };
+  return { kind: 'stale', lastBackupAt: last, error: status.error };
 }

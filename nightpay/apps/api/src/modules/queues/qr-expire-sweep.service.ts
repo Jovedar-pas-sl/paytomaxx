@@ -87,11 +87,23 @@ export class QrExpireSweepService implements OnModuleInit, OnModuleDestroy {
         }
         // Con el mismo candado: la IP de los dispositivos de los cobros, a los 90 días (cada 6 h; nunca lanza).
         await this.ipRetention?.maybeRun(now);
+        await this.bankChecks(now);
       } finally {
         await this.redis.eval(RELEASE_LOCK_LUA, 1, LOCK_KEY, lock);
       }
     } catch (err) {
       this.logger.error(`Fallo en el repaso de cobros caducados: ${(err as Error).message}`);
+    }
+  }
+
+  /** Volver a preguntar al banco por los cobros que lo necesitan (PaymentsService.requeueBankChecks). Nunca lanza. */
+  private async bankChecks(now: Date): Promise<void> {
+    try {
+      const { authorizing, canceled } = await this.payments.requeueBankChecks(now);
+      if (authorizing > 0) this.logger.warn(`Repaso del banco: ${authorizing} cobros «Comprobando…» sin su comprobación, vueltos a pedir`);
+      if (canceled > 0) this.logger.log(`Repaso del banco: ${canceled} cancelados recientes vueltos a mirar`);
+    } catch (err) {
+      this.logger.error(`No se pudo pedir el repaso del banco: ${(err as Error).message}`);
     }
   }
 

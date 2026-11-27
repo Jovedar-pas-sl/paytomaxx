@@ -446,6 +446,17 @@ export async function flushPendingResults(): Promise<void> {
   }
 }
 
+/**
+ * Antes de empezar un cobro en el datáfono: se reenvía lo pendiente (en la
+ * barra lo hace el repaso de PaxScreen; en recepción, tras «Volver», nadie lo
+ * hacía y la siguiente recarga decía «espera a que se envíe» para siempre).
+ * false: sigue habiendo una venta aprobada sin enviar (no se empieza otra).
+ */
+export async function readyForNewSale(): Promise<boolean> {
+  await flushPendingResults();
+  return !hasPendingResults();
+}
+
 // ─── Anulaciones sin avisar a OxioPay (A2-07) ─────────────────────────────
 
 export interface PendingVoid {

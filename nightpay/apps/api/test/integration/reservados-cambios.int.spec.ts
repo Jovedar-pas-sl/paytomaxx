@@ -18,6 +18,7 @@ import { CashTopUpService } from '../../src/modules/wallets/wallet-cash-topup.se
 import { ReservationsService, type BookingEntry } from '../../src/modules/reservations/reservations.service';
 import { ReservationOpsService } from '../../src/modules/reservations/reservation-ops.service';
 import { ReservationCatalogService } from '../../src/modules/reservations/reservation-catalog.service';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { autoNoShowAt, nightOf, nightStart } from '../../src/modules/reservations/reservation-rules';
 
 // La hora, fija a las 12:00 de Madrid de hoy (se lancen cuando se lancen).
@@ -231,6 +232,31 @@ describe('el RRPP pierde la comisión si el local cambia la fecha o anula', () =
     expect((await resvOf(res.id)).commissionVoidedAt).not.toBeNull();
     // El saldo, entero: el local no lo devuelve ni lo cobra.
     expect((await walletOf(p.walletId!)).balanceCents).toBe(50000);
+  });
+});
+
+describe('comisión del RRPP ya pagada y el local anula o cambia la fecha', () => {
+  it('no se mueve dinero: el dueño recibe un aviso con el importe y el nombre del RRPP (una vez)', async () => {
+    await sys((tx) => tx.user.update({ where: { id: rrppUser }, data: { displayName: 'Rafa RRPP' } }));
+    const res = await book(await entry(true), plusDays(tonight(), 9));
+    const p = await pay(res.manageToken, 'FULL');
+    const earning = await sys((tx) => tx.operatorEarning.findFirstOrThrow({ where: { operatorId: rrppUser, paymentId: p.id } }));
+    // Ya se le pagó.
+    await sys(async (tx) => {
+      const payout = await tx.operatorPayout.create({ data: { tenantId: A, operatorId: rrppUser, totalCents: 5000, paidByUserId: owner.userId } });
+      await tx.operatorEarning.update({ where: { id: earning.id }, data: { payoutId: payout.id } });
+    });
+    await as(owner, () => ops.venueCancel(owner, res.id, 'Cerramos esa noche'));
+    // Ni se recupera sola (lo pagado, pagado) …
+    expect(await sys((tx) => tx.operatorEarning.findUniqueOrThrow({ where: { id: earning.id } }))).toMatchObject({ reversedCents: 0 });
+    // … pero queda el aviso en la bandeja (y por Telegram, como los demás de Compañeras).
+    const incidents = new IncidentsService(prisma, audit);
+    const mine = (await pub(() => incidents.list(A))).filter((i) => i.kind === 'promoter_commission_paid');
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ amountCents: 5000, ackable: true });
+    expect(mine[0]!.detail).toContain('Rafa RRPP');
+    expect(mine[0]!.detail).toContain('50,00');
+    expect(mine[0]!.alertDetail).not.toContain('Rafa');
   });
 });
 

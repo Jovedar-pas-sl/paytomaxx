@@ -19,6 +19,14 @@ export function cashVoidOutText(t: { amountCents: number; serviceFeeCents?: numb
   return `${formatEur(t.amountCents + fee)} (${formatEur(t.amountCents)} de saldo + ${formatEur(fee)} de comisión del servicio)`;
 }
 
+/** A ciegas (la encargada con la noche abierta), la lista no lleva importes: lo que sale se sabe al anular. */
+export const CASH_VOID_BLIND_TEXT = 'Importe oculto con la noche abierta';
+
+/** Lo que sale de la caja de una recarga de la lista; a ciegas, sin cifras. */
+export function cashVoidRowText(t: { amountCents: number | null; serviceFeeCents?: number }): string {
+  return t.amountCents === null ? CASH_VOID_BLIND_TEXT : cashVoidOutText({ amountCents: t.amountCents, serviceFeeCents: t.serviceFeeCents });
+}
+
 export function cashVoidDoneText(res: { amountCents: number; balanceCents: number; serviceFeeCents?: number }): string {
   return `Anulada: ${cashVoidOutText(res)} salen de la caja. Al saldo le quedan ${formatEur(res.balanceCents)}.`;
 }
@@ -28,7 +36,7 @@ export function cashVoidDoneText(res: { amountCents: number; balanceCents: numbe
  * no anula una recarga que la lleva). Un API de antes no la da: no se manda.
  */
 export function cashVoidBody(
-  t: { amountCents: number; serviceFeeCents?: number },
+  t: { amountCents: number | null; serviceFeeCents?: number },
   reason: string,
   totpCode: string,
 ): { reason: string; totpCode: string; serviceFeeCents?: number } {

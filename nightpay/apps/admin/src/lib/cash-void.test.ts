@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cashVoidBody, cashVoidDoneText, cashVoidOutText, cashVoidProblem } from './cash-void';
+import { CASH_VOID_BLIND_TEXT, cashVoidBody, cashVoidDoneText, cashVoidOutText, cashVoidProblem, cashVoidRowText } from './cash-void';
 
 describe('anular una recarga en efectivo', () => {
   it('hace falta el motivo y el código 2FA (siempre)', () => {
@@ -32,5 +32,13 @@ describe('anular una recarga con la «Comisión del servicio»: sale de la caja 
     expect(cashVoidBody({ amountCents: 10_000, serviceFeeCents: 1_200 }, ' mal ', '123456')).toEqual({ reason: 'mal', totpCode: '123456', serviceFeeCents: 1_200 });
     expect(cashVoidBody({ amountCents: 10_000, serviceFeeCents: 0 }, 'mal', '123456')).toEqual({ reason: 'mal', totpCode: '123456', serviceFeeCents: 0 });
     expect(cashVoidBody({ amountCents: 10_000 }, 'mal', '123456')).toEqual({ reason: 'mal', totpCode: '123456' });
+  });
+});
+
+describe('a ciegas (la encargada con la noche abierta): la lista no trae importes', () => {
+  it('sin importe no se inventa ninguna cifra, y se anula sin mandar comisión', () => {
+    expect(cashVoidRowText({ amountCents: null })).toBe(CASH_VOID_BLIND_TEXT);
+    expect(cashVoidRowText({ amountCents: null })).not.toMatch(/\d/);
+    expect(cashVoidBody({ amountCents: null }, 'mal', '123456')).toEqual({ reason: 'mal', totpCode: '123456' });
   });
 });

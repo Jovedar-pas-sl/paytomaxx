@@ -417,6 +417,7 @@ const INCIDENT_ALERT_KIND: Readonly<Record<string, AlertKindKey>> = {
   staff_pattern: 'payments',
   // «No es mío»: una compañera dice que un servicio cobrado a su nombre no es suyo.
   service_disputed: 'payments',
+  promoter_commission_paid: 'chicas',
 };
 
 export function alertKindForIncident(kind: string): AlertKindKey {

@@ -115,6 +115,8 @@ function setup(o: { venue?: Row; wallet?: Row | null; pacoPost?: string | null }
       findUnique: vi.fn(async (a: { where: { token?: string; id?: string } }) =>
         (a.where.id ? [...cards.values()].find((c) => c.id === a.where.id) : cards.get(String(a.where.token))) ?? null),
     },
+    // Sin noche abierta: el encargado anula viendo los importes (a ciegas, en la de integración).
+    venueNight: { findFirst: vi.fn(async () => null) },
     walletCashTopUp: {
       findUnique: vi.fn(async (a: { where: { id?: string; tenantId_idempotencyKey?: { tenantId: string; idempotencyKey: string }; voidOfId?: string } }) => {
         if (a.where.id) return topUps.get(a.where.id) ?? null;

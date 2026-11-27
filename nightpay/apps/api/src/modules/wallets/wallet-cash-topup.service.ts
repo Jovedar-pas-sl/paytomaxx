@@ -40,6 +40,7 @@ import { assertFichaInHand } from './wallet-fresh-topup';
 import { topUpTarget } from './wallet-topup-target';
 import { VENUE_SERVICE_FEE_SELECT, venueServiceFeeOf } from '../payments/service-fee';
 import { eur } from '../../common/money/eur';
+import { blindsCash } from '../nights/blind-cash';
 
 /**
  * Quién cobra el efectivo: una persona de la app (con su rol, para el
@@ -81,13 +82,18 @@ const KEY_REUSED = 'Esa recarga ya se apuntó con otros datos: vuelve a empezar 
  */
 export const CASH_SPLIT_WINDOW_MINUTES = 60;
 
-/** Una recarga en efectivo de este local que aún se puede anular (sin enseñar el saldo). */
+/**
+ * Una recarga en efectivo de este local que aún se puede anular (sin enseñar
+ * el saldo). A la encargada con la noche abierta (cierre a ciegas), sin el
+ * importe ni la comisión: sumándolas sacaría el efectivo de la caja.
+ */
 export interface RecentCashTopUp {
   id: string;
   at: string;
-  amountCents: number;
-  /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). */
-  serviceFeeCents: number;
+  /** null: a ciegas (la encargada con la noche abierta). */
+  amountCents: number | null;
+  /** Su «Comisión del servicio» (al anularla, sale de la caja con el saldo). A ciegas, no va. */
+  serviceFeeCents?: number;
   /** K7Q-•••: para reconocer al cliente. */
   codeHint: string;
   voided: boolean;
@@ -399,7 +405,10 @@ export class CashTopUpService {
   ): Promise<CashTopUpVoidResult> {
     if (actor.role !== 'MANAGER' && actor.role !== 'OWNER') throw new ForbiddenException('Solo el encargado o el dueño');
     // Antes del 2FA: que la pantalla diga lo que sale de la caja (saldo + comisión del servicio).
-    await this.assertVoidFeeShown(actor.tenantId, topUpId, input.serviceFeeCents);
+    // A ciegas la pantalla no lo enseña (ni este 409 se lo dice): lo sabe al anular, con su 2FA.
+    if (!(await this.blindFor(actor.role, actor.tenantId))) {
+      await this.assertVoidFeeShown(actor.tenantId, topUpId, input.serviceFeeCents);
+    }
     const what = 'Anular una recarga en efectivo';
     const action = stepUpActions.cashTopUpVoid(topUpId);
     if (!input.totpCode) {
@@ -539,7 +548,17 @@ export class CashTopUpService {
   }
 
   /** Las recargas en efectivo de este local en el plazo para anularlas, la más reciente primero. */
-  async recent(venueId: string): Promise<RecentCashTopUp[]> {
+  /** ¿Va a ciegas? La encargada con la noche abierta (como en Saldos, el mapa y el cierre). */
+  private async blindFor(role: string, venueId: string): Promise<boolean> {
+    if (!blindsCash(role, true)) return false;
+    const open = await this.prisma.withTenant(venueId, (tx) =>
+      tx.venueNight.findFirst({ where: { tenantId: venueId, closedAt: null }, select: { id: true } }),
+    );
+    return blindsCash(role, open !== null);
+  }
+
+  async recent(venueId: string, viewer: { role: string }): Promise<RecentCashTopUp[]> {
+    const blind = await this.blindFor(viewer.role, venueId);
     const since = new Date(Date.now() - CASH_TOP_UP_VOID_WINDOW_MINUTES * 60 * 1000);
     const rows = await this.prisma.withTenant(venueId, (tx) =>
       tx.walletCashTopUp.findMany({
@@ -557,8 +576,7 @@ export class CashTopUpService {
     return rows.map((r) => ({
       id: r.id,
       at: r.createdAt.toISOString(),
-      amountCents: r.amountCents,
-      serviceFeeCents: r.serviceFeeCents ?? 0,
+      ...(blind ? { amountCents: null } : { amountCents: r.amountCents, serviceFeeCents: r.serviceFeeCents ?? 0 }),
       codeHint: `${(codeOf.get(r.walletId) ?? '').slice(0, 3)}-•••`,
       voided: r.voidedBy !== null,
     }));

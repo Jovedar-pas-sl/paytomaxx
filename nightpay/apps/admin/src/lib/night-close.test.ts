@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import type { NightCash, NightCloseStep } from '@nightpay/contracts';
 import {
+  blindCountInput,
   cajaInText,
   cajaOutText,
   cashInputOf,
@@ -373,6 +374,35 @@ describe('cierre a ciegas (B9): nadie ve lo esperado hasta escribir lo contado',
     expect(countReady(typed('12abc'))).toBe(false);
     expect(countReady(typed('0'))).toBe(true);
     expect(countReady(typed('65,50'))).toBe(true);
+  });
+});
+
+describe('cierre a ciegas de la encargada: el paso «Efectivo» lo dice el API', () => {
+  // Lo que manda el API a la encargada: ninguna cifra del efectivo (todo a 0 parecería «sin efectivo»).
+  const HIDDEN: NightCash = { ...CASH, openingFloatCents: null, walletCashPayoutsCount: 0, walletCashPayoutsCents: 0, chicaCashPayoutsCount: 0, chicaCashPayoutsCents: 0, cashOutCents: 0, expectedCents: 0, cashHidden: true, floatRecorded: true, countRequired: true };
+  const efectivo = (steps: NightCloseStep[]) => steps.find((s) => s.key === 'efectivo')!;
+  const draft = { floatText: '', countedText: '140' };
+
+  it('sin «Ver si cuadra», el paso sigue como lo manda el API (bloqueando), aunque las cifras sean 0', () => {
+    expect(efectivo(closeSteps(STEPS, HIDDEN, draft, { countDone: false })).status).toBe('block');
+    // Ni dado por contado sin respuesta del API: no se calcula aquí con ceros («sin efectivo, no hace falta contar»).
+    expect(efectivo(closeSteps(STEPS, HIDDEN, draft, { countDone: true, blindCount: null })).status).toBe('block');
+  });
+
+  it('con lo que dijo el API al contar: su estado y su texto', () => {
+    const steps = closeSteps(STEPS, HIDDEN, draft, {
+      countDone: true,
+      blindCount: { status: 'warn', reason: 'short', countedCents: 14_000, diffCents: -500, detail: 'Faltan 5,00 €: confírmalo y la diferencia queda en el Z.' },
+    });
+    expect(efectivo(steps)).toMatchObject({ status: 'warn', detail: expect.stringContaining('Faltan 5,00 €') });
+  });
+
+  it('lo que va al API: lo contado y, si se tecleó, el fondo; sin importe, nada', () => {
+    expect(blindCountInput(draft)).toEqual({ countedCents: 14_000 });
+    expect(blindCountInput({ floatText: '100', countedText: '140' })).toEqual({ countedCents: 14_000, openingFloatCents: 10_000 });
+    expect(blindCountInput({ floatText: '', countedText: '' })).toBeNull();
+    // Cambiar el fondo apuntado no se decide aquí (el panel no lo sabe): lo dice el API.
+    expect(floatChangeCode(HIDDEN, { floatText: '50', countedText: '140' }, { isOwner: false, code: '' })).toEqual({ needed: false });
   });
 });
 

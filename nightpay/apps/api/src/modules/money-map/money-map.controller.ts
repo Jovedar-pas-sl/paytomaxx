@@ -1,5 +1,7 @@
 import { Controller, Get, Inject, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
-import { MoneyMapQuerySchema, type MoneyMap, type MoneyMapQuery, type StaffFicha } from '@nightpay/contracts';
+import { MoneyMapQuerySchema, type JwtPayload, type MoneyMap, type MoneyMapQuery, type StaffFicha } from '@nightpay/contracts';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { blindMoneyMap, blindsCash, overlapsOpenNight } from '../nights/blind-cash';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Tenant } from '../../common/decorators/tenant.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -34,10 +36,18 @@ export class MoneyMapController {
   @UseGuards(StaffPermissionGuard)
   @RequiresPermission('reports')
   async get(
-    @Tenant() tenantId: string,
+    @CurrentUser() user: JwtPayload,
     @Query(new ZodValidationPipe(MoneyMapQuerySchema)) q: MoneyMapQuery,
   ): Promise<MoneyMap> {
-    return this.moneyMap.forQuery(tenantId, q);
+    const map = await this.moneyMap.forQuery(user.tenantId, q);
+    // Cierre a ciegas: la encargada, en directo con la noche abierta, sin la caja esperada.
+    // Tampoco con unas fechas que llegan a la noche abierta (from/to hasta hoy): darían la misma caja.
+    if (blindsCash(user.role, map.scope.kind === 'night' && map.scope.open && !map.frozen)) return blindMoneyMap(map);
+    if (user.role === 'MANAGER' && map.scope.kind === 'period') {
+      const w = await this.moneyMap.currentWindow(user.tenantId);
+      if (blindsCash(user.role, w.open) && overlapsOpenNight(map.to, w.from)) return blindMoneyMap(map);
+    }
+    return map;
   }
 
   @Get('operators/:id/ficha')

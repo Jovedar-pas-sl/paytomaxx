@@ -16,7 +16,7 @@ import {
 import { cardPaymentsCount, cobradoNote, zClosedLines, zCobradoParts } from '@/lib/cobrado';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
-import { diffLabel, parseCashInput, pendingHeading, pendingTodo } from '@/lib/night-close';
+import { BLIND_CASH_TEXT, diffLabel, parseCashInput, pendingHeading, pendingTodo } from '@/lib/night-close';
 import type { PanelTab, TabKey } from '@/lib/roles';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Z_NET_LABEL, zNetLabel, zTypeLabel } from '@/lib/z-labels';
@@ -161,10 +161,12 @@ export function NightsPanel({
             </p>
             <span style={liveStyle}>En vivo</span>
           </div>
-          {typeof current.openingFloatCents === 'number' ? (
+          {current.cashHidden ? (
+            <p style={hintSmall}>{BLIND_CASH_TEXT}</p>
+          ) : typeof current.openingFloatCents === 'number' ? (
             <p style={hintSmall}>Fondo de caja: {formatEur(current.openingFloatCents)}</p>
           ) : null}
-          <ZSummary summary={current.z.summary} />
+          <ZSummary summary={current.z.summary} cashHidden={current.cashHidden} />
           <AdjustmentsBox adjustments={current.z.adjustments} />
           {current.pending.length > 0 ? (
             <div style={pendingBox}>
@@ -283,7 +285,7 @@ export function NightsPanel({
 }
 
 /** Totales de la noche, por tipo y por chica. */
-function ZSummary({ summary: s }: { summary: NightSummary }) {
+function ZSummary({ summary: s, cashHidden = false }: { summary: NightSummary; cashHidden?: boolean }) {
   const totals: Array<[string, number]> = [
     ['Cobrado', s.chargedCents],
     ['Propinas', s.tipsCents],
@@ -300,7 +302,8 @@ function ZSummary({ summary: s }: { summary: NightSummary }) {
     // No es «Para el local» del mapa (el reparto de lo vendido): lleva las recargas y no resta comisiones.
     [zNetLabel(s), s.venueNetCents],
   ];
-  const charged = cobradoNote(zCobradoParts(s), formatEur);
+  // A ciegas, el desglose de «Cobrado» no cuadraría (le falta el efectivo): no sale.
+  const charged = cashHidden ? null : cobradoNote(zCobradoParts(s), formatEur);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={totalsGrid}>
