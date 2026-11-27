@@ -143,6 +143,10 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
       const staffPush = await tx.staffPushSubscription.create({
         data: { tenantId, userId: chica, endpoint: `https://push.ejemplo.es/personal-${tag}-${r}`, p256dh: 'BPk', auth: 'au' },
       });
+      // Cobro por el encargado, fase 2: la ficha NFC de la compañera.
+      const staffCard = await tx.staffCard.create({
+        data: { tenantId, userId: chica, token: `fc${tag}${r}`.padEnd(22, 'x'), uid: `04${randomUUID().replace(/-/g, '').slice(0, 12)}`.toUpperCase(), number: (await tx.$queryRaw<Array<{ n: number }>>`SELECT nextval('wallet_cards_number_seq')::int AS n`)[0]!.n },
+      });
       // API de socios: una plataforma conectada al local (solo el hash de su clave; en `test`, sin lista de IP).
       const partner = await tx.partner.create({
         data: {
@@ -203,6 +207,7 @@ async function seed(tag: string): Promise<{ tenantId: string; rows: Rows }> {
           stalls: stall.id,
           party_refund_requests: refund.id,
           staff_push_subscriptions: staffPush.id,
+          staff_cards: staffCard.id,
         },
       };
     }),

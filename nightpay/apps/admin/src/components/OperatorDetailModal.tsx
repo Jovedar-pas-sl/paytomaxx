@@ -33,6 +33,7 @@ import { PayoutConfirmModal } from './PayoutConfirmModal';
 import { PAYOUT_METHOD_SHORT } from './PayoutMethodForm';
 import { PayoutVerifyModal } from './PayoutVerifyModal';
 import { Pill } from './Pill';
+import { StaffCardBox } from './StaffCardBox';
 
 /** El API devuelve como mucho estas filas de ganancias y de liquidaciones (sin paginar). */
 const HISTORY_LIMIT = 100;
@@ -228,6 +229,10 @@ export function OperatorDetailModal({
             ) : null}
           </div>
           {photoError ? <Notice tone="danger">{photoError}</Notice> : null}
+          {/* Su ficha NFC (cobro por el encargado): solo de las compañeras, no de los camareros. */}
+          {!camarero && ficha ? (
+            <StaffCardBox operatorId={operator.id} name={name} initial={operator.staffCard ?? null} onChanged={onChanged} />
+          ) : null}
           {fichaError ? (
             <Notice tone="danger" action={{ label: 'Reintentar', onClick: () => setAttempt((n) => n + 1) }}>
               {fichaError}

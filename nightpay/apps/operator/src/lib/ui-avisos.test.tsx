@@ -428,7 +428,7 @@ describe('Banner: la franja que se queda', () => {
     expect(rule(PIECES2, '.np-banner-main')).toContain('flex-wrap: wrap;');
   });
 
-  it('el Notice del panel pinta la franja común (sus 88 usos no cambian)', () => {
+  it('el Notice del panel pinta la franja común (sus 91 usos no cambian; +2 de la ficha de la compañera y +1 de su documento)', () => {
     const notice = read(`${ADMIN}components/Notice.tsx`);
     expect(notice).toContain('<Banner tone={tone} action={action} style={style}>');
     expect(notice).not.toMatch(/boxStyle|TONE_COLORS|role=/);
@@ -442,6 +442,6 @@ describe('Banner: la franja que se queda', () => {
       }
     };
     walk(join(dirname(fileURLToPath(import.meta.url)), ADMIN, 'components'));
-    expect(uses).toBe(88);
+    expect(uses).toBe(91);
   });
 });

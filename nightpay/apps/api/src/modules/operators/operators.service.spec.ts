@@ -69,6 +69,8 @@ function makeOps(opts: MakeOptions = {}) {
       // Días de espera del local: null = PAYOUT_HOLD_DAYS.
       findUnique: vi.fn().mockResolvedValue({ payoutHoldDays: null }),
     },
+    // Su ficha NFC (cobro por el encargado, fase 2): sin ficha viva.
+    staffCard: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn() },
   };
   Object.assign(prisma, {
     asSystem: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {

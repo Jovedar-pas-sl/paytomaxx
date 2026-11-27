@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { normalizeWalletCardUid } from '@nightpay/contracts';
 import type { PrismaService, TransactionalClient } from '../../common/prisma/prisma.service';
 import { sameWalletGroup } from './wallet-rules';
+import { assertNotStaffCardTx } from './staff-card-guard';
 
 /**
  * Ficha NFC del saldo: lo que comparten el personal (WalletChargesService), el
@@ -178,6 +179,8 @@ export async function attachCardInTx(
   const uid = input.uid ? normalizeWalletCardUid(input.uid) : null;
   await tx.$queryRaw`SELECT id FROM client_wallets WHERE id = ${input.walletId}::uuid FOR UPDATE`;
   const card = await lockCard(tx, input.card);
+  // La ficha de una compañera no se da a un saldo.
+  if (!card) await assertNotStaffCardTx(tx, input.card);
   if (!card || !(await cardInGroup(tx, card, input.venueId))) {
     throw new BadRequestException('Esta ficha no es nuestra: grábala desde la app (Darle una ficha)');
   }

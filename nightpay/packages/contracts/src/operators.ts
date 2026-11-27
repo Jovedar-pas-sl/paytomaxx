@@ -1,3 +1,4 @@
+import { IdDocumentInputSchema, IdDocumentTypeSchema } from './id-document';
 import { displayNameSchema } from './profile';
 import { z } from 'zod';
 import { BirthDateSchema, LegalNameSchema, OxiocardStatusSchema } from './alta';
@@ -449,6 +450,11 @@ export const OperatorPublicViewSchema = z.object({
   onboardingNotes: z.string().nullable().optional(),
   /** Huella de su foto de perfil (Mi perfil); null o ausente = sin foto. */
   photoHash: z.string().length(64).nullable().optional(),
+  /** Su documento (DNI, NIE o pasaporte), cifrado: aquí el tipo y el número tapado («•••• 678Z»). Entero: el dueño con 2FA. */
+  idDocumentType: IdDocumentTypeSchema.nullable().optional(),
+  idDocumentMasked: z.string().nullable().optional(),
+  /** Su ficha NFC viva («Ficha nº 0522»); null sin ficha. */
+  staffCard: z.object({ number: z.number().int().positive(), issuedAt: z.string().datetime() }).nullable().optional(),
 });
 export type OperatorPublicView = z.infer<typeof OperatorPublicViewSchema>;
 
@@ -570,6 +576,8 @@ export const UpdateOperatorSchema = z.object({
   birthDate: BirthDateSchema.optional(),
   payoutHolderConfirmed: z.literal(true).optional(),
   oxiocardStatus: OxiocardStatusSchema.optional(),
+  /** Su documento (DNI, NIE o pasaporte): se guarda cifrado; null lo quita. El encargado y el dueño. */
+  idDocument: IdDocumentInputSchema.nullable().optional(),
   /** Código 2FA: lo pide el API al cambiar la cuenta de cobro (payout*) si el dueño la tiene activada. */
   totpCode: z.string().regex(/^\d{6}$/, 'El código 2FA son 6 cifras').optional(),
 }).superRefine(refinePayoutAddress);

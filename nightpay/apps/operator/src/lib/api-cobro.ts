@@ -12,6 +12,7 @@ import {
   type InvitableStaff,
   type InvitationRules,
   type SaldoChargePartyExtras,
+  type StaffCardResolved,
 } from '@nightpay/contracts';
 import { SessionExpiredError, parseProblemDetails } from '@nightpay/api-client';
 import {
@@ -276,6 +277,15 @@ export function lookupNfc(card: string, uid: string | null): Promise<WalletLooku
 /** «Nerea reconocida»: de quién es el QR que acaba de leer el camarero. */
 export function resolveStaffQr(token: string): Promise<InvitableStaff> {
   return call<InvitableStaff>('/v1/operators/staff-qr/resolve', { method: 'POST', body: JSON.stringify({ token }) }, 'QR de la compañera');
+}
+
+/**
+ * Cobro por el encargado (fase 2): de quién es la ficha NFC que acaban de
+ * acercar (solo la original, viva y de este local). Trae su «Mi QR» firmado
+ * para cobrar a su nombre, como si se hubiera escaneado.
+ */
+export function resolveStaffCard(card: string, uid: string): Promise<StaffCardResolved> {
+  return call<StaffCardResolved>('/v1/operators/staff-card/resolve', { method: 'POST', body: JSON.stringify({ card, uid }) }, 'Ficha de la compañera');
 }
 
 /** Las chicas del local (si el local deja elegirla de la lista). */

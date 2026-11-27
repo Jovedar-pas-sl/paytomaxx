@@ -77,6 +77,8 @@ function setup(o: { cashBy?: Row | null; wallet?: Row } = {}) {
   const tables = {
     clientWallet: table('w', { walletGroup: 'grupo', mergedIntoId: null, blockedAt: null, closeRequestedAt: null, pinHash: null, pinSetById: null }),
     walletCard: table('card', { uid: null, walletId: null, status: 'STOCK', venueId: SALA }),
+    // Ninguna es la ficha de una compañera.
+    staffCard: table('staff'),
     walletCashTopUp: table('cash'),
     walletCardEvent: table('ev'),
     walletPayout: table('payout'),

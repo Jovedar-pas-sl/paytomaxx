@@ -145,6 +145,7 @@ model Venue {
   btcpayInvoices     BtcpayInvoice[]
   walletPushSubscriptions WalletPushSubscription[]
   staffPushSubscriptions  StaffPushSubscription[]
+  staffCards         StaffCard[]
   btcCashReturns     BtcCashReturn[]
   userPhotos         UserPhoto[]
   customerDisplays   CustomerDisplay[]
@@ -272,6 +273,11 @@ model User {
   phone               String?
   passportCountry     String?
   passportLast4       String?
+  /// Su documento (20261127235000_documento_companera): el tipo (DNI, NIE,
+  /// PASAPORTE) y el número, cifrados como la cuenta de cobro (pa1:…). Se
+  /// borran al darla de baja.
+  idDocumentType      String?
+  idDocumentNumber    String?
   hasEmpadronamiento  Boolean @default(false)
   hasNie              Boolean @default(false)
   hasTie              Boolean @default(false)
@@ -321,6 +327,7 @@ model User {
   promoters             Promoter[]
   // «Te han pagado» (20261120400000): los navegadores que avisa cuando le pagan.
   pushSubscriptions     StaffPushSubscription[]
+  staffCards            StaffCard[]
 
   @@unique([id, tenantId])
   @@index([tenantId])
@@ -506,6 +513,35 @@ model StaffPushSubscription {
   @@index([userId])
   @@index([tenantId])
   @@map("staff_push_subscriptions")
+}
+
+/// La ficha NFC de la compañera (20261127230000_ficha_companera): se acerca al
+/// cobrar un servicio a su nombre, además de su «Mi QR». Vale solo el chip
+/// original (uid). Una viva por compañera (índice parcial en SQL); al darle
+/// otra, la de antes queda anulada. FORCE RLS.
+model StaffCard {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String    @db.Uuid
+  userId        String    @db.Uuid
+  token         String    @unique
+  /// Número de serie del chip (normalizado): una copia no vale.
+  uid           String
+  /// «Ficha nº 0522»: de la misma secuencia que las fichas de los clientes
+  /// (el API la pide con nextval('wallet_cards_number_seq')): nunca se repite.
+  number        Int       @unique
+  issuedById    String?   @db.Uuid
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+  revokedAt     DateTime? @db.Timestamptz
+  revokedById   String?   @db.Uuid
+  /// replaced (se le dio otra) | revoked (anulada) | offboarded (baja).
+  revokedReason String?
+
+  user  User  @relation(fields: [userId, tenantId], references: [id, tenantId], onDelete: Cascade)
+  venue Venue @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tenantId])
+  @@map("staff_cards")
 }
 
 // Bitcoin que llegó SIN cobro (tarde, dos veces o a medias en un cobro que no se
