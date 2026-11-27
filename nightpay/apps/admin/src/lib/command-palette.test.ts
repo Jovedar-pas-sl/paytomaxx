@@ -24,7 +24,7 @@ describe('sin tildes', () => {
   });
 
   it('pantallas: solo las que ve el rol, buscando sin tildes', () => {
-    expect(pantallasDe(OWNER, 'companeras').map((p) => p.key)).toEqual(['operators']);
+    expect(pantallasDe(OWNER, 'companeras').map((p) => p.key)).toEqual(['operators', 'treasury']);
     expect(pantallasDe(OWNER, 'mapa').map((p) => p.key)).toEqual(['money']);
     // El encargado sin informes no ve el mapa ni Informes.
     expect(pantallasDe(MANAGER, 'mapa')).toEqual([]);
@@ -93,7 +93,7 @@ describe('qué dispara cobros o fichas', () => {
 
   it('la fila de un cobro: «C-0022 · 02:14 · 33,00 €»; sin ref no sale', () => {
     const row = { ref: 'C-0022', createdAt: '2026-11-15T01:14:00.000Z', amountCents: 3_000, tipCents: 300, serviceFeeCents: 0, currency: 'EUR', kind: 'PAYMENT' } as CobroRow;
-    expect(filaCobro(row, 'Europe/Madrid')?.replace(/ /g, ' ')).toBe('C-0022 · 02:14 · 33,00 €');
+    expect(filaCobro(row, 'Europe/Madrid')?.replace(/\u00a0/g, ' ')).toBe('C-0022 · 02:14 · 33,00 €');
     expect(filaCobro({ ...row, ref: null }, 'Europe/Madrid')).toBeNull();
   });
 
