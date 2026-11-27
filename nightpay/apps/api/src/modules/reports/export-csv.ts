@@ -22,12 +22,13 @@ import {
   type LiquidacionRow,
   type PagoSaldoRow,
   type RecargaEfectivoRow,
+  type RecargaSocioRow,
   type SectionLabeler,
 } from './export-rows';
 import type { ExportSummary } from './export-summary';
 import type { ReportPeriod } from './report-period';
 import { BRAND_NAME } from '../../common/brand';
-import { HOME_TOPUP_ORIGIN_LABEL, SERVICE_FEE_LABEL } from '@nightpay/contracts';
+import { HOME_TOPUP_ORIGIN_LABEL, SERVICE_FEE_LABEL, publicId } from '@nightpay/contracts';
 
 /**
  * Los cuatro CSV para la gestoría (Fase 1C): libro de cobros, devoluciones,
@@ -196,11 +197,49 @@ export function recargasEfectivoCsv(rows: ReadonlyArray<RecargaEfectivoRow>): st
     text(r.voidOfId ?? null),
     text(r.reason ?? null),
     r.voidOfId ? '' : r.createdWallet ? 'Sí' : 'No',
-    text(person(r.takenByName, r.takenByEmail)),
+    // El efectivo que cobró el cajero de otra plataforma: el socio, aunque la anulación la hiciera alguien del local.
+    text(r.partnerConnectionId ? partnerLabel(r.partnerName) : person(r.takenByName, r.takenByEmail)),
     text(r.terminalLabel),
     r.id,
     ...(withFee ? [money(r.serviceFeeCents ?? 0), money(r.amountCents + (r.serviceFeeCents ?? 0))] : []),
   ]);
+  return toCsv([header, ...body]);
+}
+
+/** «{socio} (plataforma)»: quién cobró el efectivo de un cajero de otra plataforma (CSV y ficha del saldo). */
+export function partnerLabel(name: string | null | undefined): string {
+  return `${name?.trim() || 'Otra plataforma'} (plataforma)`;
+}
+
+const FUNDING_LABELS: Record<string, string> = { cash: 'Efectivo', card: 'Tarjeta', transfer: 'Transferencia', bank_app: 'App del banco' };
+
+/**
+ * Las cargas de los cajeros de otras plataformas («recargas-socios»): cada
+ * carga a su hora y cada anulación a la suya, en negativo y con el cajero de
+ * su carga. Lo que escribe el socio o el local va con text().
+ */
+export function recargasSociosCsv(rows: ReadonlyArray<RecargaSocioRow>): string {
+  const header = [
+    'Fecha', 'Hora', 'Plataforma', 'Tipo', 'Importe', 'Forma de pago', 'Cajero', 'Referencia del socio', 'Descripción', 'Motivo',
+    'Anulada por', 'Carga',
+  ];
+  const body = rows.map((r): CsvCell[] => {
+    const isVoid = r.kind === 'LOAD_VOID';
+    return [
+      date(r.at),
+      time(r.at),
+      text(r.partnerName),
+      isVoid ? 'Anulación' : 'Carga',
+      money(isVoid ? -r.amountCents : r.amountCents),
+      FUNDING_LABELS[r.funding ?? 'cash'] ?? '',
+      text(r.device),
+      text(r.reference),
+      text(r.description),
+      text(r.reason),
+      isVoid ? text(person(r.voidedByName, r.voidedByEmail) || 'La plataforma') : '',
+      publicId('wl', r.loadId),
+    ];
+  });
   return toCsv([header, ...body]);
 }
 

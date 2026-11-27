@@ -8,6 +8,7 @@ import {
   devolucionesCsv,
   liquidacionesCsv,
   recargasEfectivoCsv,
+  recargasSociosCsv,
   resumenCsv,
   saldoDevueltoCsv,
   summarize,
@@ -16,13 +17,13 @@ import { parseReportPeriod, periodSlug, type ReportPeriod } from './report-perio
 import { ReportsService } from './reports.service';
 import { RequiresPermission, StaffPermissionGuard } from '../venues/staff-permission.guard';
 
-const KINDS = ['cobros', 'devoluciones', 'liquidaciones', 'resumen', 'recargas-efectivo', 'saldo-devuelto'] as const;
+const KINDS = ['cobros', 'devoluciones', 'liquidaciones', 'resumen', 'recargas-efectivo', 'recargas-socios', 'saldo-devuelto'] as const;
 type ExportKind = (typeof KINDS)[number];
 
 /**
  * Informes para la gestoría en CSV (Fase 1C). El dueño, y el encargado si el
  * dueño se lo deja (Ajustes → Permisos → ver informes): datos fiscales.
- *   GET /v1/admin/export/{cobros|devoluciones|liquidaciones|resumen|recargas-efectivo|saldo-devuelto}?from=AAAA-MM-DD&to=AAAA-MM-DD
+ *   GET /v1/admin/export/{cobros|devoluciones|liquidaciones|resumen|recargas-efectivo|recargas-socios|saldo-devuelto}?from=AAAA-MM-DD&to=AAAA-MM-DD
  * Días de Madrid, ambos incluidos.
  */
 @Controller('admin/export')
@@ -73,6 +74,9 @@ export class ReportsController {
         return liquidacionesCsv(await this.reports.liquidaciones(tenantId, period));
       case 'recargas-efectivo':
         return recargasEfectivoCsv(await this.reports.recargasEfectivo(tenantId, period));
+      case 'recargas-socios':
+        // Las cargas de los cajeros de otras plataformas (API de socios): sin la API, vacío.
+        return recargasSociosCsv(await this.reports.recargasSocios(tenantId, period));
       case 'saldo-devuelto':
         return saldoDevueltoCsv(await this.reports.pagosSaldo(tenantId, period));
       case 'resumen': {
