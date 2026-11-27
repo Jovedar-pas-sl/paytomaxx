@@ -116,3 +116,56 @@ describe('WalletLiveCodeService.dropWallet', () => {
     await expect(service.dropWallet(W1)).resolves.toBeUndefined();
   });
 });
+
+describe('WalletLiveCodeService.offered', () => {
+  const NOW = new Date('2026-11-27T22:00:00Z');
+  const BIZ = 'eeeeeeee-0000-4000-8000-000000000001';
+  const TENANT = 'aaaaaaaa-0000-4000-8000-000000000001';
+  const conn = (over: Record<string, unknown> = {}) => ({
+    tenantId: TENANT,
+    scopes: ['wallet:balance', 'wallet:load'],
+    pausedScopes: [] as string[],
+    keyCreatedAt: new Date('2026-11-20T10:00:00Z'),
+    keyResumedAt: null,
+    lastUsedAt: null,
+    partner: { allowedScopes: ['wallet:balance', 'wallet:load'] },
+    venue: { walletGroup: null, businessId: BIZ, business: { taxId: 'B00000000' } },
+    ...over,
+  });
+  function offerFake(c: ReturnType<typeof conn>, wallet: Record<string, unknown> = {}) {
+    const tx = {
+      clientWallet: { findUnique: vi.fn(async () => ({ tenantId: TENANT, walletGroup: null, mergedIntoId: null, blockedAt: null, ...wallet })) },
+      venue: { findUnique: vi.fn(async () => ({ businessId: BIZ })) },
+      partnerConnection: { findMany: vi.fn(async () => [c]) },
+    };
+    return { asSystem: vi.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)) };
+  }
+
+  beforeEach(() => {
+    vi.stubEnv('PARTNER_API_ENABLED', 'true');
+    vi.stubEnv('PARTNER_API_MODE', 'test');
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('una conexión que vale y alcanza el saldo: sale', async () => {
+    expect(await new WalletLiveCodeService(offerFake(conn()) as never).offered(W1, NOW)).toBe(true);
+  });
+
+  it('con sus permisos útiles en pausa, no; con uno de los dos aún vivo, sí', async () => {
+    expect(await new WalletLiveCodeService(offerFake(conn({ pausedScopes: ['wallet:balance', 'wallet:load'] })) as never).offered(W1, NOW)).toBe(false);
+    expect(await new WalletLiveCodeService(offerFake(conn({ scopes: ['wallet:load'], pausedScopes: ['wallet:load'] })) as never).offered(W1, NOW)).toBe(false);
+    expect(await new WalletLiveCodeService(offerFake(conn({ pausedScopes: ['wallet:load'] })) as never).offered(W1, NOW)).toBe(true);
+  });
+
+  it('un saldo bloqueado: no sale', async () => {
+    expect(await new WalletLiveCodeService(offerFake(conn(), { blockedAt: new Date() }) as never).offered(W1, NOW)).toBe(false);
+  });
+
+  it('si la base falla: no sale, no lanza y avisa en el log (solo el tipo)', async () => {
+    const svc = new WalletLiveCodeService({ asSystem: vi.fn(async () => Promise.reject(new TypeError('consulta secreta'))) } as never);
+    const warn = vi.spyOn((svc as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn').mockImplementation(() => undefined);
+    expect(await svc.offered(W1, NOW)).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('(TypeError)'));
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('secreta'));
+  });
+});
