@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
 import {
+  cartStatusKnown,
   YAVIN_SECOND_REFUND_TEXT,
   YavinAdapter,
   cartPaidFor,
@@ -19,10 +20,15 @@ const ATTEMPT = '33333333-3333-4333-8333-333333333333';
 const FAKE_KEY = 'clave-inventada-de-prueba';
 const API = 'http://yavin.simulado';
 
-function makeAdapter(opts: { attemptCents?: number | null; credential?: boolean } = {}) {
+function makeAdapter(opts: { attemptCents?: number | null; credential?: boolean; previousKey?: string } = {}) {
   const sealed = sealYavinKey(KEK, TENANT, FAKE_KEY);
+  // La activa primero y, si la hay, la anterior (inactiva).
+  const all = [sealed, ...(opts.previousKey ? [sealYavinKey(KEK, TENANT, opts.previousKey)] : [])];
   const tx = {
-    gatewayCredential: { findFirst: vi.fn(async () => (opts.credential === false ? null : sealed)) },
+    gatewayCredential: {
+      findFirst: vi.fn(async () => (opts.credential === false ? null : sealed)),
+      findMany: vi.fn(async () => (opts.credential === false ? [] : all)),
+    },
     payment: { findUnique: vi.fn(async () => ({ tenantId: TENANT })) },
     paymentAttempt: {
       findUnique: vi.fn(async () => (opts.attemptCents === null ? null : { amountCents: opts.attemptCents ?? 2500 })),
@@ -217,6 +223,19 @@ describe('YavinAdapter.cancelLink: anular', () => {
     fetchSpy.mockRejectedValueOnce(new Error('ECONNRESET'));
     await expect(makeAdapter().cancelLink(TENANT, 'cart-1')).rejects.toThrow(/sin respuesta/);
   });
+
+  it('enlace abierto con la clave anterior: la activa da 401 y se reintenta con la inactiva', async () => {
+    fetchSpy.mockResolvedValueOnce(reply(401, { detail: 'Invalid secret' })).mockResolvedValueOnce(reply(200, {}));
+    await makeAdapter({ previousKey: 'clave-anterior-inventada' }).cancelLink(TENANT, 'cart-1');
+    const secrets = fetchSpy.mock.calls.map((c) => ((c[1] as RequestInit).headers as Record<string, string>)['Yavin-Secret']);
+    expect(secrets).toEqual([FAKE_KEY, 'clave-anterior-inventada']);
+  });
+
+  it('sin clave anterior, el 401 se queda como error (no se reintenta)', async () => {
+    fetchSpy.mockResolvedValueOnce(reply(401, { detail: 'Invalid secret' }));
+    await expect(makeAdapter().cancelLink(TENANT, 'cart-1')).rejects.toThrow(/401/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('YavinAdapter.refund: una devolución sí, la segunda no', () => {
@@ -286,5 +305,16 @@ describe('YavinAdapter: el aviso guardado', () => {
     expect(a.token).not.toBe(b.token);
     expect(a.hash).toBe(noticeTokenHash(a.token));
     expect(a.hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('Yavin: estados del carrito que sabemos leer', () => {
+  it('pagado, sin pagar y cerrado: conocidos', () => {
+    for (const status of ['paid', 'PAID', 'pending', 'PENDING', 'cancelled', 'expired']) expect(cartStatusKnown({ status })).toBe(true);
+  });
+
+  it('otro estado, o sin estado: desconocido (va a Incidencias)', () => {
+    expect(cartStatusKnown({ status: 'authorised_pending_capture' })).toBe(false);
+    expect(cartStatusKnown({})).toBe(false);
   });
 });

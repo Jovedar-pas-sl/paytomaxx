@@ -183,3 +183,27 @@ describe('Sentry: API de socios (claves, QR, chip y descripción)', () => {
     expect(text).toContain('"amount":2000');
   });
 });
+
+describe('Sentry: documento de la compañera y clave de Yavin', () => {
+  it('idDocument (el objeto entero) no sale', () => {
+    const event = scrubSensitive({ request: { data: { displayName: 'Ana', idDocument: { type: 'DNI', number: '12345678Z' } } } });
+    const text = JSON.stringify(event);
+    expect(text).not.toContain('12345678Z');
+    expect(text).toContain('"displayName":"Ana"');
+  });
+
+  it('number (el número del documento, suelto o como texto JSON) no sale', () => {
+    const event = scrubSensitive({ request: { data: JSON.stringify({ doc: { type: 'NIE', number: 'X1234567L' }, amountCents: 900 }) } });
+    const text = JSON.stringify(event);
+    expect(text).not.toContain('X1234567L');
+    expect(text).toContain('amountCents');
+  });
+
+  it('apiKey de Yavin (también en un formulario) no sale', () => {
+    const event = scrubSensitive({ request: { data: { apiKey: 'yv_live_S3CR3T_KEY', venueId: 'v1' } } });
+    expect(JSON.stringify(event)).not.toContain('yv_live_S3CR3T_KEY');
+    expect(JSON.stringify(event)).toContain('"venueId":"v1"');
+    const form = scrubSensitive({ request: { data: 'apiKey=yv_live_S3CR3T_KEY&venueId=v1' } });
+    expect(JSON.stringify(form)).not.toContain('yv_live_S3CR3T_KEY');
+  });
+});

@@ -60,6 +60,7 @@ import {
   type ServedOperator,
 } from '../payments/charge-store';
 import { invitationEarnings } from '../payments/invitation-lines';
+import { YavinCancelHook } from '../payments/yavin-cancel.hook';
 import {
   alreadyPaid,
   cancelCardForSaldo,
@@ -894,7 +895,9 @@ export class WalletChargesService {
     tipChoice: number | null = null,
   ): Promise<NoPinSettled | null> {
     const wallet = { id: walletId };
-    return this.prisma.acrossVenues(async (tx) => {
+    /** El cobro con tarjeta que este pago con saldo canceló (cobro único). */
+    const canceled: { card: { id: string; tenantId: string } | null } = { card: null };
+    const settled = await this.prisma.acrossVenues(async (tx) => {
       // Cobro único: primero la fila del cobro con tarjeta (el mismo orden que
       // transition()): gana el primero que se paga. Pagado con tarjeta →
       // «Ya está pagado»; cancelado o caducado → ya no está pendiente.
@@ -1056,9 +1059,27 @@ export class WalletChargesService {
         afterCents: newBalance,
       });
       // Cobro único: el cobro con tarjeta ya no se puede autorizar.
-      if (card) await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
+      if (card) {
+        await cancelCardForSaldo(tx, card, request.id, randomBytes(8).toString('hex'));
+        canceled.card = { id: card.id, tenantId: card.tenantId };
+      }
       return noPin;
     });
+    // Ya pagado con el saldo: si el cliente abrió un enlace de Yavin (vive 72 h),
+    // se anula para que no pague dos veces. Fuera de la transacción: un fallo
+    // de Yavin nunca deshace el pago con saldo.
+    if (canceled.card) await this.cancelYavinLinks(canceled.card);
+    return settled;
+  }
+
+  /** Anula los enlaces de Yavin abiertos de un cobro con tarjeta ya cancelado. Nunca lanza. */
+  private async cancelYavinLinks(card: { id: string; tenantId: string }): Promise<void> {
+    try {
+      const hook = this.moduleRef.get(YavinCancelHook, { strict: false });
+      await hook.cancelLinks(card.id, card.tenantId);
+    } catch (err) {
+      this.logger.warn(`Pagado con saldo ${card.id}: no se pudieron anular sus enlaces de Yavin: ${(err as Error).message}`);
+    }
   }
 
   /**

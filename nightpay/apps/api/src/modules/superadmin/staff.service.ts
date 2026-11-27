@@ -30,6 +30,7 @@ import { PrismaService, type TransactionalClient } from '../../common/prisma/pri
 import { RefreshTokenService } from '../auth/refresh-token.service';
 import { TotpService } from '../auth/totp.service';
 import { operatorAppBaseUrl } from '../operators/operator-app-url';
+import { idDocumentData } from '../operators/id-document';
 import { OperatorsService } from '../operators/operators.service';
 import { inVenue } from '../../common/context/in-venue';
 import { SuperAdminStepUpService } from './step-up.service';
@@ -239,18 +240,27 @@ export class SuperAdminStaffService {
     return result;
   }
 
-  /** Baja: no entra y se cierran sus sesiones. Ni a ti mismo ni al último super-admin. */
+  /**
+   * Baja: no entra y se cierran sus sesiones. Ni a ti mismo ni al último
+   * super-admin. Una compañera, como la baja del panel: se borra su documento
+   * (cifrado) y su ficha NFC viva deja de valer.
+   */
   async disable(actor: SuperAdminActor, id: string, dto: StepUpWithReasonDto): Promise<StaffUserView> {
     await this.stepUp.verify(actor, dto.totpCode, 'user.disable');
     if (id === actor.id) throw new BadRequestException('No te puedes dar de baja a ti mismo');
-    const tenantId = await this.prisma.acrossVenues(async (tx) => {
+    const { tenantId, role } = await this.prisma.acrossVenues(async (tx) => {
       const user = await this.lockUser(tx, id);
       if (user.deletedAt) throw new ConflictException('Ya está dado de baja');
       if (user.isSuperAdmin) await this.assertNotLastSuperAdmin(tx, actor, id);
-      await tx.user.update({ where: { id }, data: { deletedAt: new Date() } });
-      return user.tenantId;
+      const offboarding = user.role === 'OPERATOR' ? idDocumentData(id, null) : {};
+      await tx.user.update({ where: { id }, data: { deletedAt: new Date(), ...offboarding } });
+      return { tenantId: user.tenantId, role: user.role };
     });
     const revoked = await this.refreshTokens.revokeAllForUser(id);
+    // En su local (no en el del super-admin): la ficha y el registro son de allí.
+    if (role === 'OPERATOR' && tenantId) {
+      await inVenue(this.cls, tenantId, () => this.operators.revokeStaffCardOnLeave(tenantId, id, actor.id));
+    }
     await this.audit.write(actor, {
       action: 'user.disabled',
       tenantId,

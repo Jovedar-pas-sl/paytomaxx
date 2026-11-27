@@ -1,19 +1,45 @@
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { SetYavinKeyDto, SetYavinUseDto, StepUpWithReasonDto, YavinVenueStatus } from '@nightpay/contracts';
-import { PrismaService } from '../../common/prisma/prisma.service';
+import { PrismaService, type TransactionalClient } from '../../common/prisma/prisma.service';
 import { baseGatewayOf } from '../gateways/card-gateway';
 import { sealYavinKey } from '../gateways/yavin-credential';
+import { YAVIN_LINK_TTL_HOURS } from '../gateways/yavin.adapter';
 import { yavinEnabled } from '../gateways/yavin-flag';
 import { SuperAdminStepUpService } from './step-up.service';
 import { SuperAdminAuditService } from './superadmin-audit.service';
 import type { SuperAdminActor } from './superadmin.guard';
 
+/** El enlace de Yavin vive 72 h. */
+const YAVIN_LINK_TTL_MS = YAVIN_LINK_TTL_HOURS * 60 * 60 * 1000;
+/** Cobros que aún pueden acabar pagados (o comprobarse) con el enlace de Yavin. */
+const OPEN_PAYMENT_STATUSES = ['CREATED', 'AWAITING_CAPTURE', 'AUTHORIZING', 'ORPHAN'] as const;
+
+export const YAVIN_KEY_ROTATION_BUSY =
+  'Ya cambiaste la clave de Yavin hace poco y las dos últimas tienen enlaces de las últimas 72 h o cobros abiertos: sin ellas no se podrían comprobar, anular ni devolver. Espera a que caduquen para cambiarla otra vez.';
+
+/**
+ * ¿La clave guardada en `from` (hasta `until`, cuando la sustituyó otra) abrió
+ * enlaces de Yavin de las últimas 72 h, o de cobros aún abiertos?
+ */
+async function yavinKeyStillNeeded(tx: TransactionalClient, venueId: string, from: Date, until: Date, now: Date): Promise<boolean> {
+  const count = await tx.paymentAttempt.count({
+    where: {
+      tenantId: venueId,
+      provider: 'YAVIN',
+      createdAt: { gte: from, lt: until },
+      OR: [{ createdAt: { gt: new Date(now.getTime() - YAVIN_LINK_TTL_MS) } }, { payment: { status: { in: [...OPEN_PAYMENT_STATUSES] } } }],
+    },
+  });
+  return count > 0;
+}
+
 /**
  * Yavin en un local, desde la consola del super-admin (2FA en todo, como el
  * IBAN de liquidación). La clave de API se guarda cifrada en
  * gateway_credentials (provider YAVIN) y nunca vuelve: ni en la respuesta, ni
- * en el registro, ni en el log. Guardar una nueva sustituye a la anterior.
+ * en el registro, ni en el log. Guardar una nueva deja la anterior inactiva
+ * (para los enlaces que ya abrió).
  * «Quitar» no la borra: la deja inactiva (ningún cobro nuevo la usa) para que
  * los cobros ya hechos con Yavin se sigan comprobando, anulando y devolviendo.
  */
@@ -51,8 +77,29 @@ export class SuperAdminYavinService {
     const before = await this.status(venueId);
     const sealed = sealYavinKey(this.config.get<string>('ENCRYPTION_KEK'), venueId, dto.apiKey);
     await this.prisma.acrossVenues(async (tx) => {
-      // Una sola fila de Yavin por local (la de antes se borra: su clave ya no vale).
-      await tx.gatewayCredential.deleteMany({ where: { tenantId: venueId, provider: 'YAVIN' } });
+      // La de antes se queda inactiva: los enlaces que abrió (viven 72 h) se
+      // siguen comprobando, anulando y devolviendo con ella. Cabe una activa y
+      // una inactiva por local: la inactiva más vieja solo se borra si ya no
+      // tiene enlaces de las últimas 72 h ni cobros abiertos.
+      const rows = await tx.gatewayCredential.findMany({
+        where: { tenantId: venueId, provider: 'YAVIN' },
+        select: { id: true, active: true, createdAt: true },
+      });
+      const active = rows.find((row) => row.active);
+      const inactive = rows.find((row) => !row.active);
+      const now = new Date();
+      if (active) {
+        const inactiveNeeded = inactive ? await yavinKeyStillNeeded(tx, venueId, inactive.createdAt, active.createdAt, now) : false;
+        if (!inactiveNeeded) {
+          if (inactive) await tx.gatewayCredential.delete({ where: { id: inactive.id } });
+          await tx.gatewayCredential.update({ where: { id: active.id }, data: { active: false } });
+        } else if (await yavinKeyStillNeeded(tx, venueId, active.createdAt, now, now)) {
+          throw new ConflictException(YAVIN_KEY_ROTATION_BUSY);
+        } else {
+          // La activa no abrió ningún enlace que siga vivo (p. ej. una clave mal copiada): se sustituye.
+          await tx.gatewayCredential.delete({ where: { id: active.id } });
+        }
+      }
       await tx.gatewayCredential.create({ data: { tenantId: venueId, provider: 'YAVIN', active: true, ...sealed } });
     });
     await this.audit.write(actor, {

@@ -946,6 +946,7 @@ const PROVIDER_TEXT: Record<string, { who: string; where: string }> = {
   PAYTEF: { who: 'Paytef', where: 'el panel de Paytef' },
   PEANPE: { who: 'Peanpe', where: 'el panel de Peanpe' },
   WIPAY: { who: 'Cecabank', where: 'el portal de Cecabank' },
+  YAVIN: { who: 'Yavin', where: 'el portal de Yavin' },
   BTCPAY: { who: 'Tu BTCPay (bitcoin)', where: 'tu BTCPay y la cartera del local' },
 };
 const UNKNOWN_PROVIDER_TEXT = { who: 'La pasarela', where: 'el panel de la pasarela' };
@@ -1064,6 +1065,19 @@ export function paymentAnomalyIncident(r: PaymentAnomalyRow): Incident {
       refId: r.paymentId ?? r.id,
       title: known?.title ?? 'Una factura de bitcoin no cuadra con el cobro',
       detail: `${known?.what ?? 'BTCPay avisa de una factura cuyo importe, moneda o tienda no coinciden con el cobro.'} NO se ha dado por pagado${r.amountCents === null ? '' : ` (${eurPlain(r.amountCents)})`}${orderText}. Míralo en ${provider.where}: lo recibido se devuelve en euros (nunca en bitcoin) y se cancela el cobro, o, si ya está todo cobrado, resuélvelo en Hoy → Cobros → Resolver.`,
+      amountCents: r.amountCents,
+      ackable: false,
+    };
+  }
+  // Aviso de Yavin con un estado que no sabemos leer: ni pagado ni sin pagar.
+  if (str(r.payload, 'source') === 'yavin') {
+    const status = str(r.payload, 'status');
+    return {
+      ...base,
+      kind: 'approval_unverified',
+      refId: r.paymentId ?? r.id,
+      title: 'Yavin avisa con un estado que no conocemos',
+      detail: `Yavin avisó de este cobro${r.amountCents === null ? '' : ` (${eurPlain(r.amountCents)})`} con el estado «${status ?? 'sin estado'}», que aquí no se sabe leer: NO se ha dado por pagado. Míralo en ${provider.where}${orderText} y, si está cobrado, resuélvelo en Hoy → Cobros → Resolver; si no, cancélalo.`,
       amountCents: r.amountCents,
       ackable: false,
     };

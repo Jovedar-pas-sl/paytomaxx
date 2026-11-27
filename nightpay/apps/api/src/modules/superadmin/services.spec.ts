@@ -247,7 +247,10 @@ function staffSetup(opts: { target: Record<string, unknown>; activeSuperAdmins: 
   const stepUp = { verify: vi.fn().mockResolvedValue(undefined) };
   const audit = { write: vi.fn().mockResolvedValue(undefined) };
   const refreshTokens = { revokeAllForUser: vi.fn().mockResolvedValue(0) };
-  const operators = { assertCommissionFits: vi.fn().mockResolvedValue(undefined) };
+  const operators = {
+    assertCommissionFits: vi.fn().mockResolvedValue(undefined),
+    revokeStaffCardOnLeave: vi.fn().mockResolvedValue(undefined),
+  };
   const svc = new SuperAdminStaffService(
     prisma as never,
     stepUp as never,
@@ -258,7 +261,8 @@ function staffSetup(opts: { target: Record<string, unknown>; activeSuperAdmins: 
     {} as never,
     {} as never,
     {} as never,
-    {} as never,
+    // El contexto de la petición (inVenue): lo justo para cambiar de local.
+    { run: (_o: unknown, fn: () => unknown) => fn(), get: () => ({}), set: () => undefined } as never,
   );
   return { svc, tx, audit, refreshTokens, operators };
 }
@@ -309,6 +313,31 @@ describe('SuperAdminStaffService — «Dar de alta otra vez» a una compañera',
     await expect(svc.enable(actor, 'op-1', { reason: 'vuelve', totpCode: '123456' })).rejects.toThrow(/pasa del 100 %/);
     expect(operators.assertCommissionFits).toHaveBeenCalledWith('v-1', 9500);
     expect(tx.user.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('SuperAdminStaffService — baja de una compañera desde la consola', () => {
+  it('como la del panel: se borra su documento y su ficha NFC viva queda anulada («offboarded»)', async () => {
+    const { svc, tx, operators } = staffSetup({
+      target: { id: 'op-1', tenantId: 'v-1', role: 'OPERATOR', isSuperAdmin: false, deletedAt: null },
+      activeSuperAdmins: ['sa-1'],
+    });
+    await svc.disable(actor, 'op-1', { reason: 'se va', totpCode: '123456' });
+    expect(tx.user.update).toHaveBeenCalledWith({
+      where: { id: 'op-1' },
+      data: { deletedAt: expect.any(Date), idDocumentType: null, idDocumentNumber: null },
+    });
+    expect(operators.revokeStaffCardOnLeave).toHaveBeenCalledWith('v-1', 'op-1', actor.id);
+  });
+
+  it('un encargado: solo la baja (no tiene documento ni ficha de compañera)', async () => {
+    const { svc, tx, operators } = staffSetup({
+      target: { id: 'm-1', tenantId: 'v-1', role: 'MANAGER', isSuperAdmin: false, deletedAt: null },
+      activeSuperAdmins: ['sa-1'],
+    });
+    await svc.disable(actor, 'm-1', { reason: 'se va', totpCode: '123456' });
+    expect(tx.user.update).toHaveBeenCalledWith({ where: { id: 'm-1' }, data: { deletedAt: expect.any(Date) } });
+    expect(operators.revokeStaffCardOnLeave).not.toHaveBeenCalled();
   });
 });
 

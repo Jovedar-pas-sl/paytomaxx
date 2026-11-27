@@ -17,6 +17,7 @@ import { assertYavinFirstRefund } from '../../src/modules/refunds/yavin-refund';
 import { PaymentsController } from '../../src/modules/payments/payments.controller';
 import { SuperAdminYavinService } from '../../src/modules/superadmin/yavin-venue.service';
 import { yavinUsableIn } from '../../src/modules/gateways/card-gateway';
+import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import type { CheckoutChoice } from '../../src/modules/payments/pay-redirect';
 
 const KEK = process.env.ENCRYPTION_KEK!;
@@ -49,7 +50,7 @@ const redsysAuthorize = vi.fn(async () => ({
 }));
 const redsys = { provider: 'REDSYS', authorize: redsysAuthorize };
 const registry = { get: (p: string) => (p === 'YAVIN' ? yavin : redsys) };
-const orphanQueue = { getJob: async () => undefined, add: async () => undefined };
+const orphanQueue = { getJob: async () => undefined, add: async (..._args: unknown[]) => undefined };
 const payments = new PaymentsService(
   prisma as never,
   cls as never,
@@ -85,6 +86,8 @@ interface FakeCart {
   amount: number;
   order_id: string;
   webhook: string;
+  /** La clave con la que se abrió: Yavin solo lo enseña (o lo anula) con esa. */
+  key?: string;
 }
 const carts = new Map<string, FakeCart>();
 const calls: Array<{ path: string; body: Record<string, unknown>; secret: string | undefined }> = [];
@@ -96,9 +99,13 @@ const fakeYavin = vi.fn(async (url: string | URL, init?: RequestInit) => {
   calls.push({ path, body, secret: (init?.headers as Record<string, string> | undefined)?.['Yavin-Secret'] });
   if (path === '/api/v5/ecommerce/generate_link/') {
     const cartId = `cart-${randomUUID().slice(0, 8)}`;
-    carts.set(cartId, { status: 'pending', amount: Number(body.amount), order_id: String(body.order_id), webhook: String(body.webhook_url) });
+    const key = (init?.headers as Record<string, string> | undefined)?.['Yavin-Secret'];
+    carts.set(cartId, { status: 'pending', amount: Number(body.amount), order_id: String(body.order_id), webhook: String(body.webhook_url), key });
     return json(200, { link: `https://pay.yavin.simulado/${cartId}`, cart_id: cartId });
   }
+  const secret = (init?.headers as Record<string, string> | undefined)?.['Yavin-Secret'];
+  const owned = carts.get(String(body.cart_id));
+  if (owned?.key && owned.key !== secret) return json(401, { detail: 'Invalid secret' });
   if (path === '/api/v5/ecommerce/get_cart_information/') {
     const cart = carts.get(String(body.cart_id));
     return cart ? json(200, { status: cart.status, amount: cart.amount, currency: 'EUR', order_id: cart.order_id }) : json(404, {});
@@ -230,6 +237,25 @@ describe('Yavin: el aviso (sin firma)', () => {
     expect((await paymentOf(p.id)).status).toBe('AUTHORIZING');
     expect(await deliveriesOf(cartId)).toBe(0);
     expect(calls.filter((c) => c.path === '/api/v5/ecommerce/get_cart_information/')).toHaveLength(1);
+    // «pending» es un estado conocido: sin incidencia.
+    expect(await sys((tx) => tx.paymentEvent.count({ where: { paymentId: p.id, eventType: 'payment.approval_unverified' } }))).toBe(0);
+  });
+
+  it('estado que no conocemos → no se da por pagado, pero queda en Incidencias (una vez aunque el aviso se repita)', async () => {
+    const p = await newPayment();
+    const { cartId, token } = await openWithYavin(p);
+    carts.get(cartId)!.status = 'authorised_pending_capture';
+    await expect(webhooks.receiveYavin(token)).resolves.toEqual({ received: true });
+    await expect(webhooks.receiveYavin(token)).resolves.toEqual({ received: true });
+    expect((await paymentOf(p.id)).status).toBe('AUTHORIZING');
+    expect(await deliveriesOf(cartId)).toBe(0);
+    const events = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: p.id, eventType: 'payment.approval_unverified' } }));
+    expect(events).toHaveLength(1);
+    expect(events[0]!.payload).toMatchObject({ provider: 'YAVIN', source: 'yavin', providerTxId: cartId, status: 'authorised_pending_capture' });
+    const incidents = await inCtx(A, () => new IncidentsService(prisma as never, {} as never).list(A));
+    expect(incidents).toContainEqual(
+      expect.objectContaining({ kind: 'approval_unverified', paymentId: p.id, title: 'Yavin avisa con un estado que no conocemos' }),
+    );
   });
 
   it('pagado → PAGADO una sola vez aunque el aviso llegue dos veces', async () => {
@@ -295,6 +321,43 @@ describe('Yavin: cancelar y devolver', () => {
     expect((await paymentOf(p.id)).status).toBe('CANCELED');
     expect(calls).toEqual([expect.objectContaining({ path: '/api/v5/ecommerce/cancel_link/', body: { cart_id: cartId }, secret: FAKE_KEY })]);
     expect(carts.get(cartId)!.status).toBe('cancelled');
+  });
+
+  it('cancel_link falla: queda apuntado y el repaso de cancelados lo vuelve a mirar las 72 h del enlace (no solo media hora)', async () => {
+    const failed = await newPayment();
+    const ok = await newPayment();
+    const { cartId } = await openWithYavin(failed);
+    await openWithYavin(ok);
+    await sys(async (tx) => {
+      const past = new Date(Date.now() - 3 * 60_000);
+      await tx.paymentAttempt.updateMany({ where: { paymentId: { in: [failed.id, ok.id] } }, data: { createdAt: past } });
+      await tx.paymentEvent.updateMany({ where: { paymentId: { in: [failed.id, ok.id] } }, data: { occurredAt: past } });
+    });
+    await inCtx(A, () => payments.cancel(ok.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    // Yavin no responde al anular el enlace del otro: el cobro se cancela igual.
+    globalThis.fetch = vi.fn(async () => json(503, {})) as never;
+    await inCtx(A, () => payments.cancel(failed.id, { userId: waiter, role: 'WAITER', tenantId: A }));
+    globalThis.fetch = fakeYavin as never;
+    expect((await paymentOf(failed.id)).status).toBe('CANCELED');
+    const marks = await sys((tx) => tx.paymentEvent.findMany({ where: { paymentId: failed.id, eventType: 'yavin.cancel_link_failed' } }));
+    expect(marks.map((m) => m.payload)).toEqual([{ provider: 'YAVIN', cartId }]);
+    // Dos horas después (fuera de la media hora de siempre): solo el del enlace vivo.
+    const twoHoursAgo = new Date(Date.now() - 2 * 3_600_000);
+    await sys((tx) => tx.payment.updateMany({ where: { id: { in: [failed.id, ok.id] } }, data: { updatedAt: twoHoursAgo } }));
+    const add = vi.spyOn(orphanQueue, 'add');
+    try {
+      await pub(() => payments.requeueBankChecks());
+      const queued = add.mock.calls.map((c) => (c[1] as { paymentId: string }).paymentId);
+      expect(queued).toContain(failed.id);
+      expect(queued).not.toContain(ok.id);
+      // Pasadas las 72 h, ya no.
+      add.mockClear();
+      await sys((tx) => tx.payment.update({ where: { id: failed.id }, data: { updatedAt: new Date(Date.now() - 73 * 3_600_000) } }));
+      await pub(() => payments.requeueBankChecks());
+      expect(add.mock.calls.map((c) => (c[1] as { paymentId: string }).paymentId)).not.toContain(failed.id);
+    } finally {
+      add.mockRestore();
+    }
   });
 
   it('una devolución sí; con una ya pedida o hecha, la segunda se bloquea con mensaje claro', async () => {
@@ -463,5 +526,86 @@ describe('Super-admin quita Yavin de un local con cobros de Yavin abiertos y pag
     await expect(clear()).rejects.toBeInstanceOf(ConflictException);
     const rows = await sys((tx) => tx.gatewayCredential.findMany({ where: { tenantId: B.tenantId, provider: 'YAVIN' } }));
     expect(rows.map((x) => x.active)).toEqual([false]);
+  });
+});
+
+describe('Cambiar la clave de Yavin con enlaces abiertos (viven 72 h)', () => {
+  const K1 = 'clave-yavin-uno-inventada';
+  const K2 = 'clave-yavin-dos-inventada';
+  const K3 = 'clave-yavin-tres-inventada';
+  const service = new SuperAdminYavinService(
+    prisma,
+    config as never,
+    { verify: async () => undefined } as never,
+    { write: async () => undefined } as never,
+  );
+  const actor = { id: randomUUID(), email: 'super@x.es' };
+  const setKey = (tenantId: string, apiKey: string) => pub(() => service.setKey(actor, tenantId, { totpCode: '000000', apiKey } as never));
+  const keysOf = (tenantId: string) =>
+    sys((tx) => tx.gatewayCredential.findMany({ where: { tenantId, provider: 'YAVIN' }, orderBy: { createdAt: 'asc' }, select: { active: true } }));
+  async function venueWithKey(name: string): Promise<{ tenantId: string; terminalId: string; userId: string }> {
+    return sys(async (tx) => {
+      const v = await tx.venue.create({ data: { name, slug: `yk-${randomUUID().slice(0, 8)}`, yavinSelected: true } });
+      const t = await tx.terminal.create({ data: { tenantId: v.id, externalId: `TYK-${randomUUID().slice(0, 8)}`, label: 'Barra', zone: 'BARRA' } });
+      const u = await tx.user.create({ data: { tenantId: v.id, email: `cam-yk-${randomUUID().slice(0, 8)}@x.es`, passwordHash: 'x', role: 'WAITER' } });
+      await tx.gatewayCredential.create({ data: { tenantId: v.id, provider: 'YAVIN', active: true, ...sealYavinKey(KEK, v.id, K1) } });
+      return { tenantId: v.id, terminalId: t.id, userId: u.id };
+    });
+  }
+
+  it('la clave anterior se queda inactiva: el enlace de antes se comprueba y se anula con ella (la nueva da 401)', async () => {
+    const C = await venueWithKey('Cambio de clave');
+    const before = await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    await setKey(C.tenantId, K2);
+    expect((await keysOf(C.tenantId)).map((k) => k.active)).toEqual([false, true]);
+    calls.length = 0;
+    carts.get(before.cartId)!.status = 'paid';
+    await expect(yavin.getStatus(C.tenantId, before.cartId)).resolves.toBe('AUTHORIZED');
+    expect(calls.map((c) => c.secret)).toEqual([K2, K1]);
+    carts.get(before.cartId)!.status = 'pending';
+    await expect(yavin.cancelLink(C.tenantId, before.cartId)).resolves.toBeUndefined();
+    expect(carts.get(before.cartId)!.status).toBe('cancelled');
+    // Lo nuevo, con la nueva.
+    const after = await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    expect(carts.get(after.cartId)!.key).toBe(K2);
+  });
+
+  it('otro cambio con las dos claves en uso (enlaces de menos de 72 h): 409 y no se pierde ninguna', async () => {
+    const C = await venueWithKey('Dos cambios seguidos');
+    await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    await setKey(C.tenantId, K2);
+    await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    await expect(setKey(C.tenantId, K3)).rejects.toBeInstanceOf(ConflictException);
+    expect((await keysOf(C.tenantId)).map((k) => k.active)).toEqual([false, true]);
+  });
+
+  it('una clave nueva que no abrió nada (mal copiada) se sustituye y la anterior en uso se queda', async () => {
+    const C = await venueWithKey('Clave mal copiada');
+    const before = await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    await setKey(C.tenantId, K2);
+    await setKey(C.tenantId, K3);
+    expect((await keysOf(C.tenantId)).map((k) => k.active)).toEqual([false, true]);
+    calls.length = 0;
+    await expect(yavin.cancelLink(C.tenantId, before.cartId)).resolves.toBeUndefined();
+    expect(calls.map((c) => c.secret)).toEqual([K3, K1]);
+  });
+
+  it('la inactiva más vieja se borra cuando sus enlaces tienen más de 72 h y sus cobros están cerrados', async () => {
+    const C = await venueWithKey('Clave vieja');
+    const p = await newPayment(2_500, 'YAVIN', C);
+    await openWithYavin(p);
+    await setKey(C.tenantId, K2);
+    await openWithYavin(await newPayment(2_500, 'YAVIN', C));
+    await sys(async (tx) => {
+      await tx.paymentAttempt.updateMany({ where: { paymentId: p.id }, data: { createdAt: new Date(Date.now() - 73 * 3_600_000) } });
+      await tx.payment.update({ where: { id: p.id }, data: { status: 'CANCELED' } });
+    });
+    await setKey(C.tenantId, K3);
+    const rows = await sys((tx) => tx.gatewayCredential.findMany({ where: { tenantId: C.tenantId, provider: 'YAVIN' } }));
+    expect(rows).toHaveLength(2);
+    // Las que quedan: K2 (inactiva, sus enlaces siguen vivos) y K3 (activa).
+    calls.length = 0;
+    await expect(openWithYavin(await newPayment(2_500, 'YAVIN', C))).resolves.toBeTruthy();
+    expect(calls[0]!.secret).toBe(K3);
   });
 });
