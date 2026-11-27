@@ -4,8 +4,8 @@
 // cancelado, caducado o fallido: el reposo con un texto corto.
 
 import type { CustomerDisplayMessage, CustomerScreenEnd, CustomerScreenView, TipPreset } from '@nightpay/contracts';
-import { formatPercent } from '@nightpay/ui';
 import { formatEur } from './money';
+import { enEur, type Bilingual } from './pin-tip';
 
 /** «Pagado» a pantalla completa. */
 export const PAID_SHOW_MS = 6_000;
@@ -19,7 +19,8 @@ export type WaitingView = Extract<CustomerScreenView, { state: 'waiting' }>;
 export type Shown =
   | { kind: 'idle'; note: string | null; until: number | null }
   | { kind: 'waiting'; view: WaitingView }
-  | { kind: 'paid'; until: number };
+  /** `cents`: lo pagado (null: un API de antes no lo manda). */
+  | { kind: 'paid'; until: number; cents: number | null };
 
 export interface PantallaMemory {
   shown: Shown;
@@ -62,7 +63,7 @@ export function nextMemory(mem: PantallaMemory, view: CustomerScreenView, now: n
   }
   const shown: Shown =
     view.state === 'paid'
-      ? { kind: 'paid', until: now + PAID_SHOW_MS }
+      ? { kind: 'paid', until: now + PAID_SHOW_MS, cents: typeof view.paidCents === 'number' ? view.paidCents : null }
       : { kind: 'idle', note: endedNote(view.reason), until: now + ENDED_SHOW_MS };
   return { ...mem, shown, done: remember(mem.done, view.key) };
 }
@@ -75,8 +76,31 @@ export function expireMemory(mem: PantallaMemory, now: number): PantallaMemory {
 
 /** En reposo: cómo se paga en este local. */
 export function idleHint(fichas: boolean): string {
-  return fichas ? 'Paga con tu ficha o con el QR' : 'Paga con el QR';
+  return idleHintText(fichas).es;
 }
+
+/** Lo mismo, con su inglés debajo (idea 70). */
+export function idleHintText(fichas: boolean): Bilingual {
+  return fichas ? { es: 'Paga con tu ficha o con el QR', en: 'Pay with your tag or the QR' } : { es: 'Paga con el QR', en: 'Pay with the QR' };
+}
+
+/**
+ * Los textos fijos de la tablet con su inglés (idea 70): el cliente puede no
+ * hablar español. El inglés va debajo de cada uno, más suave.
+ */
+export const SCREEN_TEXT = {
+  topUp: { es: 'Recarga de saldo', en: 'Balance top-up' },
+  reading: { es: 'Leyendo la ficha…', en: 'Reading your tag…' },
+  payingPhone: { es: 'Pagando en el móvil del cliente…', en: "Paying on the customer's phone…" },
+  orQr: { es: 'o escanea el QR con tu móvil', en: 'or scan the QR with your phone' },
+  tip: { es: '¿Propina?', en: 'Tip?' },
+  noTip: { es: 'Sin propina', en: 'No tip' },
+  other: { es: 'Otra', en: 'Other' },
+  withBalance: { es: 'Con saldo', en: 'With balance' },
+  byCard: { es: 'Con tarjeta', en: 'By card' },
+  paid: { es: 'Pagado', en: 'Paid' },
+  thanks: { es: '¡Gracias!', en: 'Thank you' },
+} as const satisfies Record<string, Bilingual>;
 
 /** El reposo: el nombre del local, cómo se paga y su mensaje (Ajustes → Carta → «Pantalla del cliente»). */
 export interface RestView {
@@ -121,14 +145,21 @@ export function restShift(step: number): { x: number; y: number } {
  * con Chrome): la ficha vale en ella o en el móvil del camarero.
  */
 export function waitingHint(view: WaitingView, nfcHere = false): string {
-  if (view.paying) return 'Terminando el pago…';
+  return waitingHintText(view, nfcHere).es;
+}
+
+/** Lo mismo, con su inglés debajo (idea 70). */
+export function waitingHintText(view: WaitingView, nfcHere = false): Bilingual {
+  if (view.paying) return { es: 'Terminando el pago…', en: 'Finishing the payment…' };
   if (view.ficha) {
-    const where = nfcHere ? 'Acerca tu ficha a esta pantalla o al móvil del camarero' : 'Acerca tu ficha al móvil del camarero';
+    const where = nfcHere
+      ? { es: 'Acerca tu ficha a esta pantalla o al móvil del camarero', en: "Hold your tag to this screen or the waiter's phone" }
+      : { es: 'Acerca tu ficha al móvil del camarero', en: "Hold your tag to the waiter's phone" };
     // Con propina, la ficha siempre pide el PIN (la confirma el cliente).
-    return (view.tip?.chosenCents ?? 0) > 0 ? `${where} y pon tu PIN` : where;
+    return (view.tip?.chosenCents ?? 0) > 0 ? { es: `${where.es} y pon tu PIN`, en: `${where.en} and enter your PIN` } : where;
   }
-  if (!view.qrUrl) return 'Paga en el datáfono';
-  return 'Escanea el QR con tu móvil';
+  if (!view.qrUrl) return { es: 'Paga en el datáfono', en: 'Pay on the card reader' };
+  return { es: 'Escanea el QR con tu móvil', en: 'Scan the QR with your phone' };
 }
 
 /** El importe grande: lo vendido + la propina elegida («33 €», «35 €»). */
@@ -143,15 +174,44 @@ export function tipBreakdown(view: WaitingView): string | null {
   return `${formatEur(view.amountCents, { compact: true })} + ${formatEur(tip, { compact: true })} de propina`;
 }
 
-/** El botón de una propina sugerida: «+2 €» o «10 % · +3 €». */
+/** El botón de una propina sugerida: «+3 €», sin «%» (idea 66: lo que se ve es lo que se paga). */
 export function tipButtonLabel(preset: TipPreset): string {
-  const plus = `+${formatEur(preset.cents, { compact: true })}`;
-  return preset.percent ? `${formatPercent(preset.percent)} · ${plus}` : plus;
+  return `+${formatEur(preset.cents, { compact: true })}`;
 }
 
-/** Con «Comisión del servicio»: lo que paga la tarjeta («Con tarjeta, 36,30 €»). */
-export function cardLine(view: WaitingView): string | null {
-  return view.cardAmountCents !== null ? `Con tarjeta, ${formatEur(view.cardAmountCents, { compact: true })}` : null;
+/**
+ * Con «Comisión del servicio» (idea 70): los precios que se enseñan, igual de
+ * grandes. Con ficha, con saldo (sin comisión) y con tarjeta; sin ficha (nadie
+ * paga el otro), solo con tarjeta. Sin comisión, null: un importe, como siempre.
+ * Los dos llevan la propina elegida; la comisión va solo sobre lo vendido.
+ */
+export function pricesOf(view: WaitingView): { saldoCents: number | null; cardCents: number; feeCents: number } | null {
+  if (view.cardAmountCents === null) return null;
+  return {
+    saldoCents: view.ficha ? view.totalCents : null,
+    cardCents: view.cardAmountCents,
+    feeCents: view.cardAmountCents - view.totalCents,
+  };
+}
+
+/** La comisión, con su importe, antes de elegir cómo pagar. */
+export function feeNote(feeCents: number): Bilingual {
+  return {
+    es: `Incluye ${formatEur(feeCents, { compact: true })} de comisión del servicio`,
+    en: `Includes a ${enEur(feeCents)} service fee`,
+  };
+}
+
+/**
+ * El total que se enseña bajo cada propina: el precio de la pantalla sin la
+ * propina elegida (con tarjeta, si es el único precio). Con dos precios, null:
+ * sin total (serían dos).
+ */
+export function tipTotalBase(view: WaitingView): number | null {
+  const prices = pricesOf(view);
+  if (prices && prices.saldoCents !== null) return null;
+  const chosen = view.tip?.chosenCents ?? 0;
+  return (prices ? prices.cardCents : view.totalCents) - chosen;
 }
 
 /** La sugerida o «Otra» que sale marcada: «Otra» si la elegida no es una sugerida. */

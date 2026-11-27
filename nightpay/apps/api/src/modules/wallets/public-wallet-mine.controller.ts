@@ -1,9 +1,11 @@
-import { Body, Controller, Header, Headers, HttpCode, Inject, NotFoundException, Post, Res } from '@nestjs/common';
+import { Body, Controller, Get, Header, Headers, HttpCode, Inject, NotFoundException, Post, Query, Res } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { FastifyReply } from 'fastify';
 import { Public } from '../../common/decorators/public.decorator';
 import { IpRateLimit } from '../../common/guards/ip-rate-limit.guard';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { customerLanguage } from '../payments/customer-lang';
+import { renderMyBalancePage } from './my-balance';
 import { liveWalletId } from './wallet-merge-chain';
 import { WalletPasskeysService } from './wallet-passkeys.service';
 import { walletViewSetCookies } from './wallet-view-session';
@@ -18,6 +20,8 @@ const MINE_SCOPE = 'wallet-mine';
  * como en /w/card/:token/view. Solo la llave dice qué saldo es.
  *  - POST /w/mine/challenge → reto para la llave del cliente.
  *  - POST /w/mine           → { url: '/w/<enlace>' } y la cookie de consulta.
+ *  - GET /w/mine            → la página con ese botón (la puerta «Ver mi saldo»
+ *    de la portada, idea 73). No lee nada: ni saldo, ni llave, ni cookie de consulta.
  */
 @Controller('w')
 export class PublicWalletMineController {
@@ -26,6 +30,25 @@ export class PublicWalletMineController {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly config: ConfigService,
   ) {}
+
+  @Public()
+  @Get('mine')
+  @IpRateLimit({ max: 120, windowSec: 60, scope: 'wallet-mine-page', failOpen: true })
+  page(
+    @Query('lang') langQuery: string | undefined,
+    @Headers('cookie') cookies: string | undefined,
+    @Res() res: FastifyReply,
+  ): void {
+    // Español por defecto; el idioma que elige el cliente queda en su cookie.
+    const { lang, setCookie } = customerLanguage(langQuery, cookies);
+    if (setCookie) res.header('Set-Cookie', setCookie);
+    res
+      .status(200)
+      .header('Content-Type', 'text/html; charset=utf-8')
+      .header('Cache-Control', 'no-store')
+      .header('Referrer-Policy', 'no-referrer')
+      .send(renderMyBalancePage(lang));
+  }
 
   @Public()
   @Post('mine/challenge')

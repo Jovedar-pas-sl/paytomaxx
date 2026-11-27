@@ -90,6 +90,13 @@ describe('páginas del cliente fuera de /v1', () => {
     expect(fastify.hasRoute({ method: 'POST', url: '/pay/:token/receipt/email' })).toBe(true);
   });
 
+  it('«Ver mi saldo» de la portada (idea 73): GET /w/mine, sin /v1 y en la lista', () => {
+    const fastify = app.getHttpAdapter().getInstance();
+    expect(routes.map((r) => `${RequestMethod[r.method]} ${r.path}`)).toContain('GET w/mine');
+    expect(fastify.hasRoute({ method: 'GET', url: '/w/mine' })).toBe(true);
+    expect(UNPREFIXED_ROUTES).toContainEqual({ path: 'w/mine', method: RequestMethod.GET });
+  });
+
   it('cada ruta @Public de pay, w y s se sirve sin /v1', () => {
     const fastify = app.getHttpAdapter().getInstance();
     const prefixed = routes

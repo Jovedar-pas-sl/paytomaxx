@@ -5,6 +5,7 @@
 // página de pago (@nightpay/contracts).
 
 import { maxTipCents, tipPresetsFor, type TipPreset } from '@nightpay/contracts';
+import { formatEur } from './money';
 
 export interface PinTipSetup {
   /** Lo vendido, sin propina. */
@@ -72,4 +73,40 @@ export function pinTipCents(choice: PinTipChoice, setup: PinTipSetup): { cents: 
 export function withScreenTip(setup: PinTipSetup | null, chosenCents: number): PinTipSetup | null {
   if (!setup || chosenCents <= 0 || setup.previousCents > 0 || chosenCents > setup.maxCents) return setup;
   return { ...setup, previousCents: chosenCents };
+}
+
+/**
+ * Los botones con el total que paga con cada uno (idea 66): «Sin propina» y
+ * los de pinTipButtons, sobre lo vendido (`baseCents`, nunca el importe con la
+ * propina de un cobro de antes). El total solo se enseña: lo que se paga lo
+ * calcula el API.
+ */
+export function pinTipOptions(setup: PinTipSetup): { cents: number; totalCents: number }[] {
+  return [0, ...pinTipButtons(setup)].map((cents) => ({ cents, totalCents: setup.baseCents + cents }));
+}
+
+/** Un texto para el cliente, en español y, debajo o detrás, en inglés. */
+export interface Bilingual {
+  es: string;
+  en: string;
+}
+
+/** «€2» o «€2.50»: el importe en el inglés del cliente. */
+export function enEur(cents: number): string {
+  return `€${cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2)}`;
+}
+
+/** A quién va la propina, siempre a la vista (PIN y tablet). `shared` cuenta como del local. */
+export function tipDestination(toStaff: boolean): Bilingual {
+  return toStaff
+    ? { es: 'La propina va entera para el personal', en: 'The whole tip goes to the staff' }
+    : { es: 'La propina es para el local', en: 'The tip goes to the venue' };
+}
+
+/** La propina que eligió en la pantalla de la barra y sale marcada en el PIN del camarero. */
+export function screenTipNotice(cents: number): Bilingual {
+  return {
+    es: `En la pantalla elegiste ${formatEur(cents, { compact: true })} de propina. Puedes cambiarla o quitarla.`,
+    en: `You chose a ${enEur(cents)} tip on the screen. You can change or remove it.`,
+  };
 }

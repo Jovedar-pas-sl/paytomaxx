@@ -24,7 +24,6 @@ const ALLOWED: Record<string, number> = {
   'apps/operator/src/components/guia/CuentaBasica.tsx': 1, // → 5
   'apps/operator/src/components/guia/Guia.tsx': 1, // → 5
   'apps/operator/src/components/reception/desk/desk-parts.tsx': 1, // → 8
-  'apps/operator/src/components/pantalla/PantallaCliente.tsx': 2, // → 12
   'apps/web-client/src/app/_portada/icons.tsx': 1, // → 12
   // No son iconos: se quedan siempre.
   'apps/admin/src/components/superadmin/QrCode.tsx': 1,

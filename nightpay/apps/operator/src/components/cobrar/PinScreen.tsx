@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { formatPercent, FormError, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
+import { FormError, haptic, Icon, pinFailed, shakeClass } from '@nightpay/ui';
 import { PIN_ENTER, keypadDigits } from '@/lib/pin-pad';
 import { formatEur } from '@/lib/money';
 import { pinFootnote, tipLine } from '@/lib/cobro-view';
-import { pinTipButtons, pinTipCents, pinTipInitial, type PinTipChoice, type PinTipSetup } from '@/lib/pin-tip';
+import { pinTipCents, pinTipInitial, pinTipOptions, screenTipNotice, tipDestination, type PinTipChoice, type PinTipSetup } from '@/lib/pin-tip';
 import { useVenueNight } from '@/lib/venue-methods';
 import { Chip } from './ScreenHeader';
 import styles from './cobrar.module.css';
@@ -25,6 +25,13 @@ interface Props {
    * no admite propinas). `amountCents` lleva la de un cobro de antes, si la hay.
    */
   tipSetup?: PinTipSetup | null;
+  /** La propina va entera para quien cobra (una chica); si no, es del local. Se dice siempre (idea 66). */
+  tipToStaff?: boolean;
+  /**
+   * La propina marcada (`previousCents`) la eligió el cliente en la pantalla de
+   * la barra: el aviso de que sale marcada y se puede cambiar o quitar.
+   */
+  presetFromScreen?: boolean;
   /** Por qué pide el PIN (si no es el tope de siempre): «Ya lleva el tope sin PIN de esta noche…». */
   reason?: string | null;
   /** Con la propina que eligió (null: sin propinas). Devuelve un mensaje si no ha valido (PIN malo…) o null si ya está. */
@@ -46,7 +53,18 @@ function tipProblem(error: 'empty' | 'max' | null, maxCents: number): string | n
  * si el local lo pide (Ajustes → Noche). Se envía solo al poner la cuarta
  * cifra. Encima, la propina: la elige el cliente (B1), sin nada marcado.
  */
-export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, reason, onPin, onCancel }: Props) {
+export function PinScreen({
+  colors,
+  chip,
+  amountCents,
+  detail,
+  tipSetup = null,
+  tipToStaff = false,
+  presetFromScreen = false,
+  reason,
+  onPin,
+  onCancel,
+}: Props) {
   const night = useVenueNight();
   const layout = night.pinKeypad;
   const [keys, setKeys] = useState<string[]>(() => keypadDigits(layout));
@@ -123,7 +141,16 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
           ) : null}
           <p>{detail}</p>
         </div>
-        {tipSetup ? <PinTip setup={tipSetup} choice={choice} onPick={pick} disabled={busy} /> : null}
+        {tipSetup ? (
+          <PinTip
+            setup={tipSetup}
+            choice={choice}
+            onPick={pick}
+            disabled={busy}
+            toStaff={tipToStaff}
+            fromScreen={presetFromScreen && tipSetup.previousCents > 0}
+          />
+        ) : null}
         <div className={styles.pinQ}>
           <b>
             {PIN_ENTER.es} <span lang="en" className={styles.en}>· {PIN_ENTER.en}</span>
@@ -174,57 +201,73 @@ export function PinScreen({ colors, chip, amountCents, detail, tipSetup = null, 
 
 /**
  * La propina, para el cliente (con su línea en inglés): «Sin propina», las
- * sugeridas del local y «Otra» (euros enteros, hasta el máximo). Nada marcado
- * al abrir; sin elegir, no hay propina.
+ * sugeridas del local y «Otra» (euros enteros, hasta el máximo). Cada una con
+ * el total que paga con ella (sin «%»), y debajo a quién va. Nada marcado al
+ * abrir; sin elegir, no hay propina.
  */
 function PinTip({
   setup,
   choice,
   onPick,
   disabled,
+  toStaff,
+  fromScreen,
 }: {
   setup: PinTipSetup;
   choice: PinTipChoice;
   onPick: (next: PinTipChoice) => void;
   disabled: boolean;
+  toStaff: boolean;
+  fromScreen: boolean;
 }) {
   const on = (c: number) => choice.kind === 'button' && choice.cents === c;
   const canOther = setup.maxCents >= 100;
-  const percentOf = (c: number) => setup.presets.find((p) => p.cents === c)?.percent ?? null;
+  const eur = (c: number) => formatEur(c, { compact: true });
+  const to = tipDestination(toStaff);
+  const notice = fromScreen ? screenTipNotice(setup.previousCents) : null;
   return (
     <div className={styles.pinTip}>
+      {notice ? (
+        <p className={styles.pinTipScreen}>
+          {notice.es} <span lang="en" className={styles.en}>· {notice.en}</span>
+        </p>
+      ) : null}
       <p className={styles.pinTipQ} id="pin-tip-q">
         ¿Propina? <span lang="en" className={styles.en}>· Tip?</span>
       </p>
       <div className={styles.pinTipRow} role="radiogroup" aria-labelledby="pin-tip-q">
-        <button
-          type="button"
-          role="radio"
-          aria-checked={on(0)}
-          className={`${styles.pinTipOpt} ${styles.pinTipWord}${on(0) ? ` ${styles.pinTipOn}` : ''}`}
-          onClick={() => onPick({ kind: 'button', cents: 0 })}
-          disabled={disabled}
-        >
-          Sin propina
-          <small lang="en">No tip</small>
-        </button>
-        {pinTipButtons(setup).map((c) => {
-          const percent = percentOf(c);
-          return (
+        {pinTipOptions(setup).map(({ cents: c, totalCents }) =>
+          c === 0 ? (
+            <button
+              key={c}
+              type="button"
+              role="radio"
+              aria-checked={on(0)}
+              aria-label={`Sin propina. Total ${eur(totalCents)}`}
+              className={`${styles.pinTipOpt} ${styles.pinTipWord}${on(0) ? ` ${styles.pinTipOn}` : ''}`}
+              onClick={() => onPick({ kind: 'button', cents: 0 })}
+              disabled={disabled}
+            >
+              Sin propina
+              <small lang="en">No tip</small>
+              <small>{eur(totalCents)}</small>
+            </button>
+          ) : (
             <button
               key={c}
               type="button"
               role="radio"
               aria-checked={on(c)}
+              aria-label={`Propina de ${eur(c)}. Total ${eur(totalCents)}`}
               className={`${styles.pinTipOpt}${on(c) ? ` ${styles.pinTipOn}` : ''}`}
               onClick={() => onPick({ kind: 'button', cents: c })}
               disabled={disabled}
             >
-              +{formatEur(c, { compact: true })}
-              {percent ? <small>{formatPercent(percent)}</small> : null}
+              +{eur(c)}
+              <small>{eur(totalCents)}</small>
             </button>
-          );
-        })}
+          ),
+        )}
         {canOther ? (
           <button
             type="button"
@@ -239,6 +282,9 @@ function PinTip({
           </button>
         ) : null}
       </div>
+      <p className={styles.pinTipTo}>
+        {to.es} <span lang="en" className={styles.en}>· {to.en}</span>
+      </p>
       {choice.kind === 'other' ? (
         <label className={styles.pinTipOther}>
           <span>

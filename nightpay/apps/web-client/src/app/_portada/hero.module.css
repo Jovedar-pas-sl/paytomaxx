@@ -87,10 +87,43 @@
   line-height: 1.6;
 }
 
-.heroCta {
-  width: 100%;
+/* Dos puertas de 56 px (idea 73): el cliente a su saldo, el local a su
+   sección. Apiladas en el móvil (360, 390); lado a lado desde 480 px. */
+.doors {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   max-width: 420px;
-  margin-top: 20px;
+  margin: 20px auto 0;
+}
+
+.door + .door {
+  margin-top: 12px;
+}
+
+/* Con qué se paga, a 28 px de alto. */
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0 0;
+}
+
+.mark {
+  display: block;
+  width: auto;
+  height: 28px;
+  margin: 0 6px;
+}
+
+/* Google Pay: su fichero oficial trae el margen dentro; en una caja de 52 px su pastilla queda en 28,
+   y el margen negativo la deja en la misma línea que las otras marcas. */
+.markBox {
+  display: block;
+  width: auto;
+  height: 52px;
+  margin: -12px 0;
 }
 
 /* Tres móviles que asoman por abajo, como las tres tarjetas de oxiocard. */
@@ -136,7 +169,7 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .heroCta {
+  .doors {
     animation: rise 0.8s var(--ease) 0.1s both;
   }
 
@@ -167,9 +200,21 @@
     letter-spacing: -0.5px;
   }
 
-  .heroCta {
-    width: auto;
-    min-width: 300px;
+  .door {
+    min-width: 240px;
+  }
+}
+
+@media (min-width: 480px) {
+  .doors {
+    flex-direction: row;
+    justify-content: center;
+    max-width: none;
+  }
+
+  .door + .door {
+    margin-top: 0;
+    margin-left: 12px;
   }
 }
 

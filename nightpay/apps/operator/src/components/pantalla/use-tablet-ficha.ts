@@ -3,7 +3,11 @@ import { DisplayApiError, payScreenFicha } from '@/lib/customer-display-api';
 import { askNfcPermission, nfcSupported, readCard } from '@/lib/nfc';
 import type { WaitingView } from '@/lib/pantalla-state';
 
-/** Un texto corto (ficha vacía, sin PIN…) se va solo. */
+/**
+ * Un texto corto (ficha vacía, sin PIN) se va solo. Un error (el API, la
+ * lectura, el PIN bloqueado, la propina) no: se queda bajo el importe hasta la
+ * siguiente ficha, el siguiente toque o el siguiente cobro (idea 70).
+ */
 const NOTE_MS = 4_000;
 /** Tras un error de lectura, se vuelve a escuchar un poco después. */
 const RETRY_MS = 1_500;
@@ -32,6 +36,7 @@ export function useTabletFicha(view: WaitingView | null, refresh: () => void) {
   const [blocked, setBlocked] = useState(false);
   const [pin, setPin] = useState<TabletPinStep | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [round, setRound] = useState(0);
   useEffect(() => setSupported(nfcSupported()), []);
@@ -50,6 +55,10 @@ export function useTabletFicha(view: WaitingView | null, refresh: () => void) {
     if (pin && pin.key !== key) setPin(null);
   }, [pin, key]);
 
+  // Otro cobro: el error del anterior ya no vale.
+  const viewKey = view?.key ?? null;
+  useEffect(() => setProblem(null), [viewKey]);
+
   useEffect(() => {
     if (!listens || !key) return undefined;
     const ctrl = new AbortController();
@@ -64,11 +73,13 @@ export function useTabletFicha(view: WaitingView | null, refresh: () => void) {
           setBlocked(true);
           return;
         }
-        setNote((err as Error).message);
+        setProblem((err as Error).message);
         again(RETRY_MS);
         return;
       }
       if (ctrl.signal.aborted) return;
+      // Otra ficha: el error de antes se va.
+      setProblem(null);
       if (!read.token) {
         setNote(EMPTY_FICHA_NOTE);
         again(RETRY_MS);
@@ -79,10 +90,11 @@ export function useTabletFicha(view: WaitingView | null, refresh: () => void) {
         const out = await payScreenFicha(key, read.token, read.uid);
         if (out.status === 'paid') refresh();
         else if (out.status === 'pin') setPin({ key, ficha: { card: read.token, uid: read.uid }, reason: out.reason });
-        else setNote(out.status === 'no_pin' ? NO_PIN_NOTE : PIN_LOCKED_NOTE);
+        else if (out.status === 'no_pin') setNote(NO_PIN_NOTE);
+        else setProblem(PIN_LOCKED_NOTE);
       } catch (err) {
         // Ya pagado, otro cobro, sin saldo suficiente…: el texto del API (nunca el saldo).
-        setNote(err instanceof DisplayApiError ? err.message : 'No se ha podido pagar. Vuelve a intentarlo.');
+        setProblem(err instanceof DisplayApiError ? err.message : 'No se ha podido pagar. Vuelve a intentarlo.');
         refresh();
       } finally {
         setBusy(false);
@@ -110,6 +122,9 @@ export function useTabletFicha(view: WaitingView | null, refresh: () => void) {
     closePin: () => setPin(null),
     note,
     setNote,
+    /** El error que se queda (FormError bajo el importe). */
+    problem,
+    setProblem,
     busy,
   };
 }

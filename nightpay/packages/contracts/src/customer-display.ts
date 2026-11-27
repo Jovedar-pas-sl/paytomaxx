@@ -134,7 +134,11 @@ export interface CustomerScreenTip {
   maxCents: number;
   /** La que eligió en la tablet (0: «Sin propina», lo de partida). */
   chosenCents: number;
-  /** Va entera para quien cobra (una chica): se le dice al cliente. */
+  /**
+   * Va entera para una persona del personal (como en /pay: la regla del cobro
+   * con tarjeta, `tipGoesTo`, o quien cobra). Se le dice siempre al cliente:
+   * «La propina va entera para el personal» o «La propina es para el local».
+   */
   toStaff: boolean;
 }
 
@@ -181,8 +185,11 @@ export type CustomerScreenView =
       /** Una recarga de saldo (recepción). */
       topUp: boolean;
     })
-  /** Sin importe: con tarjeta, la comisión y la propina lo cambian (el «Pagado» basta). */
-  | (ScreenBase & { state: 'paid'; key: string })
+  /**
+   * Lo pagado (idea 70): con tarjeta, lo vendido + la comisión + la propina;
+   * con la ficha, lo vendido + la propina. Null: sin importe (solo «Pagado»).
+   */
+  | (ScreenBase & { state: 'paid'; key: string; paidCents: number | null })
   | (ScreenBase & { state: 'ended'; key: string; reason: CustomerScreenEnd });
 
 export type CustomerScreenState = CustomerScreenView['state'];
