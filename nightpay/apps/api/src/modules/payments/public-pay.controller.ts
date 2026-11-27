@@ -806,10 +806,10 @@ export class PublicPayController {
     return !(raw === false || raw === 'false' || raw === '0');
   }
 
-  /** El correo (Resend) configurado: sin él, «Enviármelo por correo» ni sale. */
+  /** El correo (Resend y su remitente, EMAIL_FROM) configurado: sin él, «Enviármelo por correo» ni sale. */
   private emailEnabled(): boolean {
     try {
-      return this.email?.isEnabled() === true;
+      return this.email?.hasOwnSender() === true;
     } catch {
       return false;
     }

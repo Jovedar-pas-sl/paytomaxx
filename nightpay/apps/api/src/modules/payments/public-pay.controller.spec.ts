@@ -49,7 +49,7 @@ function makeController(opts: {
   /** Reservados: el enlace de la reserva del pago. */
   manageToken?: string | null;
   /** El correo (Resend): configurado o no, y lo que contesta. */
-  email?: { enabled?: boolean; send?: () => Promise<unknown> };
+  email?: { enabled?: boolean; sender?: boolean; send?: () => Promise<unknown> };
   /** Justificantes ya enviados por correo de este cobro. */
   emailsSent?: number;
 }) {
@@ -68,6 +68,7 @@ function makeController(opts: {
   };
   const email = {
     isEnabled: vi.fn(() => opts.email?.enabled ?? false),
+    hasOwnSender: vi.fn(() => (opts.email?.enabled ?? false) && opts.email?.sender !== false),
     send: vi.fn(opts.email?.send ?? (async () => ({ ok: true, delivered: true }))),
   };
   const settings: Record<string, string | undefined> = {
@@ -1159,6 +1160,17 @@ describe('justificante (idea 68): «Compartir» y «Enviármelo por correo»', (
     expect((await page({ cookie: COOKIE, enabled: false })).html).not.toContain('id="mail"');
     expect((await page({ enabled: true })).html).not.toContain('id="mail"');
     expect((await page({ cookie: `${walletClaimCookieName('', 'qr-token-1')}=${'o'.repeat(43)}` })).html).not.toContain('id="mail"');
+  });
+
+  it('con Resend pero sin EMAIL_FROM (saldría «noreply@paytomaxx.com»): «Enviármelo por correo» no sale y el POST no envía nada', async () => {
+    const { controller, email } = makeController({ receipt: RECEIPT, email: { enabled: true, sender: false } });
+    const { reply, sent } = fakeReply(COOKIE);
+    await controller.receipt('qr-token-1', 'es', COOKIE, reply, undefined);
+    expect(sent.body).not.toContain('id="mail"');
+    const posted = fakeReply(COOKIE);
+    await controller.emailReceipt('qr-token-1', { email: 'maria@gmail.com', lang: 'es' }, COOKIE, 'api.oxio.es', 'https://api.oxio.es', undefined, posted.reply);
+    expect(posted.sent.headers.Location).toBe('/pay/qr-token-1/receipt?lang=es&correo=error');
+    expect(email.send).not.toHaveBeenCalled();
   });
 
   it('?correo=enviado|error|tope lo dice (role=status); mal, bajo el campo y abierto; recargar no reenvía nada', async () => {

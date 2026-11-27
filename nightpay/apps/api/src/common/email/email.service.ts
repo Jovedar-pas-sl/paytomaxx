@@ -53,14 +53,27 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly apiKey: string | undefined;
   private readonly fromAddress: string;
+  /** EMAIL_FROM puesto (no el remitente de reserva). */
+  private readonly ownSender: boolean;
 
   constructor(@Inject(ConfigService) config: ConfigService) {
     this.apiKey = config.get<string>('RESEND_API_KEY');
-    this.fromAddress = config.get<string>('EMAIL_FROM') ?? `${BRAND_NAME} <noreply@paytomaxx.com>`;
+    const from = config.get<string>('EMAIL_FROM')?.trim();
+    this.ownSender = Boolean(from);
+    this.fromAddress = from || `${BRAND_NAME} <noreply@paytomaxx.com>`;
   }
 
   isEnabled(): boolean {
     return Boolean(this.apiKey);
+  }
+
+  /**
+   * Con Resend y con el remitente del local configurado (EMAIL_FROM). Lo que
+   * ve el cliente (el justificante) solo sale así, nunca con el de reserva
+   * (noreply@paytomaxx.com); las invitaciones al personal siguen con isEnabled().
+   */
+  hasOwnSender(): boolean {
+    return this.isEnabled() && this.ownSender;
   }
 
   async send(input: SendEmailInput): Promise<SendEmailResult> {
