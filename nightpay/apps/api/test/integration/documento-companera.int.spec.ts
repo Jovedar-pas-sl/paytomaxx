@@ -1,5 +1,5 @@
 // Integración (Postgres real, FORCE RLS, rol sin superusuario): cobro por el encargado, fase 3
-// (migración 20261127040000_documento_companera, 26-nov-2026): el documento de la compañera.
+// (migración 20261127235000_documento_companera, 26-nov-2026): el documento de la compañera.
 //  - El tipo (DNI, NIE o pasaporte) y el número se guardan cifrados como su cuenta de cobro (pa1:…).
 //  - El encargado (y la lista del panel) lo ven tapado; entero, solo el dueño con su 2FA, y queda en
 //    el registro (tapado). El registro de cambios tampoco lo guarda entero.
@@ -35,7 +35,7 @@ const sessions = { revokeAllForUser: vi.fn(async () => 0) };
 const operators = new OperatorsService(prisma, {} as never, audit, config as never, {} as never, {} as never, sessions as never);
 const admin = new AdminController(prisma, {} as never, audit, operators, {} as never, cls as never, totp, {} as never);
 
-const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261127040000_documento_companera/migration.sql');
+const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261127235000_documento_companera/migration.sql');
 
 const r = randomUUID().slice(0, 6);
 let V: string;
