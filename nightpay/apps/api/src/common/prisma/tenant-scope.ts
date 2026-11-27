@@ -62,7 +62,7 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'StaffPushSubscription',
   // API de socios (20261126100000): la conexión de un socio con el local.
   'PartnerConnection',
-  // API de socios (20261126200000): las cargas y anulaciones de una conexión del local.
+  // API de socios (20261127100000): las cargas y anulaciones de una conexión del local.
   'PartnerWalletOperation',
 ]);
 

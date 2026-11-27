@@ -878,7 +878,7 @@ model WalletCashTopUp {
   /// en la caja y se debe a OxioPay. En una anulación, negativa (la de la recarga).
   serviceFeeBps   Int?
   serviceFeeCents Int     @default(0)
-  /// API de socios (20261126200000): el efectivo que cogió el cajero de esta conexión
+  /// API de socios (20261127100000): el efectivo que cogió el cajero de esta conexión
   /// (sin persona ni datáfono, sin comisión del servicio ni saldo nuevo: CHECK en SQL).
   partnerConnectionId String? @db.Uuid
 
@@ -2387,7 +2387,7 @@ enum PartnerWalletOpKind {
   LOAD_VOID
 }
 
-/// El libro de las cargas de los socios (20261126200000): una LOAD por carga
+/// El libro de las cargas de los socios (20261127100000): una LOAD por carga
 /// (su huella y la respuesta 201 guardada) y una LOAD_VOID por anulación.
 /// Solo de añadir (trigger) y FORCE RLS. Los CHECK (importe, saldos, campos
 /// de cada tipo, patrones del contrato) están en SQL.

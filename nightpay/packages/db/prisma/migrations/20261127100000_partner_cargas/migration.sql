@@ -3,7 +3,7 @@
 -- efectivo: cargar, leer, anular en 10 minutos, listar y el resumen. La API
 -- sigue apagada (PARTNER_API_ENABLED=false) hasta el PR 8.
 --
--- (Se llama 20261126200000: tiene que ordenarse después de la última de la
+-- (Se llama 20261127100000: tiene que ordenarse después de la última de la
 -- rama, 20261126100000_partner_core; ver scripts/check-migration-order.mjs.)
 --
 --   partner_wallet_operations  el libro de las cargas de los socios: una fila

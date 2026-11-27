@@ -89,7 +89,7 @@ export function parsePublicId(prefix: PublicIdPrefix, value: string): string | n
  * automática de sus permisos de dinero (pausedScopes), como `load_refusals`,
  * `load_burst` y `load_voids`, las pausas automáticas de las cargas (PR 3:
  * solo `wallet:load`). La misma lista en el CHECK
- * `partner_connections_paused_reason` de la migración (20261126200000 lo reemplaza).
+ * `partner_connections_paused_reason` de la migración (20261127100000 lo reemplaza).
  */
 export const PARTNER_PAUSE_REASONS = ['owner', 'manager', 'foreign_ip', 'oxiopay', 'load_refusals', 'load_burst', 'load_voids'] as const;
 export type PartnerPauseReason = (typeof PARTNER_PAUSE_REASONS)[number];

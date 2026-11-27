@@ -1,5 +1,5 @@
 // Integración (Postgres de verdad, rol sin superusuario): la migración
-// 20261126200000_partner_cargas. Cada CHECK nuevo o reemplazado; el libro
+// 20261127100000_partner_cargas. Cada CHECK nuevo o reemplazado; el libro
 // (partner_wallet_operations) es solo de añadir (UPDATE, DELETE y TRUNCATE
 // fallan); FORCE RLS: el local B no ve nada de A; y repetirla no cambia nada.
 // Ver README.md.
@@ -14,7 +14,7 @@ import { PrismaService, type TransactionalClient } from '../../src/common/prisma
 
 const cls = new ClsService(new AsyncLocalStorage());
 const prisma = new PrismaService(cls as never);
-const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261126200000_partner_cargas/migration.sql');
+const MIGRATION = join(__dirname, '../../../../packages/db/prisma/migrations/20261127100000_partner_cargas/migration.sql');
 const r = randomUUID().slice(0, 6);
 
 const sys = <T>(fn: (tx: TransactionalClient) => Promise<T>) => cls.run(() => prisma.asSystem(fn));
