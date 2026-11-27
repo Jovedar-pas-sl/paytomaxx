@@ -1,11 +1,10 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { Button, EmptyState } from '@nightpay/ui';
+import { Button, EmptyState, Importe } from '@nightpay/ui';
 import type { MyPayout, PayoutAccount } from '@/lib/api';
 import { dayLabel, timeLabel } from '@/lib/earnings-view';
 import { httpsUrl } from '@/lib/history';
-import { formatEur } from '@/lib/money';
 import { SkelRows } from './loading-shapes';
 import { payoutMethodLabel } from '@/lib/payout-method';
 import styles from './money.module.css';
@@ -72,9 +71,7 @@ export function PayoutList({ payouts }: { payouts: readonly MyPayout[] }) {
                 </a>
               ) : null}
             </div>
-            <span className="np-num" style={amountStyle}>
-              {formatEur(p.totalCents, { compact: true })}
-            </span>
+            <Importe cents={p.totalCents} className="np-num" style={amountStyle} />
           </li>
         );
       })}
