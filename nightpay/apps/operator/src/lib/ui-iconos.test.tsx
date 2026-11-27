@@ -59,6 +59,7 @@ describe('Icon', () => {
       'printer',
       'qr',
       'receipt',
+      'search',
       'share',
       'sliders',
       'store',

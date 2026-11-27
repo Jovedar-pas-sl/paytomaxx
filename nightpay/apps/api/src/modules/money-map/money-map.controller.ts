@@ -13,6 +13,7 @@ import { StaffFichaService } from './staff-ficha.service';
  *   GET /v1/admin/money-map                     → la noche abierta, en directo.
  *   GET /v1/admin/money-map?night=<id>          → una noche (la cerrada, congelada en su Z).
  *   GET /v1/admin/money-map?from=AAAA-MM-DD&to=AAAA-MM-DD → unas fechas (días de Madrid).
+ *   GET /v1/admin/money-map?fromAt=<instante>[&toAt=<instante>] → varias noches (sin toAt: hasta ahora).
  * El dueño, y el encargado si el dueño le deja ver los informes.
  *   GET /v1/admin/operators/:id/ficha           → ficha de la chica o del camarero (maqueta 9.2),
  *     esta noche: sus cobros con su parte, lo vendido, lo suyo y lo pagado. Dueño y encargado.

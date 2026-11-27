@@ -6,6 +6,7 @@
 
 import type { Edition } from '@nightpay/contracts';
 import { PANEL_EDITION } from './edition';
+import { FECHAS_PARAM } from './periodos';
 import { sectionOf, SECTION_LABELS, type PanelSection, type SectionKey, type TabKey } from './roles';
 
 export const SECTION_PARAM = 's';
@@ -111,6 +112,9 @@ export function resolveNav(req: NavRequest, sections: readonly PanelSection[], e
  */
 export function navSearch(search: string, tab: TabKey, edition: Edition = PANEL_EDITION): string {
   const params = new URLSearchParams(search);
+  // Las fechas (?fechas=) son de la pestaña que las puso (Cobros o el mapa): otra pestaña no las hereda.
+  const current = parseNav(search).tab ?? (params.has(TAB_PARAM) ? null : defaultTabOf(edition));
+  if (current !== tab) params.delete(FECHAS_PARAM);
   if (tab === defaultTabOf(edition)) {
     params.delete(SECTION_PARAM);
     params.delete(TAB_PARAM);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { NightView } from '@/lib/api';
 import type { CobroRow, MoneyMap } from '@nightpay/contracts';
 import { Button, Etiqueta, FormError } from '@nightpay/ui';
@@ -46,6 +46,9 @@ interface Props {
   onOpenPayment: (paymentId: string) => void;
   /** Un cobro de «Últimos cobros»: Cobros con su detalle abierto. */
   onOpenCobro: (row: CobroRow) => void;
+  /** Llegar con el cierre abierto («Cerrar noche» desde Buscar, Ctrl+K): lo mismo que su botón. */
+  openClose?: boolean;
+  onOpenCloseDone?: () => void;
 }
 
 /**
@@ -55,7 +58,7 @@ interface Props {
  * botones del dinero (devolver, anular, resolver) siguen en el detalle de
  * Cobros. Cada bloque carga y falla aparte.
  */
-export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, mapKnown, tabs, onNavigate, onOpenPayment, onOpenCobro }: Props) {
+export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, mapKnown, tabs, onNavigate, onOpenPayment, onOpenCobro, openClose = false, onOpenCloseDone }: Props) {
   const withMap = showMoneyMap || !mapKnown;
   /** «Cerrar noche»: la noche abierta, pedida al tocar (como en Noches). */
   const [closing, setClosing] = useState<NightView | null>(null);
@@ -64,7 +67,7 @@ export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, m
   /** Al cerrar la noche se vuelve a cargar todo el Resumen. */
   const [generation, setGeneration] = useState(0);
 
-  async function openClose(): Promise<void> {
+  async function openCloseScreen(): Promise<void> {
     setOpening(true);
     setCloseError(null);
     try {
@@ -78,6 +81,13 @@ export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, m
     }
   }
 
+  // Solo quien puede cerrar; el cierre sigue con sus pasos y su confirmación (nada se cierra solo).
+  useEffect(() => {
+    if (!openClose) return;
+    onOpenCloseDone?.();
+    if (canCloseNight) void openCloseScreen();
+  }, [openClose]);
+
   return (
     <div className="np-resumen" key={generation}>
       {isOwner ? <PrimerosPasos tenantId={tenantId} onNavigate={onNavigate} /> : null}
@@ -86,7 +96,7 @@ export function ResumenPanel({ isOwner, tenantId, canCloseNight, showMoneyMap, m
         <TonightStrip
           variant={withMap ? 'hero' : 'full'}
           onNavigate={onNavigate}
-          onCloseNight={canCloseNight ? () => void openClose() : undefined}
+          onCloseNight={canCloseNight ? () => void openCloseScreen() : undefined}
           closeBusy={opening}
         />
         {withMap ? <MapFigures known={mapKnown} onOpen={() => onNavigate('money')} /> : null}

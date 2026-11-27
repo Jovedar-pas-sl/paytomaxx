@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ComponentProps, type FormEvent } from 'react';
 import { Button, Checkbox, Icon, Importe, Input, Select, Sheet } from '@nightpay/ui';
 import { CHARGE_METHOD_LABELS, LEGACY_SECTION_META, type ChargeMethod, type CobroRow } from '@nightpay/contracts';
-import { fetchCobros, fetchNights, fetchOperators, type CobrosFilters, type NightListItem, type Operator } from '@/lib/api';
+import { fetchCobros, fetchOperators, type CobrosFilters, type Operator } from '@/lib/api';
 import { cobrosCsv, collectCobros, csvFileName } from '@/lib/cobros-csv';
 import { nextSearch, SEARCH_MIN_CHARS } from '@/lib/cobros-search';
 import { cobrosTotals, totalsLead, totalsParts } from '@/lib/cobros-totals';
@@ -18,18 +18,16 @@ import {
   withoutFilters,
   type CobrosColumn,
 } from '@/lib/cobros-views';
-import { formatDateTime } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
 import { FILTER_FIELD } from '@/lib/filter-field';
 import { enabledSections } from '@/lib/money-map';
 import { saveBlob } from '@/lib/save-file';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
+import { SelectorNoches } from './SelectorNoches';
 
 /** Lo que se pide de una vez al descargar (el tope de `limit` del API). */
 const DOWNLOAD_PAGE = 200;
-/** Las noches que se pueden elegir: las 30 últimas. */
-const NIGHTS = 30;
 
 // OxioParty no cobra con bitcoin.
 const METHODS: ChargeMethod[] = isPartyEdition() ? ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO'] : ['CARD', 'MOBILE_WALLET', 'POS', 'SALDO', 'BITCOIN'];
@@ -47,26 +45,28 @@ interface Props {
   onColumns: (next: CobrosColumn[]) => void;
   /** «Descargar»: el dueño, y el encargado con «ver informes». */
   canExport: boolean;
+  /** El selector de fechas (por noches); null en OxioParty (todas las fechas, como siempre). */
+  periodo: ComponentProps<typeof SelectorNoches> | null;
+  /** Lo que se pide al API (la lista con sus fechas): lo mismo se descarga. null: aún no se puede pedir. */
+  fetchFilter: CobrosFilters | null;
 }
 
 /**
  * La barra de Cobros: las vistas (atajos de estado y forma de pago), el
- * buscador, «Noche», «Estado» y «Más filtros» en una línea, «Columnas» y
+ * selector de fechas (SelectorNoches), el buscador, «Estado» y «Más filtros» en una línea, «Columnas» y
  * «Descargar» a la derecha; debajo, una ficha por filtro puesto y el total de
  * lo cargado. En el móvil, el buscador y «Filtros (N)» con todo dentro. Los
  * filtros van al API tal cual (los mismos de siempre).
  */
-export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColumns, canExport }: Props) {
+export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColumns, canExport, periodo, fetchFilter }: Props) {
   const tz = useVenueTimezone();
   const { sections } = useSections();
   const party = isPartyEdition();
   const [operators, setOperators] = useState<Operator[]>([]);
-  const [nights, setNights] = useState<NightListItem[]>([]);
   const [search, setSearch] = useState(value.search ?? '');
   const [code, setCode] = useState(value.walletCode ?? '');
-  const [open, setOpen] = useState<'night' | 'status' | 'more' | 'all' | 'columns' | null>(null);
+  const [open, setOpen] = useState<'status' | 'more' | 'all' | 'columns' | null>(null);
   const [download, setDownload] = useState<Download>({ state: 'idle' });
-  const nightRef = useRef<HTMLSpanElement>(null);
   const statusRef = useRef<HTMLSpanElement>(null);
   const columnsRef = useRef<HTMLSpanElement>(null);
 
@@ -77,9 +77,6 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
         .then(setOperators)
         .catch(() => undefined);
     }
-    fetchNights()
-      .then((list) => setNights(list.slice(0, NIGHTS)))
-      .catch(() => undefined);
   }, [party]);
 
   // Lo que se quita con una ficha o llega de fuera (el mapa, un enlace) se ve también en los campos.
@@ -108,7 +105,8 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
   }
 
   async function runDownload(): Promise<void> {
-    const filter = value;
+    const filter = fetchFilter;
+    if (!filter) return;
     setDownload({ state: 'loading', count: 0 });
     try {
       const { rows: all, capped } = await collectCobros(
@@ -120,21 +118,23 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
         return;
       }
       saveBlob(new Blob([cobrosCsv(all, { tz, sections })], { type: 'text/csv;charset=utf-8' }), csvFileName(new Date(), tz));
-      setDownload({ state: 'done', note: capped ? 'Solo van los 5.000 más recientes. Acota la noche o el estado.' : null });
+      setDownload({ state: 'done', note: capped ? 'Solo van los 5.000 más recientes. Acota las fechas o el estado.' : null });
     } catch {
       setDownload({ state: 'error' });
     }
   }
 
   const view = activeView(value);
-  const chips = filterChips(value, { tz, nights, operators: operators.map((o) => ({ id: o.id, name: o.displayName ?? o.email })), sections });
+  // Con el selector, «Fechas del mapa» va en su botón (con «Quitar»): sin ficha repetida.
+  const chips = filterChips(value, { tz, nights: [], operators: operators.map((o) => ({ id: o.id, name: o.displayName ?? o.email })), sections }).filter(
+    (chip) => !(periodo && chip.key === 'fechas'),
+  );
   const count = activeFilterCount(value);
   const totals = rows ? cobrosTotals(rows) : null;
-  const nightLabel = (n: NightListItem) => `${formatDateTime(n.openedAt, tz, 'short')}${n.closedAt ? '' : ' (abierta)'}`;
 
   const downloadButton = () =>
     canExport ? (
-      <Button variant="ghost" size="sm" disabled={download.state === 'loading'} onClick={() => void runDownload()}>
+      <Button variant="ghost" size="sm" disabled={download.state === 'loading' || !fetchFilter} onClick={() => void runDownload()}>
         {download.state === 'loading' ? `Descargando… ${download.count > 0 ? download.count.toLocaleString('es-ES') : ''}` : 'Descargar'}
       </Button>
     ) : null;
@@ -160,6 +160,7 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
 
   return (
     <div className="np-cobros-toolbar" data-tour="cobros-filtros">
+      {periodo ? <SelectorNoches {...periodo} /> : null}
       <div className="np-cobros-views" role="group" aria-label="Vistas">
         {COBROS_VIEWS.map((v) => (
           <button key={v.key} type="button" className="np-cobros-view" aria-pressed={view === v.key} onClick={() => onChange(applyView(value, v.key))}>
@@ -184,11 +185,6 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
             style={FILTER_FIELD}
           />
         </form>
-        <span className="np-cobros-anchor" ref={nightRef} data-wide-only="">
-          <Button variant="ghost" size="sm" aria-haspopup="true" aria-expanded={open === 'night'} onClick={() => setOpen('night')}>
-            Noche <span aria-hidden="true">▾</span>
-          </Button>
-        </span>
         <span className="np-cobros-anchor" ref={statusRef} data-wide-only="">
           <Button variant="ghost" size="sm" aria-haspopup="true" aria-expanded={open === 'status'} onClick={() => setOpen('status')}>
             Estado <span aria-hidden="true">▾</span>
@@ -238,26 +234,6 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
         </p>
       ) : null}
 
-      <Sheet open={open === 'night'} onClose={close} title="Noche" wide="menu" anchorRef={nightRef}>
-        <ul className="np-cobros-menu">
-          {[{ id: '', label: 'Todas' }, ...nights.map((n) => ({ id: n.id, label: nightLabel(n) }))].map((n) => (
-            <li key={n.id}>
-              <button
-                type="button"
-                className="np-cobros-menu-item"
-                aria-pressed={(value.nightId ?? '') === n.id}
-                onClick={() => {
-                  set({ nightId: n.id || undefined });
-                  close();
-                }}
-              >
-                {n.label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Sheet>
-
       <Sheet open={open === 'status'} onClose={close} title="Estado" wide="menu" anchorRef={statusRef}>
         <div className="np-cobros-menu">{statusBoxes}</div>
       </Sheet>
@@ -275,7 +251,7 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
         </div>
       </Sheet>
 
-      {/* «Más filtros» (pantalla ancha) y «Filtros» (móvil, con la noche, el estado y la descarga dentro). */}
+      {/* «Más filtros» (pantalla ancha) y «Filtros» (móvil, con el estado y la descarga dentro). */}
       <Sheet
         open={open === 'more' || open === 'all'}
         onClose={close}
@@ -300,14 +276,6 @@ export function CobrosToolbar({ value, onChange, rows, hasMore, columns, onColum
         >
           {open === 'all' ? (
             <>
-              <Select label="Noche" value={value.nightId ?? ''} onChange={(e) => set({ nightId: e.target.value || undefined })}>
-                <option value="">Todas</option>
-                {nights.map((n) => (
-                  <option key={n.id} value={n.id}>
-                    {nightLabel(n)}
-                  </option>
-                ))}
-              </Select>
               <fieldset>
                 <legend>Estado</legend>
                 {statusBoxes}

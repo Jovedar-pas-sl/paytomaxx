@@ -107,6 +107,8 @@ export const ICON_PATHS = {
   receipt: ['M6 3h12v18l-3-2-3 2-3-2-3 2z', 'M9 8h6', 'M9 12h6'],
   bank: ['M3 9.5L12 4l9 5.5', 'M4 9.5h16', 'M6 9.5v8', 'M10 9.5v8', 'M14 9.5v8', 'M18 9.5v8', 'M3 20h18'],
   calendar: ['M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z', 'M3 10h18', 'M8 3v4', 'M16 3v4'],
+  // La lupa de la cabecera del panel (Buscar, Ctrl+K).
+  search: ['M10.5 3.5a7 7 0 1 0 0 14a7 7 0 0 0 0-14Z', 'M15.5 15.5L20.5 20.5'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type IconName = keyof typeof ICON_PATHS;

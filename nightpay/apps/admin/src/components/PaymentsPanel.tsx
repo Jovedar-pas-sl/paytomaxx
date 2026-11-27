@@ -1,17 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { Button, Card, FormError } from '@nightpay/ui';
 import type { CobroRow } from '@nightpay/contracts';
-import { fetchCobros, fetchMetrics, type CobrosFilters, type Metrics, type PaymentRow, type User } from '@/lib/api';
+import { fetchCobros, fetchMetrics, fetchNights, type CobrosFilters, type Metrics, type NightListItem, type PaymentRow, type User } from '@/lib/api';
 import { cobradoNote, metricsCobradoParts } from '@/lib/cobrado';
 import { refFromSearch, withoutRef } from '@/lib/cobro-detail-view';
 import { dockKeyAction, dockView, neighbour, type DockKey, type DockSeen } from '@/lib/cobro-dock';
-import { COLUMNS_STORAGE_KEY, parseColumns, type CobrosColumn } from '@/lib/cobros-views';
+import { COLUMNS_STORAGE_KEY, activeView, parseColumns, type CobrosColumn } from '@/lib/cobros-views';
+import { isPartyEdition } from '@/lib/edition';
 import { keepIfSame } from '@/lib/diff';
 import { formatEur } from '@/lib/money';
 import { paymentRowOf, reversibleSaldoCharge } from '@/lib/money-map';
 import { appendPage, mergeLatestPage } from '@/lib/pagination';
+import { cobrosVentana, guardarEnUrl, lineaPeriodo, periodoDeLaUrl, PERIODOS_NOCHE, resolverPeriodo, type Periodo } from '@/lib/periodos';
 import { useApprovals } from '@/lib/use-approvals';
 import { usePolling } from '@/lib/use-polling';
 import { BankRefundModal } from './BankRefundModal';
@@ -45,7 +47,14 @@ interface Props {
   onOpenRowDone?: () => void;
   /** «Descargar» la lista: el dueño, y el encargado con «ver informes». */
   canExport?: boolean;
+  /** Cobro (su referencia, C-0022) cuyo detalle abrir, buscándolo en todas las fechas (Buscar, Ctrl+K). */
+  openRef?: string | null;
+  onOpenRefDone?: () => void;
 }
+
+/** Los periodos del calendario: no necesitan las noches. */
+const CALENDARIO: ReadonlyArray<Periodo['clave']> = ['mes', 'mes-pasado', 'trimestre-pasado', 'ano', 'fechas'];
+const ESTA_NOCHE: Periodo = { clave: 'esta-noche' };
 
 /**
  * Pestaña Cobros: las cifras de hoy y los cobros (con tarjeta y del
@@ -65,7 +74,16 @@ export function PaymentsPanel({
   openRow = null,
   onOpenRowDone,
   canExport = false,
+  openRef = null,
+  onOpenRefDone,
 }: Props) {
+  // Fechas por noches (SelectorNoches); OxioParty, todas las fechas como siempre.
+  const party = isPartyEdition();
+  const [periodo, setPeriodo] = useState<Periodo>(() => (party ? ESTA_NOCHE : periodoDeLaUrl(ESTA_NOCHE)));
+  const [nights, setNights] = useState<NightListItem[] | null>(null);
+  const [nightsError, setNightsError] = useState(false);
+  /** Un cobro concreto (desde Avisos o «Pide tu atención»): se busca en todas las fechas hasta que se cambie algo. */
+  const [anyDate, setAnyDate] = useState(focusPaymentId !== null || openRow !== null);
   // «Por aprobar»: desde cuánto pide el encargado las devoluciones al dueño.
   const refundRequestFromCents = useApprovals().rules?.refundRequestFromCents ?? null;
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -110,6 +128,54 @@ export function PaymentsPanel({
   useEffect(() => {
     loadedRef.current = payments?.length ?? 0;
   }, [payments]);
+
+  useEffect(() => {
+    if (focusPaymentId !== null || openRow !== null) setAnyDate(true);
+  }, [focusPaymentId, openRow]);
+
+  // Desde Buscar (Ctrl+K): ese cobro, buscado por su referencia en todas las fechas, con su detalle abierto.
+  useEffect(() => {
+    if (!openRef) return;
+    setLinkRef(openRef);
+    changeFilter({ search: openRef });
+    onOpenRefDone?.();
+  }, [openRef, onOpenRefDone]);
+
+  // Qué fechas se piden: la ventana de una cifra del mapa (from/to en el filtro), todas (un cobro
+  // concreto, el buscador o «Con problema») o el periodo del selector. Nunca periodo y mapa a la vez.
+  const mapWindow = Boolean(filter.from || filter.to);
+  const allDates = party || anyDate || Boolean(filter.search) || activeView(filter) === 'problema';
+  const usesPeriod = !mapWindow && !allDates;
+  const resolved = useMemo(
+    () => (usesPeriod && (nights || CALENDARIO.includes(periodo.clave)) ? resolverPeriodo(periodo, nights ?? [], new Date()) : null),
+    [usesPeriod, periodo, nights],
+  );
+  /** Lo que se pide al API; null: aún no (esperando las noches, o fallaron); 'vacio': no hubo noches esos días. */
+  // Memorizado: «Cargar más» comprueba que sigue siendo el mismo al volver.
+  const fetchFilter = useMemo((): CobrosFilters | 'vacio' | null => {
+    if (!usesPeriod) return filter;
+    if (resolved === null) return null;
+    const w = cobrosVentana(resolved);
+    return w ? { ...filter, ...w } : 'vacio';
+  }, [usesPeriod, filter, resolved]);
+  const fetchFilterRef = useRef(fetchFilter);
+  fetchFilterRef.current = fetchFilter;
+
+  const loadNights = useCallback(async (): Promise<NightListItem[] | null> => {
+    try {
+      const list = await fetchNights();
+      setNights((prev) => keepIfSame(prev, list));
+      setNightsError(false);
+      return list;
+    } catch {
+      setNightsError(true);
+      return null;
+    }
+  }, []);
+  // Las noches, al llegar (también para «Otra noche…» mientras se busca en todas las fechas).
+  useEffect(() => {
+    if (!party) void loadNights();
+  }, [party, loadNights]);
 
   // Desde una incidencia (devolución sin confirmar): en cuanto llega la lista,
   // se abren las devoluciones de ese cobro, donde está «Resolver».
@@ -156,7 +222,21 @@ export function PaymentsPanel({
       const version = versionRef.current;
       const limit = Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, loaded));
       try {
-        const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(filter, { limit })]);
+        // Esta noche: cada refresco vuelve a pedir las noches (una que se abre o se cierra mueve la ventana).
+        // Sin ellas aún (o si fallaron), se vuelven a pedir.
+        if (usesPeriod && (periodo.clave === 'esta-noche' || fetchFilterRef.current === null)) await loadNights();
+        const asked = fetchFilterRef.current;
+        if (asked === null || asked === 'vacio') {
+          // Sin las noches no se pide la lista (nunca todas las fechas con el nombre de un periodo); sin noches, vacía.
+          const m = await fetchMetrics();
+          if (signal.aborted) return true;
+          setMetrics((prev) => keepIfSame(prev, m));
+          if (asked === 'vacio') setPayments([]);
+          setNextCursor(null);
+          setError(null);
+          return true;
+        }
+        const [m, page] = await Promise.all([fetchMetrics(), fetchCobros(asked, { limit })]);
         if (signal.aborted) return true;
         setMetrics((prev) => keepIfSame(prev, m));
         setPayments((prev) => (prev ? keepIfSame(prev, mergeLatestPage(page.items, prev, page.nextCursor === null)) : page.items));
@@ -171,10 +251,11 @@ export function PaymentsPanel({
       }
     },
     { intervalMs: POLL_MS, maxIntervalMs: MAX_POLL_MS },
-    [filter],
+    [JSON.stringify(fetchFilter)],
   );
 
   function changeFilter(value: CobrosFilters): void {
+    setAnyDate(false);
     filterRef.current = value;
     loadedRef.current = 0;
     setPayments(null);
@@ -182,13 +263,20 @@ export function PaymentsPanel({
     setFilter(value);
   }
 
+  function changePeriodo(next: Periodo): void {
+    guardarEnUrl(next);
+    setPeriodo(next);
+    // Elegir unas fechas es ver esas fechas: fuera la ventana del mapa y lo buscado (que mira en todas).
+    changeFilter({ ...filter, from: undefined, to: undefined, search: undefined });
+  }
+
   async function loadMore(): Promise<void> {
-    if (!nextCursor) return;
-    const forFilter = filter;
+    const forFilter = fetchFilterRef.current;
+    if (!nextCursor || forFilter === null || forFilter === 'vacio') return;
     setLoadingMore(true);
     try {
       const page = await fetchCobros(forFilter, { cursor: nextCursor, limit: PAGE_SIZE });
-      if (filterRef.current !== forFilter) return;
+      if (fetchFilterRef.current !== forFilter) return;
       setPayments((prev) => appendPage(prev ?? [], page.items));
       setNextCursor(page.nextCursor);
       setError(null);
@@ -281,7 +369,8 @@ export function PaymentsPanel({
     });
   }
 
-  const filtered = Object.keys(filter).length > 0;
+  const filtered = Object.values(filter).some((v) => v !== undefined && !(Array.isArray(v) && v.length === 0));
+  const periodLine = allDates ? 'Buscando en todas las fechas' : mapWindow ? null : resolved ? lineaPeriodo(resolved) : null;
 
   return (
     <>
@@ -343,6 +432,21 @@ export function PaymentsPanel({
             columns={columns}
             onColumns={changeColumns}
             canExport={canExport}
+            fetchFilter={fetchFilter === 'vacio' ? null : fetchFilter}
+            periodo={
+              party
+                ? null
+                : {
+                    value: periodo,
+                    onChange: changePeriodo,
+                    opciones: PERIODOS_NOCHE,
+                    nights,
+                    linea: periodLine,
+                    nightsError: nightsError && usesPeriod && !CALENDARIO.includes(periodo.clave),
+                    onRetry: () => void loadNights(),
+                    override: mapWindow ? { label: 'Fechas del mapa', onClear: () => changePeriodo(ESTA_NOCHE) } : null,
+                  }
+            }
           />
 
           <Card className="np-table-host" style={{ padding: 0, overflow: 'hidden', minWidth: 0 }} data-tour="cobros-tabla">
@@ -352,7 +456,9 @@ export function PaymentsPanel({
               onDetails={openDetail}
               current={dock}
               empty={
-                filtered
+                fetchFilter === 'vacio'
+                  ? { title: 'No abriste ninguna noche esos días', action: { label: 'Ver esta noche', onClick: () => changePeriodo(ESTA_NOCHE) } }
+                  : filtered
                   ? { title: 'No hay cobros con estos filtros', action: { label: 'Quitar todo', onClick: () => changeFilter({}) } }
                   : { title: 'Aún no hay cobros', text: 'Aquí verás cada cobro y cómo se pagó.' }
               }

@@ -340,3 +340,166 @@
     flex-wrap: nowrap !important;
   }
 }
+
+/* ════ Parte B: el selector de fechas (SelectorNoches) y Buscar (Ctrl+K) ════ */
+/* Para un Chrome 64 (datáfono): márgenes en vez de gap en flex, sin inset ni min()/clamp(). */
+
+.np-noches {
+  margin-bottom: 0.75rem;
+}
+
+.np-noches-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.np-noches-row > * + * {
+  margin-left: 0.5rem;
+}
+
+.np-noches-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 1rem;
+  border: 1px solid var(--np-border);
+  border-radius: 999px;
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.np-noches-btn > span {
+  margin-left: 0.375rem;
+}
+
+.np-noches-btn:focus-visible {
+  outline: 2px solid var(--np-focus);
+  outline-offset: 2px;
+}
+
+.np-noches-line {
+  margin: 0.375rem 0 0;
+  color: var(--np-text-mute);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.np-noches-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.375rem;
+}
+
+.np-noches-error > * + * {
+  margin-left: 0.5rem;
+}
+
+.np-noches-menu {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-noches-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  border: none;
+  border-radius: var(--np-r-sm);
+  background: transparent;
+  color: var(--np-text);
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.np-noches-item:hover,
+.np-noches-item[aria-pressed='true'] {
+  background: var(--np-surface-2);
+}
+
+.np-noches-item[aria-pressed='true'] {
+  font-weight: 600;
+}
+
+.np-noches-fechas > * + * {
+  margin-top: 0.75rem;
+}
+
+/* Buscar (Ctrl+K): el campo a 16 px y filas de 48. */
+
+.np-cmdk-input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 0.875rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-sm);
+  background: var(--np-surface);
+  color: var(--np-text);
+  font: inherit;
+  font-size: 16px;
+}
+
+.np-cmdk-input:focus {
+  outline: 2px solid var(--np-focus);
+  outline-offset: 1px;
+}
+
+.np-cmdk-results {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-cmdk-group {
+  margin: 0.75rem 0 0.25rem;
+  padding: 0 0.75rem;
+  color: var(--np-text-mute);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.np-cmdk-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 0.75rem;
+  border-radius: var(--np-r-sm);
+  color: var(--np-text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.np-cmdk-option[aria-selected='true'],
+.np-cmdk-option:hover {
+  background: var(--np-surface-2);
+}
+
+.np-cmdk-option > span + span {
+  margin-left: 0.75rem;
+  color: var(--np-text-mute);
+  font-size: 14px;
+}
+
+.np-cmdk-note {
+  margin: 0.5rem 0 0;
+  padding: 0 0.75rem;
+  color: var(--np-text-mute);
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .np-noches-btn {
+    min-height: 44px;
+  }
+}

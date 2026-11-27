@@ -26,10 +26,23 @@ export const MoneyMapQuerySchema = z
     /** Días de Madrid, AAAA-MM-DD, ambos incluidos (en vez de una noche). */
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD').optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha AAAA-MM-DD').optional(),
+    /**
+     * Varias noches por instantes (con zona): desde el inicio de la más vieja
+     * hasta el cierre de la más nueva (sin toAt si sigue abierta: hasta ahora).
+     */
+    fromAt: z.string().datetime({ offset: true }).optional(),
+    toAt: z.string().datetime({ offset: true }).optional(),
   })
   .strict()
   .refine((q) => !(q.night && (q.from || q.to)), { message: 'Pide una noche o unas fechas, no las dos cosas' })
-  .refine((q) => Boolean(q.from) === Boolean(q.to), { message: 'Faltan las fechas: from y to' });
+  .refine((q) => Boolean(q.from) === Boolean(q.to), { message: 'Faltan las fechas: from y to' })
+  .refine((q) => !((q.fromAt || q.toAt) && (q.night || q.from || q.to)), {
+    message: 'Pide una noche, unas fechas o un periodo, solo una cosa',
+  })
+  .refine((q) => !q.toAt || Boolean(q.fromAt), { message: 'Falta el inicio del periodo: fromAt' })
+  .refine((q) => !(q.fromAt && q.toAt) || Date.parse(q.toAt) > Date.parse(q.fromAt), {
+    message: 'El final del periodo es anterior al inicio',
+  });
 export type MoneyMapQuery = z.infer<typeof MoneyMapQuerySchema>;
 
 export type MoneyMapScope =
