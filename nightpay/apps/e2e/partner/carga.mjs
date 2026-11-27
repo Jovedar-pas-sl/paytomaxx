@@ -8,14 +8,15 @@
 // Durante MINUTOS (10 si no se da): 8 lecturas de saldo por segundo
 // repartidas por igual entre las FICHAS fichas demo-carga-* (300 si no se da,
 // las de la semilla) y, a la vez, 25 cargas de 1,00 € por minuto (device
-// CARGA01, sin anular). Después, reinicio y 6 cargas de 300 € a la vez en
+// CARGA01, sin anular), empezando cuando la conexión lleva 65 s sin cargas
+// (más de 30 en un minuto la pausarían). Después, reinicio y 6 cargas de 300 € a la vez en
 // `empty`. Pasa con: cero 5xx y 429, p95 < 300 ms por ruta, en la ráfaga justo
 // dos 201 y cuatro 402 limit_exceeded (wallet_24h), paused_scopes vacío y
 // /statement igual a la suma de sus 201. Nunca escribe la clave ni un saldo.
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { guardEnv, makeClient, makeLog, percentile } from './comun.mjs';
+import { allOperations, guardEnv, makeClient, makeLog, percentile } from './comun.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const log = makeLog('carga');
@@ -25,6 +26,9 @@ const LOADS_PER_MINUTE = 25;
 const BURST = 6; // el máximo de cargas por saldo y minuto
 const FICHA_NIGHT_READS = 20; // lecturas con ficha por saldo y noche
 const P95_MAX_MS = 300;
+// Más de 30 cargas nuevas en un minuto pausan las cargas de la conexión: se
+// empieza cuando la última carga (de demo-check, por ejemplo) tiene ya 65 s.
+const QUIET_MS = 65_000;
 
 function intEnv(name, fallback, min, max) {
   const raw = process.env[name];
@@ -54,6 +58,17 @@ async function main() {
   if (me.status !== 200 || me.data?.livemode !== false) {
     log(`FALLO · GET /me con livemode false → ${me.status} · Request-Id ${me.requestId}`);
     process.exit(1);
+  }
+  const recent = await allOperations(call, { from: new Date(Date.now() - 2 * 60_000).toISOString(), to: new Date(Date.now() + 60_000).toISOString() });
+  if (!recent.ok) {
+    log(`FALLO · /wallet/operations de los últimos minutos → ${recent.r.status} · Request-Id ${recent.r.requestId}`);
+    process.exit(1);
+  }
+  const last = Math.max(0, ...recent.data.map((o) => Date.parse(o.created_at)));
+  const wait = last + QUIET_MS - Date.now();
+  if (wait > 0) {
+    log(`espero ${Math.ceil(wait / 1000)} s: hay cargas de hace menos de un minuto`);
+    await new Promise((done) => setTimeout(done, wait));
   }
   const started = new Date();
   log(`${minutes} min · ${READS_PER_SECOND} lecturas/s entre ${fichas} fichas (${perFicha} por ficha) · ${LOADS_PER_MINUTE} cargas/min`);
