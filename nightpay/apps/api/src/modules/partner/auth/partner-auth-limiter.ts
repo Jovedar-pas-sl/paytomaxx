@@ -22,6 +22,8 @@ export const PAUTH_LIMITS = Object.freeze({
   ipKeys: 20,
   ipWindowS: 600,
   ipBlockS: 900,
+  /** Con la IP bloqueada, claves aún sin conocer que se buscan en la base (paso 5), por IP y bloqueo. */
+  blockedIpLookups: 30,
   breakerFails: 601,
   breakerS: 60,
   okS: 86_400,
@@ -46,6 +48,7 @@ const K = {
   ipSeen: (ip: string, h: string) => `np:pauth:ipseen:${ip}:${h}`,
   ip: (ip: string) => `np:pauth:ip:${ip}`,
   ipBlock: (ip: string) => `np:pauth:ipblock:${ip}`,
+  ipBlockLookups: (ip: string) => `np:pauth:ipblocklookups:${ip}`,
   fail: (minute: number) => `np:pauth:fail:${minute}`,
   breaker: 'np:pauth:breaker',
   ok: (h: string) => `np:pauth:ok:${h}`,
@@ -77,6 +80,14 @@ export class PartnerAuthLimiter {
     if ((await this.count(K.fail(Math.floor(Date.now() / 60_000)), 120)) >= PAUTH_LIMITS.breakerFails) {
       await this.redis.set(K.breaker, '1', 'EX', PAUTH_LIMITS.breakerS);
     }
+  }
+
+  /**
+   * Con la IP bloqueada, ¿se busca en la base esta clave aún sin conocer? Para
+   * que pase una buena con esa IP en su lista (paso 5): pocas por IP y bloqueo.
+   */
+  async lookupFromBlockedIp(ip: string | null): Promise<boolean> {
+    return (await this.count(K.ipBlockLookups(authIpKey(ip)), PAUTH_LIMITS.ipBlockS)) <= PAUTH_LIMITS.blockedIpLookups;
   }
 
   /** La clave funcionó: 24 h sin bloqueos ni cortacircuitos para ella. */

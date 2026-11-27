@@ -219,8 +219,24 @@ describe('PartnerKeyGuard: pasos 2 a 5, antes y en la base', () => {
       s.req.headers = { authorization: `Bearer oxp_test_${i.toString(16).padStart(48, '0')}` };
       expect(await codeOf(s.run())).toBe('rate_limited');
     }
-    expect(s.prisma.asSystem).not.toHaveBeenCalled();
+    // Solo unas pocas bien formadas llegan a la base (por si una es buena y tiene esa IP en su lista).
+    expect(s.prisma.asSystem).toHaveBeenCalledTimes(PAUTH_LIMITS.blockedIpLookups);
     expect(blocked.keys().filter((k) => k.startsWith('np:pauth:fail:'))).toEqual([]);
+    // Las mal formadas o del otro entorno, ni eso.
+    const shaped = build({ redis: blocked, row: null });
+    for (const authorization of ['Bearer basura', `Bearer oxp_live_${'0'.repeat(48)}`]) {
+      shaped.req.headers = { authorization };
+      expect(await codeOf(shaped.run())).toBe('rate_limited');
+    }
+    expect(shaped.prisma.asSystem).not.toHaveBeenCalled();
+  });
+
+  it('IP bloqueada y una clave buena que aún no se conoce: pasa si está activa y tiene esa IP en su lista', async () => {
+    const redis = createFakeRedis();
+    await redis.set('np:pauth:ipblock:203.0.113.9', '1', 'EX', 900);
+    expect((await build({ redis }).run()).ok).toBe(true);
+    expect(await codeOf(build({ redis, row: connection({ ipAllowlist: ['198.51.100.7'] }) }).run())).toBe('rate_limited');
+    expect(await codeOf(build({ redis, row: connection({ status: 'PAUSED' }) }).run())).toBe('rate_limited');
   });
 
   it('con el cortacircuitos levantado, una clave que funcionó hace 2 h entra', async () => {

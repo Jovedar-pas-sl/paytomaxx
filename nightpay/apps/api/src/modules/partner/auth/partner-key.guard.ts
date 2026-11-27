@@ -52,7 +52,8 @@ const latest = (...dates: Array<Date | null>) => Math.max(...dates.map((d) => d?
  *  1. apagada (o en OxioParty), una ruta solo de la demo fuera de la demo o congelada del todo: 404;
  *     `money` congelado: 403 en las de dinero;
  *  2. la clave en el cuerpo: 400; con `Origin`: 403;
- *  3. sin tocar la base: clave bloqueada 401; si no se conoce, cortacircuitos 503 e IP bloqueada 429;
+ *  3. sin tocar la base: clave bloqueada 401; si no se conoce, cortacircuitos 503 e IP bloqueada 429
+ *     (salvo unas pocas claves bien formadas por IP: el paso 5 deja pasar una activa con esa IP en su lista);
  *  4. solo `Bearer oxp_<modo>_<48 hex>` del modo del despliegue;
  *  5. la conexión por el hash (actual o anterior en su solape), en asSystem;
  *  6. la IP entera, antes que el estado, en la lista de la clave y en las del socio;
@@ -101,7 +102,15 @@ export class PartnerKeyGuard implements CanActivate {
     const state = await this.redis(() => this.limiter.state(keyHash, ip));
     if (state.keyBlocked) throw partnerError('invalid_api_key');
     if (!state.known && state.breaker) throw partnerError('try_later', {}, PAUTH_LIMITS.breakerS);
-    if (!state.known && state.ipBlocked) throw partnerError('rate_limited', {}, PAUTH_LIMITS.ipBlockS);
+    // IP bloqueada: nunca para una clave buena con esa IP en su lista (paso 5). Una aún sin conocer
+    // llega a la base solo si tiene la forma y el modo, y pocas por IP; las demás, 429 sin contar fallo.
+    const unknownFromBlockedIp = !state.known && state.ipBlocked;
+    if (
+      unknownFromBlockedIp &&
+      (partnerKeyModeOf(presented) !== partnerApiMode() || !(await this.redis(() => this.limiter.lookupFromBlockedIp(ip))))
+    ) {
+      throw partnerError('rate_limited', {}, PAUTH_LIMITS.ipBlockS);
+    }
 
     // 4. La forma y el entorno.
     const mode = partnerKeyModeOf(presented);
@@ -118,7 +127,7 @@ export class PartnerKeyGuard implements CanActivate {
     let keyMatch: 'current' | 'previous';
     let effectiveScopes: PartnerScope[];
     try {
-      ({ conn, keyMatch, effectiveScopes } = await this.admit(def, keyHash, ip, state.ipBlocked, now));
+      ({ conn, keyMatch, effectiveScopes } = await this.admit(def, keyHash, ip, state.ipBlocked, unknownFromBlockedIp, now));
     } catch (err) {
       if (err instanceof PartnerHttpException && err.code !== 'try_later' && err.code !== 'invalid_api_key') {
         await this.redis(() => this.rates.recordRejection(keyHash, ip));
@@ -145,6 +154,7 @@ export class PartnerKeyGuard implements CanActivate {
     keyHash: string,
     ip: string | null,
     ipBlocked: boolean,
+    unknownFromBlockedIp: boolean,
     now: Date,
   ): Promise<{ conn: PartnerGuardConnection; keyMatch: 'current' | 'previous'; effectiveScopes: PartnerScope[] }> {
     // 5. La conexión.
@@ -155,6 +165,8 @@ export class PartnerKeyGuard implements CanActivate {
       }),
     );
     if (!conn) {
+      // Una inventada desde la IP bloqueada: el mismo 429, sin contar fallo.
+      if (unknownFromBlockedIp) throw partnerError('rate_limited', {}, PAUTH_LIMITS.ipBlockS);
       if (await this.redis(() => this.limiter.isRetired(keyHash))) throw partnerError('api_key_rotated');
       throw await this.failure(keyHash, ip, 'invalid_api_key');
     }
