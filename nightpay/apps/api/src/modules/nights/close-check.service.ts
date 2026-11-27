@@ -1,6 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { expectedCashCents, withServiceFee, type NightCash, type NightChicaPay, type NightCloseCheck } from '@nightpay/contracts';
+import {
+  expectedCashCents,
+  withServiceFee,
+  type NightCash,
+  type NightChicaPay,
+  type NightCloseCheck,
+  type NightPartnerCash,
+} from '@nightpay/contracts';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { earningBankHeldSql, earningNetSql } from '../operators/bank-hold-sql';
@@ -19,7 +26,7 @@ import {
   type WalletCloseRequestedRow,
   type WalletPayoutPendingRow,
 } from './close-check-rules';
-import { unresolvedPaymentsWhere } from './night-rules';
+import { partnerCashLines, unresolvedPaymentsWhere } from './night-rules';
 import { bitcoinCashOut } from '../bitcoin-cash/bitcoin-cash-rows';
 
 /** Cuántas filas de cada cosa como mucho (el número de la lista es aparte). */
@@ -133,13 +140,13 @@ export class CloseCheckService {
       )
       SELECT
         (SELECT ${cashTopUpCount('ct')}::int FROM wallet_cash_topups ct
-          WHERE ct."tenantId" = ${tenantId}::uuid
+          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."partnerConnectionId" IS NULL
             AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCount",
         (SELECT COALESCE(SUM(ct."amountCents"), 0)::int FROM wallet_cash_topups ct
-          WHERE ct."tenantId" = ${tenantId}::uuid
+          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."partnerConnectionId" IS NULL
             AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpCents",
         (SELECT COALESCE(SUM(ct."serviceFeeCents"), 0)::int FROM wallet_cash_topups ct
-          WHERE ct."tenantId" = ${tenantId}::uuid
+          WHERE ct."tenantId" = ${tenantId}::uuid AND ct."partnerConnectionId" IS NULL
             AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}) AS "topUpFeeCents",
         (SELECT COUNT(*)::int FROM wallet_payouts wp
           WHERE wp."tenantId" = ${tenantId}::uuid AND wp.method = 'CASH' AND wp.status = 'DONE'
@@ -167,6 +174,7 @@ export class CloseCheckService {
     const cashInCents = r.topUpCents + feeCents;
     // Sale también lo pagado con bitcoin y devuelto en efectivo (el bitcoin se queda en la cartera).
     const btc = await this.prisma.withTenant(tenantId, (tx) => bitcoinCashOut(tx, tenantId, window));
+    const partnerCash = await this.partnerCash(tenantId, window);
     const cashOutCents = r.walletCents + r.chicaCents + r.camareroCents + btc.cents;
     return {
       openingFloatCents,
@@ -183,7 +191,31 @@ export class CloseCheckService {
       ...(btc.count > 0 ? { bitcoinCashOutCount: btc.count, bitcoinCashOutCents: btc.cents } : {}),
       cashOutCents,
       expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
+      ...(partnerCash.length > 0 ? { partnerCash } : {}),
     };
+  }
+
+  /**
+   * «Caja · {socio}»: el efectivo de los cajeros de otras plataformas en la
+   * misma ventana, por conexión (cargas menos anulaciones). No entra en el
+   * cajón de recepción. Las mismas cuentas que night-rules.partnerCashOf().
+   */
+  private async partnerCash(tenantId: string, window: TimeWindow): Promise<NightPartnerCash[]> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<
+      Array<{ connectionId: string; name: string | null; count: number; cents: number }>
+    >`
+      SELECT ct."partnerConnectionId"::text AS "connectionId",
+             MAX(pa.name) AS name,
+             ${cashTopUpCount('ct')}::int AS count,
+             COALESCE(SUM(ct."amountCents"), 0)::int AS cents
+        FROM wallet_cash_topups ct
+        LEFT JOIN partner_connections pc ON pc.id = ct."partnerConnectionId" AND pc."tenantId" = ${tenantId}::uuid
+        LEFT JOIN partners pa ON pa.id = pc."partnerId"
+       WHERE ct."tenantId" = ${tenantId}::uuid AND ct."partnerConnectionId" IS NOT NULL
+         AND ct."createdAt" >= ${window.from} AND ct."createdAt" < ${window.to}
+       GROUP BY ct."partnerConnectionId"
+    `);
+    return partnerCashLines(rows.map((r) => ({ connectionId: r.connectionId, name: r.name ?? '', count: r.count, cents: r.cents })));
   }
 
   /** Cobros de la noche sin terminar: los mismos que cuentan en pendingAtClose. */

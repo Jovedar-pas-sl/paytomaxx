@@ -1,4 +1,11 @@
-import { expectedCashCents, withServiceFee, type CashOutcome, type MoneyMap, type NightCash } from '@nightpay/contracts';
+import {
+  expectedCashCents,
+  withServiceFee,
+  type CashOutcome,
+  type MoneyMap,
+  type NightCash,
+  type NightPartnerCash,
+} from '@nightpay/contracts';
 import { Prisma } from '@nightpay/db';
 import { nextNightCutoff } from '../../common/time/madrid';
 import { summarize, type ExportSummary } from '../reports/export-csv';
@@ -78,6 +85,12 @@ export interface NightCaja {
   bitcoinCashOutCents?: number;
   cashOutCents: number;
   expectedCents: number;
+  /**
+   * «Caja · {socio}»: el efectivo de los cajeros de otras plataformas, fuera
+   * de este cajón (no está en cashInCents ni en expectedCents). Solo si lo
+   * hubo; los Z de antes del 27-nov-2026 no lo traen.
+   */
+  partnerCash?: NightPartnerCash[];
   /** null = nadie la contó (cierre automático, o sin efectivo). */
   countedCents: number | null;
   /**
@@ -159,6 +172,7 @@ export function buildNightCaja(
     ...(cash.bitcoinCashOutCount ? { bitcoinCashOutCount: cash.bitcoinCashOutCount, bitcoinCashOutCents: cash.bitcoinCashOutCents ?? 0 } : {}),
     cashOutCents: cash.cashOutCents,
     expectedCents: outcome.expectedCents,
+    ...(cash.partnerCash?.length ? { partnerCash: cash.partnerCash } : {}),
     countedCents: outcome.countedCents,
     ...(firstCountedCents !== undefined && outcome.countedCents !== null ? { firstCountedCents } : {}),
     diffCents: outcome.diffCents,
@@ -185,14 +199,17 @@ export function cashFromRows(
   },
 ): NightCash {
   const sum = <T>(xs: ReadonlyArray<T>, f: (x: T) => number): number => xs.reduce((a, x) => a + f(x), 0);
+  // El efectivo de los cajeros de otras plataformas no está en este cajón: va aparte (partnerCash).
+  const reception = rows.recargasEfectivo.filter((r) => !r.partnerConnectionId);
+  const partnerCash = partnerCashOf(rows.recargasEfectivo);
   const walletCash = rows.pagosSaldo.filter((p) => p.method === 'CASH');
   const staffCash = rows.liquidaciones.filter((l) => l.externalRail === 'MANUAL_CASH');
   // Sin el puesto (filas de antes): una chica, como en el resumen del Z.
   const camareroCash = staffCash.filter((l) => l.role === 'WAITER');
   const chicaCash = staffCash.filter((l) => l.role !== 'WAITER');
   // Entra lo que pagó el cliente: el saldo + la «Comisión del servicio» (que se debe a OxioPay).
-  const walletCashTopUpsCents = sum(rows.recargasEfectivo, (r) => r.amountCents);
-  const walletCashTopUpFeesCents = sum(rows.recargasEfectivo, (r) => r.serviceFeeCents ?? 0);
+  const walletCashTopUpsCents = sum(reception, (r) => r.amountCents);
+  const walletCashTopUpFeesCents = sum(reception, (r) => r.serviceFeeCents ?? 0);
   const cashInCents = walletCashTopUpsCents + walletCashTopUpFeesCents;
   const walletCashPayoutsCents = sum(walletCash, (p) => p.amountCents);
   const chicaCashPayoutsCents = sum(chicaCash, (l) => l.totalCents);
@@ -202,7 +219,7 @@ export function cashFromRows(
   return {
     openingFloatCents,
     cashInCents,
-    walletCashTopUpsCount: cashTopUpsCount(rows.recargasEfectivo),
+    walletCashTopUpsCount: cashTopUpsCount(reception),
     walletCashTopUpsCents,
     ...withServiceFee({ walletCashTopUpFeesCents }),
     walletCashPayoutsCount: walletCash.length,
@@ -214,7 +231,42 @@ export function cashFromRows(
     ...(btc.count > 0 ? { bitcoinCashOutCount: btc.count, bitcoinCashOutCents: btc.cents } : {}),
     cashOutCents,
     expectedCents: expectedCashCents(openingFloatCents, { cashInCents, cashOutCents }),
+    ...(partnerCash.length > 0 ? { partnerCash } : {}),
   };
+}
+
+/**
+ * «Caja · {socio}»: una línea por conexión con efectivo de sus cajeros en las
+ * filas (cargas menos anulaciones, también las anuladas en el panel), con
+ * `count` como cashTopUpsCount(), ordenadas por nombre. Sin ninguna, [].
+ * CloseCheckService.cash() agrupa en SQL y acaba aquí (partnerCashLines): los
+ * dos caminos dan lo mismo.
+ */
+export function partnerCashOf(rows: ReadonlyArray<RecargaEfectivoRow>): NightPartnerCash[] {
+  const byConnection = new Map<string, { name: string; rows: RecargaEfectivoRow[] }>();
+  for (const r of rows) {
+    if (!r.partnerConnectionId) continue;
+    const line = byConnection.get(r.partnerConnectionId) ?? { name: r.partnerName ?? '', rows: [] };
+    line.rows.push(r);
+    byConnection.set(r.partnerConnectionId, line);
+  }
+  return partnerCashLines(
+    [...byConnection.entries()].map(([connectionId, l]) => ({
+      connectionId,
+      name: l.name,
+      count: cashTopUpsCount(l.rows),
+      cents: l.rows.reduce((a, r) => a + r.amountCents, 0),
+    })),
+  );
+}
+
+/** Las líneas por conexión, por nombre (y, con el mismo nombre, por conexión), sin la conexión. */
+export function partnerCashLines(
+  lines: ReadonlyArray<{ connectionId: string; name: string; count: number; cents: number }>,
+): NightPartnerCash[] {
+  return [...lines]
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : a.connectionId < b.connectionId ? -1 : a.connectionId > b.connectionId ? 1 : 0))
+    .map(({ name, count, cents }) => ({ name, count, cents }));
 }
 
 /** La noche anterior ya cerrada, con su Z congelado. */

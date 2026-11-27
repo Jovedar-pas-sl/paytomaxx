@@ -155,6 +155,38 @@ export interface RecargaEfectivoRow {
   takenByName: string | null;
   takenByEmail: string | null;
   terminalLabel: string | null;
+  /**
+   * La conexión de otra plataforma (API de socios) cuyo cajero cobró este
+   * efectivo, y el nombre del socio. null (o sin el campo): de recepción.
+   * Ese efectivo es del local (cuenta en el Z, el IVA y el periodo), pero no
+   * está en el cajón de recepción: ver night-rules.cashFromRows().
+   */
+  partnerConnectionId?: string | null;
+  partnerName?: string | null;
+}
+
+/**
+ * Un apunte del libro de las cargas de los socios (partner_wallet_operations)
+ * en el periodo: cada carga a su hora y cada anulación a la suya. La anulación
+ * lleva el cajero, la referencia y la descripción de su carga.
+ */
+export interface RecargaSocioRow {
+  id: string;
+  /** La carga (la misma, en una carga; la que anula, en una anulación). */
+  loadId: string;
+  kind: 'LOAD' | 'LOAD_VOID';
+  at: Date;
+  /** Siempre positivo en el libro: el CSV pone la anulación en negativo. */
+  amountCents: number;
+  funding: string | null;
+  partnerName: string;
+  device: string | null;
+  reference: string | null;
+  description: string | null;
+  reason: string | null;
+  /** Quién la anuló en el panel; sin nadie, la plataforma (por la API). */
+  voidedByName: string | null;
+  voidedByEmail: string | null;
 }
 
 /** Una devolución hecha en el periodo. */
