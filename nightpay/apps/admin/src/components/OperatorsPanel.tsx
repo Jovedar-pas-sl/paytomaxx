@@ -63,7 +63,7 @@ export function OperatorsPanel({ isOwner }: Props) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: '1rem', flexWrap: 'wrap' }}>
-        <h2 style={sectionTitle}>Operadoras</h2>
+        <h2 style={sectionTitle}>Compañeras</h2>
         {needsHelpCount > 0 ? (
           <div style={{ ...helpFilter, background: filterNeedsHelp ? 'var(--np-pill-warning-bg)' : 'var(--np-surface-2)' }}>
             <Checkbox label={`Solo las que piden ayuda (${needsHelpCount})`} checked={filterNeedsHelp} onChange={setFilterNeedsHelp} />
@@ -73,7 +73,7 @@ export function OperatorsPanel({ isOwner }: Props) {
           <Button variant="ghost" onClick={reload}>
             Refrescar
           </Button>
-          <Button onClick={() => setCreateOpen(true)} data-tour="chicas-nueva">+ Nueva operadora</Button>
+          <Button onClick={() => setCreateOpen(true)} data-tour="chicas-nueva">Nueva compañera</Button>
         </div>
       </div>
 
@@ -92,7 +92,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                 <th>Nombre</th>
                 <th>Email</th>
                 <th style={numCol}>Comisión</th>
-                <th style={numCol}>Saldo pendiente</th>
+                <th style={numCol}>Por pagar</th>
                 <th style={numCol}>Pagado total</th>
                 <th>Estado</th>
                 <th aria-label="Acciones" />
@@ -109,7 +109,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                 <tr>
                   <td colSpan={7} style={emptyCell}>
                     {list.length === 0
-                      ? 'Aún no hay operadoras. Crea la primera con "+ Nueva operadora".'
+                      ? 'Aún no hay compañeras. Da de alta a la primera con «Nueva compañera».'
                       : 'Ninguna coincide con el filtro.'}
                   </td>
                 </tr>
@@ -141,7 +141,7 @@ export function OperatorsPanel({ isOwner }: Props) {
                         {formatBps(op.commissionBps)}
                       </td>
                       <td
-                        data-label="Saldo pendiente"
+                        data-label="Por pagar"
                         data-card="amount"
                         className="np-num"
                         style={{
@@ -383,11 +383,11 @@ function CreateOperatorModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Nueva operadora" width="32rem">
+    <Modal open={open} onClose={onClose} title="Nueva compañera" width="32rem">
       {result ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <Notice tone="success">
-            Operadora creada.{' '}
+            Compañera creada.{' '}
             {result.emailSent
               ? 'Email de invitación enviado.'
               : 'No hay SMTP configurado: copia el enlace y mándaselo por WhatsApp.'}

@@ -2,11 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import type { WalletFicha } from '@nightpay/contracts';
-import { useConfirm } from '@nightpay/ui';
+import { Importe, useConfirm } from '@nightpay/ui';
 import { fetchWalletFicha, markFicha } from '@/lib/api';
 import { splitQuestion, walletFichaBlockText } from '@/lib/confirm-text';
 import { walletSheet } from '@/lib/ficha-sheets';
-import { eurShort } from '@/lib/money-map-view';
 import { useSections } from '@/lib/use-sections';
 import { useVenueTimezone } from '@/lib/venue-context';
 import { Notice } from '../Notice';
@@ -83,19 +82,19 @@ export function WalletFichaModal({ walletId, onClose }: { walletId: string; onCl
           <div className="np-ficha-stats">
             <div className="np-ficha-stat" data-big="true">
               <span>Le quedan</span>
-              <b>{eurShort(sheet.stats.left)}</b>
+              <b><Importe cents={sheet.stats.left} decimals="always" /></b>
             </div>
             <div className="np-ficha-stat">
               <span>Recargado</span>
-              <b>{eurShort(sheet.stats.topped)}</b>
+              <b><Importe cents={sheet.stats.topped} decimals="always" /></b>
             </div>
             <div className="np-ficha-stat">
               <span>Gastado</span>
-              <b>{eurShort(sheet.stats.spent)}</b>
+              <b><Importe cents={sheet.stats.spent} decimals="always" /></b>
             </div>
             <div className="np-ficha-stat">
               <span>Devuelto</span>
-              <b>{eurShort(sheet.stats.refunded)}</b>
+              <b><Importe cents={sheet.stats.refunded} decimals="always" /></b>
             </div>
           </div>
 

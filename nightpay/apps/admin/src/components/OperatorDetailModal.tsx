@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Button, StaffAvatar } from '@nightpay/ui';
+import { Button, Importe, StaffAvatar } from '@nightpay/ui';
 import type { StaffFicha } from '@nightpay/contracts';
 import {
   fetchOperatorEarnings,
@@ -15,7 +15,7 @@ import {
 import { formatDateTime } from '@/lib/dates';
 import { payButtonLabel, staffSheet } from '@/lib/ficha-sheets';
 import { formatEur } from '@/lib/money';
-import { eurShort, railNote } from '@/lib/money-map-view';
+import { railNote } from '@/lib/money-map-view';
 import { payoutModeFor } from '@/lib/payout-batch';
 import { RECONCILIATION_LABELS } from '@/lib/payout-verify';
 import { safeHttpUrl } from '@/lib/urls';
@@ -241,7 +241,7 @@ export function OperatorDetailModal({
                 {sheet.stats.map((s) => (
                   <div key={s.key} className="np-ficha-stat">
                     <span>{s.label}</span>
-                    <b>{eurShort(s.cents)}</b>
+                    <b><Importe cents={s.cents} decimals="always" /></b>
                   </div>
                 ))}
               </div>

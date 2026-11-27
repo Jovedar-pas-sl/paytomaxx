@@ -65,10 +65,10 @@ function ficha(o: Partial<WalletFicha> = {}): WalletFicha {
 
 describe('importes de las fichas', () => {
   it('la parte en pequeño sin €, con su signo', () => {
-    expect(bareEur(9_600)).toBe('96');
+    expect(bareEur(9_600)).toBe('96,00');
     expect(bareEur(950)).toBe('9,50');
-    expect(signed(9_600)).toBe('+96');
-    expect(signed(-1_200)).toBe('−12');
+    expect(signed(9_600)).toBe('+96,00');
+    expect(signed(-1_200)).toBe('−12,00');
   });
 
   it('desde cuándo: hoy, ayer o el día', () => {
@@ -100,12 +100,12 @@ describe('9.1 · ficha del saldo', () => {
   it('la línea del tiempo: lo último arriba; gastos con referencia, sección, quién y por dónde; recargas a trazos', () => {
     const rows = walletSheet(ficha(), SECTIONS, TZ, NOW).rows;
     expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.color === null, r.undone])).toEqual([
-      ['01:10', 'C-4821 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−20 €', false, false],
-      ['01:00', 'C-4819 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−50 €', false, true],
-      ['00:58', 'C-4818 · 30 min', 'Servicios · Nerea · PIN', '−250 €', false, false],
-      ['00:45', 'Recarga · tarjeta', 'sin personal', '+100 €', true, false],
-      ['00:25', 'Recarga · tarjeta', 'Recepción · sin personal', '+100 €', true, false],
-      ['23:40', 'Alta · efectivo', 'Recepción · Sergio', '+100 €', true, false],
+      ['01:10', 'C-4821 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−20,00 €', false, false],
+      ['01:00', 'C-4819 · 2 copas', 'Copas · Carlos · NFC sin PIN', '−50,00 €', false, true],
+      ['00:58', 'C-4818 · 30 min', 'Servicios · Nerea · PIN', '−250,00 €', false, false],
+      ['00:45', 'Recarga · tarjeta', 'sin personal', '+100,00 €', true, false],
+      ['00:25', 'Recarga · tarjeta', 'Recepción · sin personal', '+100,00 €', true, false],
+      ['23:40', 'Alta · efectivo', 'Recepción · Sergio', '+100,00 €', true, false],
     ]);
   });
 
@@ -113,8 +113,8 @@ describe('9.1 · ficha del saldo', () => {
     const base = ficha().topUps[0]!;
     const s = walletSheet(ficha({ topUps: [{ ...base, amountCents: 5_000, serviceFeeCents: 600 }] }), SECTIONS, TZ, NOW);
     const row = s.rows.find((r) => r.key === 'topup-CASH-t1')!;
-    expect(sp(row.amount)).toBe('+50 €');
-    expect(sp(row.sub)).toBe('Recepción · Sergio · pagó 56 € (6 € de comisión del servicio)');
+    expect(sp(row.amount)).toBe('+50,00 €');
+    expect(sp(row.sub)).toBe('Recepción · Sergio · pagó 56,00 € (6,00 € de comisión del servicio)');
     expect(s.stats.topped).toBe(5_000);
   });
 
@@ -179,18 +179,18 @@ describe('9.2 · ficha de la compañera y del camarero', () => {
       ['Su parte', 27_100],
       ['Pagado', 0],
     ]);
-    expect(s.rates.map((r) => `${r.label} ${sp(r.value)}`)).toEqual(['Servicios 80 %', 'Invitación 10 €', 'Propinas 100 %']);
-    expect(sp(s.payline?.text)).toBe('dom 18: 410 € · sáb 17: 355 €');
+    expect(s.rates.map((r) => `${r.label} ${sp(r.value)}`)).toEqual(['Servicios 80 %', 'Invitación 10,00 €', 'Propinas 100 %']);
+    expect(sp(s.payline?.text)).toBe('dom 18: 410,00 € · sáb 17: 355,00 €');
     expect(s.payline?.rail).toBe('MANUAL_CASH');
   });
 
   it('cada cobro: «C-4826 · 1 h», «Servicios · tarjeta · QR», el importe y su parte («+96»)', () => {
     const rows = staffSheet(staff(), SECTIONS, TZ).rows;
     expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.share])).toEqual([
-      ['02:20', 'C-4833 · Propina', 'Propinas · tarjeta · QR', '5 €', '+5'],
-      ['01:28', 'C-4829 · Invitación', 'Copas · cobró Carlos · NFC sin PIN', '20 €', '+10'],
-      ['00:31', 'C-4815 · 1 h', 'Saldo K7Q-4M2 · PIN', '120 €', '+96'],
-      ['23:58', 'C-4809 · 30 min', 'Servicios · datáfono', '80 €', '+64'],
+      ['02:20', 'C-4833 · Propina', 'Propinas · tarjeta · QR', '5,00 €', '+5,00'],
+      ['01:28', 'C-4829 · Invitación', 'Copas · cobró Carlos · NFC sin PIN', '20,00 €', '+10,00'],
+      ['00:31', 'C-4815 · 1 h', 'Saldo K7Q-4M2 · PIN', '120,00 €', '+96,00'],
+      ['23:58', 'C-4809 · 30 min', 'Servicios · datáfono', '80,00 €', '+64,00'],
     ]);
   });
 
@@ -202,7 +202,7 @@ describe('9.2 · ficha de la compañera y del camarero', () => {
     };
     const rows = staffSheet(staff({ rows: [refund] }), SECTIONS, TZ).rows;
     expect(rows.map((r) => [r.time, r.title, r.sub, sp(r.amount), r.share, r.color, r.undone])).toEqual([
-      ['02:40', 'C-4790 · Devolución', 'Copas · cobro del sáb 24 · cobró Carlos', '−20 €', '−10', null, false],
+      ['02:40', 'C-4790 · Devolución', 'Copas · cobro del sáb 24 · cobró Carlos', '−20,00 €', '−10,00', null, false],
     ]);
     // Sin quien la cobró (la cobró ella): cómo se pagó.
     const own = staffSheet(staff({ rows: [{ ...refund, chargedBy: null, invitation: false, section: 'CHICA_SERVICE' }] }), SECTIONS, TZ).rows[0]!;
@@ -227,8 +227,8 @@ describe('9.2 · ficha de la compañera y del camarero', () => {
   });
 
   it('el botón de pagar', () => {
-    expect(sp(payButtonLabel('pay', 27_100, 'Lola'))).toBe('Pagar 271 € a Lola');
-    expect(sp(payButtonLabel('request', 27_100, 'Lola'))).toBe('Pedir pago de 271 € para Lola');
+    expect(sp(payButtonLabel('pay', 27_100, 'Lola'))).toBe('Pagar 271,00 € a Lola');
+    expect(sp(payButtonLabel('request', 27_100, 'Lola'))).toBe('Pedir pago de 271,00 € para Lola');
   });
 });
 
