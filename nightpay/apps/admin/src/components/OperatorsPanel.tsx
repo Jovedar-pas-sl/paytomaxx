@@ -14,6 +14,9 @@ import { Pill, type Tone } from './Pill';
 
 interface Props {
   isOwner: boolean;
+  /** Llegar con el alta abierta («Nueva compañera» desde Buscar, Ctrl+K). Solo abre la ventana. */
+  openCreate?: boolean;
+  onOpenCreateDone?: () => void;
 }
 
 const POLL_MS = 10_000;
@@ -25,13 +28,18 @@ interface CreateResult {
   notice?: string;
 }
 
-export function OperatorsPanel({ isOwner }: Props) {
+export function OperatorsPanel({ isOwner, openCreate = false, onOpenCreateDone }: Props) {
   /** null = aún no ha llegado la primera lista. */
   const [operators, setOperators] = useState<Operator[] | null>(null);
   /** Camareros con parte de las invitaciones (se les paga igual que a las chicas). */
   const [camareros, setCamareros] = useState<Operator[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(openCreate);
+  useEffect(() => {
+    if (!openCreate) return;
+    setCreateOpen(true);
+    onOpenCreateDone?.();
+  }, [openCreate, onOpenCreateDone]);
   const [createResult, setCreateResult] = useState<CreateResult | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filterNeedsHelp, setFilterNeedsHelp] = useState(false);

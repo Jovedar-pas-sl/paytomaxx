@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type CSSProperties } from 'react';
 import type { CobroRow, PermissionSet } from '@nightpay/contracts';
-import { Button, Etiqueta, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
+import { Button, Etiqueta, IconButton, Logo, ScreenHelp, ThemeToggle } from '@nightpay/ui';
 import { TAB_TOURS } from '@/lib/tours';
 import { MyProfileButton, ProfileProvider } from './MyProfileButton';
 import {
@@ -18,6 +18,7 @@ import { DEFAULT_TIMEZONE } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
 import { fetchPartnerConnections } from '@/lib/endpoints/partner-connections';
 import { decidableCount } from '@/lib/approvals';
+import type { Destino } from '@/lib/command-palette';
 import { avisosCount, navBadge } from '@/lib/bottom-nav';
 import { parseNav } from '@/lib/nav-url';
 import { primerosPasosFormasKey } from '@/lib/primeros-pasos';
@@ -39,6 +40,7 @@ import { AvisosPanel } from './AvisosPanel';
 import { BankReconPanel } from './BankReconPanel';
 import { BottomNav } from './BottomNav';
 import { CartaPanel } from './CartaPanel';
+import { CommandPalette } from './CommandPalette';
 import { NightsPanel } from './NightsPanel';
 import { OxioPaySettlementsPanel } from './OxioPaySettlementsPanel';
 import { OperatorsPanel } from './OperatorsPanel';
@@ -156,6 +158,23 @@ export function Dashboard({ user, onLogout }: Props) {
   const [cobroRow, setCobroRow] = useState<CobroRow | null>(null);
   /** La vista con la que se abre Reservados y RRPP (el atajo de Compañeras: los RRPP); null = la de siempre. */
   const [reservasView, setReservasView] = useState<ReservationsView | null>(null);
+  /** Buscar (Ctrl+K): abierto, y lo que pide al llegar a su pantalla (el cierre, el alta o un cobro). */
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [closeRequested, setCloseRequested] = useState(false);
+  const [createRequested, setCreateRequested] = useState(false);
+  const [refRequested, setRefRequested] = useState<string | null>(null);
+  // Ctrl+K o ⌘K abren Buscar (no en OxioParty, ni encima de otra ventana abierta).
+  useEffect(() => {
+    if (party) return;
+    function onKey(e: KeyboardEvent): void {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 'k') return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      e.preventDefault();
+      setPaletteOpen(true);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [party]);
 
   async function logout() {
     setLoggingOut(true);
@@ -197,6 +216,18 @@ export function Dashboard({ user, onLogout }: Props) {
     goTo('payments');
   }
 
+  /** Desde Buscar: solo navega (con el cierre o el alta abiertos, si la acción lo dice). */
+  function goFromPalette(destino: Destino): void {
+    if (destino.cerrarNoche) setCloseRequested(true);
+    if (destino.nuevaCompanera) setCreateRequested(true);
+    goTo(destino.tab);
+  }
+
+  function openRef(ref: string): void {
+    setRefRequested(ref);
+    goTo('payments');
+  }
+
   /** Desde Compañeras: los RRPP y sus enlaces (Clientes → Reservados y RRPP). */
   function openRrpp(): void {
     goTo('reservations');
@@ -229,6 +260,12 @@ export function Dashboard({ user, onLogout }: Props) {
       posOn={posOn}
       onPosChange={setPosOn}
       canCloseNight={isOwner || reports.perms?.closeNight === true}
+      closeRequested={closeRequested}
+      onCloseRequestDone={() => setCloseRequested(false)}
+      createRequested={createRequested}
+      onCreateRequestDone={() => setCreateRequested(false)}
+      refRequested={refRequested}
+      onRefRequestDone={() => setRefRequested(null)}
     />
   );
 
@@ -267,6 +304,7 @@ export function Dashboard({ user, onLogout }: Props) {
               </div>
               <div className="np-header-actions" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 {user.isSuperAdmin ? <VenueSwitcher currentSlug={venue.slug} /> : null}
+                {party ? null : <IconButton icon="search" label="Buscar (Ctrl+K)" onClick={() => setPaletteOpen(true)} />}
                 {/* El «?» de la pestaña que se ve: su tutorial, en la barra de arriba. Las páginas son lentas en cargar: espera un poco más antes de salir solo. En la lista de Ajustes (móvil), no sale. */}
                 {TAB_TOURS[tab] && !(settingsList && settingsView === 'list' && narrow) ? (
                   <ScreenHelp key={tab} {...TAB_TOURS[tab]} delayMs={1500} />
@@ -333,6 +371,17 @@ export function Dashboard({ user, onLogout }: Props) {
           </main>
 
           <BottomNav sections={sections} active={section?.key ?? avisosSection} onChange={goToSection} avisos={avisos} />
+          {party ? null : (
+            <CommandPalette
+              open={paletteOpen}
+              onClose={() => setPaletteOpen(false)}
+              sections={sections}
+              isOwner={isOwner}
+              canCloseNight={isOwner || reports.perms?.closeNight === true}
+              onGo={goFromPalette}
+              onOpenRef={openRef}
+            />
+          )}
           </FichasProvider>
           </SectionsContext.Provider>
         </ApprovalsContext.Provider>
@@ -414,6 +463,13 @@ interface ActivePanelProps {
   onPosChange: (posOn: boolean) => void;
   /** El dueño, o el encargado con «cerrar la noche» (Permisos): «Cerrar noche» en Resumen. */
   canCloseNight: boolean;
+  /** Desde Buscar: Resumen con el cierre abierto, Compañeras con el alta abierta, Cobros con ese cobro. */
+  closeRequested: boolean;
+  onCloseRequestDone: () => void;
+  createRequested: boolean;
+  onCreateRequestDone: () => void;
+  refRequested: string | null;
+  onRefRequestDone: () => void;
 }
 
 function ActivePanel(props: ActivePanelProps) {
@@ -432,6 +488,8 @@ function ActivePanel(props: ActivePanelProps) {
           onNavigate={onNavigate}
           onOpenPayment={props.onOpenPayment}
           onOpenCobro={props.onOpenCobro}
+          openClose={props.closeRequested}
+          onOpenCloseDone={props.onCloseRequestDone}
         />
       );
     case 'payments':
@@ -446,6 +504,8 @@ function ActivePanel(props: ActivePanelProps) {
           onOpenRowDone={props.onCobroRowDone}
           // «Descargar»: quien ve el mapa del dinero (el dueño, y el encargado con «ver informes»).
           canExport={tabs.some((t) => t.key === 'money')}
+          openRef={props.refRequested}
+          onOpenRefDone={props.onRefRequestDone}
         />
       );
     case 'money':
@@ -453,7 +513,7 @@ function ActivePanel(props: ActivePanelProps) {
     case 'incidents':
       return <AvisosPanel isOwner={isOwner} tabs={tabs} onNavigate={onNavigate} onOpenPayment={props.onOpenPayment} />;
     case 'operators':
-      return <OperatorsPanel isOwner={isOwner} />;
+      return <OperatorsPanel isOwner={isOwner} openCreate={props.createRequested} onOpenCreateDone={props.onCreateRequestDone} />;
     case 'treasury':
       return <TreasuryPanel isOwner={isOwner} onNavigate={onNavigate} />;
     case 'wallets':

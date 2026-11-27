@@ -6,12 +6,12 @@ import { apiError, authedFetch } from '../http';
 export type { FichasNight, FichasSummary, WalletCardRow, WalletCardStatus } from '@nightpay/contracts';
 
 /** La lista de fichas del local; `q` busca por número de serie, código del saldo o el código grabado. */
-export async function fetchFichas(input: { q?: string; status?: WalletCardStatus | '' } = {}): Promise<WalletCardRow[]> {
+export async function fetchFichas(input: { q?: string; status?: WalletCardStatus | '' } = {}, signal?: AbortSignal): Promise<WalletCardRow[]> {
   const params = new URLSearchParams();
   if (input.q?.trim()) params.set('q', input.q.trim());
   if (input.status) params.set('status', input.status);
   const qs = params.toString();
-  const res = await authedFetch(`/v1/wallet-cards${qs ? `?${qs}` : ''}`);
+  const res = await authedFetch(`/v1/wallet-cards${qs ? `?${qs}` : ''}`, signal ? { signal } : undefined);
   if (!res.ok) throw await apiError(res);
   return res.json();
 }
