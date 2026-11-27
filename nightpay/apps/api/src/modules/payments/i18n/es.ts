@@ -270,6 +270,8 @@ export const ES: CustomerTexts = {
       topUp: 'Recarga',
       topUpCash: 'Recarga en efectivo',
       topUpCashVoid: 'Recarga en efectivo anulada',
+      partnerLoad: 'Carga · {name}: {text}',
+      partnerLoadVoid: 'Carga anulada · {name}',
       payoutCash: 'Devuelto en efectivo',
       payoutCard: 'Devuelto a la tarjeta',
     },

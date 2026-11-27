@@ -39,13 +39,16 @@ export function activationLinkUnavailable(reason: ActivationLinkUnavailableReaso
  * sumados a él: una recarga pendiente de asignar llega por fusión) desde
  * `since`: en efectivo (sin anular) o con tarjeta (aprobada). null si no hay.
  * Las recargas por número impreso no cuentan: el número se lee en la ficha y
- * no prueba que el cliente esté delante (abrirían su enlace privado).
+ * no prueba que el cliente esté delante (abrirían su enlace privado); las de
+ * los cajeros de otras plataformas (API de socios), tampoco.
  */
 export async function lastTopUpHere(tx: TopUpTx, venueId: string, walletIds: string[], since: Date): Promise<Date | null> {
   const [cash, card] = await Promise.all([
     tx.walletCashTopUp.findFirst({
       where: {
         tenantId: venueId, walletId: { in: walletIds }, amountCents: { gt: 0 }, voidedBy: { is: null }, createdAt: { gte: since },
+        // La de un cajero de otra plataforma no prueba que el cliente esté en recepción.
+        partnerConnectionId: null,
         OR: [{ intentFingerprint: null }, { NOT: { intentFingerprint: { startsWith: PRINTED_INTENT_PREFIX } } }],
       },
       orderBy: { createdAt: 'desc' },

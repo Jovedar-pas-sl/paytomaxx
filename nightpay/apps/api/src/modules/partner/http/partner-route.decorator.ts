@@ -19,7 +19,12 @@ export function PartnerRoute(def: PartnerRouteDef): MethodDecorator {
     Public(),
     UseGuards(PartnerKeyGuard),
     UseInterceptors(PartnerResponseInterceptor),
-    def.method === 'POST' ? Post(def.path) : Get(def.path),
+    def.method === 'POST' ? Post(nestPath(def.path)) : Get(nestPath(def.path)),
     HttpCode(def.successStatus),
   );
+}
+
+/** `/wallet/loads/{id}` del contrato → `/wallet/loads/:id` de Nest. */
+export function nestPath(path: string): string {
+  return path.replace(/\{(\w+)\}/g, ':$1');
 }

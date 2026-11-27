@@ -39,6 +39,11 @@ export const PARTNER_ADMIN_ERRORS = {
   PARTNER_IP_REQUIRED: { status: HttpStatus.UNPROCESSABLE_ENTITY, message: 'Para cargar saldo hacen falta las IP de sus servidores.' },
   PARTNER_IP_INVALID: { status: HttpStatus.UNPROCESSABLE_ENTITY, message: 'Esa IP no vale.' },
   PARTNER_IP_OUTSIDE: { status: HttpStatus.UNPROCESSABLE_ENTITY, message: 'Esa IP no está entre las que declaró a OxioPay.' },
+  PARTNER_LOAD_NOT_FOUND: { status: HttpStatus.NOT_FOUND, message: 'Esa carga no existe.' },
+  PARTNER_LOAD_ALREADY_VOIDED: { status: HttpStatus.CONFLICT, message: 'Esta carga ya está anulada.' },
+  PARTNER_LOAD_SPENT: { status: HttpStatus.CONFLICT, message: 'El saldo ya no cubre la carga: ya se ha gastado. No se puede anular.' },
+  PARTNER_LOAD_TOO_OLD: { status: HttpStatus.CONFLICT, message: 'Pasadas 36 horas, una carga ya no se anula.' },
+  PARTNER_LIMITS_CHANGED: { status: HttpStatus.CONFLICT, message: 'Los topes han cambiado mientras tanto: vuelve a abrirlos.' },
   PARTNER_EXPIRY_INVALID: {
     status: HttpStatus.UNPROCESSABLE_ENTITY,
     message: 'La caducidad va de mañana a un año; para cargar saldo es obligatoria.',
@@ -114,6 +119,9 @@ export interface ViewRow {
   lastUsedAt: Date | null;
   lastUsedIp: string | null;
   ipAllowlist: string[];
+  loadPerOpMaxCents: number;
+  loadWalletDayMaxCents: number;
+  loadNightMaxCents: number;
   createdAt: Date;
   partner: { name: string };
 }
@@ -151,6 +159,7 @@ export function toConnectionAdminView(c: ViewRow, foreignIps: Array<{ ip: string
     lastUsedIp: c.lastUsedIp,
     ipAllowlist: [...c.ipAllowlist],
     foreignIps,
+    limits: { perOperationCents: c.loadPerOpMaxCents, walletDayCents: c.loadWalletDayMaxCents, nightCents: c.loadNightMaxCents },
     createdAt: c.createdAt.toISOString(),
   };
 }

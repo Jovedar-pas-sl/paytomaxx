@@ -7,6 +7,7 @@ import {
   PartnerScopeSchema,
   cleanPartnerText,
   partnerTextProblem,
+  LOAD_CAPS,
   type PartnerKeyMode,
   type PartnerPauseReason,
   type PartnerScope,
@@ -106,7 +107,62 @@ export interface PartnerConnectionView {
   ipAllowlist: string[];
   /** Usos rechazados desde IP ajenas, de los últimos 7 días (5 como mucho). */
   foreignIps: Array<{ ip: string; at: string }>;
+  /** Los topes de carga de la conexión (céntimos). */
+  limits: PartnerConnectionLimits;
   createdAt: string;
+}
+
+export interface PartnerConnectionLimits {
+  perOperationCents: number;
+  walletDayCents: number;
+  nightCents: number;
+}
+
+// ─── Las cargas de una conexión en el panel (PR 3) ────────────────────
+
+/**
+ * Cambiar los topes de carga (OWNER): 2FA solo si sube alguno. Se llama
+ * así (no PartnerLimitsSchema, que ya es el `Limits` de GET /me).
+ */
+export const PartnerLimitsUpdateSchema = z.strictObject({
+  perOperationCents: z.number().int().min(1).max(LOAD_CAPS.perOperation.max),
+  walletDayCents: z.number().int().min(1).max(LOAD_CAPS.walletDay.max),
+  nightCents: z.number().int().min(1).max(LOAD_CAPS.night.max),
+  totpCode: OwnerTotpSchema,
+});
+export type PartnerLimitsUpdateDto = z.infer<typeof PartnerLimitsUpdateSchema>;
+
+/** Anular una carga de un socio desde el panel (OWNER y MANAGER, con 2FA). */
+export const PartnerLoadVoidSchema = z.strictObject({
+  reason: z.string().trim().min(3, 'Explica por qué se anula').max(140, 'Explica por qué se anula'),
+  totpCode: OwnerTotpSchema,
+});
+export type PartnerLoadVoidDto = z.infer<typeof PartnerLoadVoidSchema>;
+
+/** Una carga como la ve el dueño: la del socio en camelCase, la pista del saldo y quién la anuló. */
+export interface PartnerLoadAdminView {
+  id: string;
+  publicId: string;
+  status: 'succeeded' | 'voided';
+  amountCents: number;
+  description: string;
+  reference: string | null;
+  funding: 'cash' | 'card' | 'transfer' | 'bank_app';
+  device: string | null;
+  createdAt: string;
+  voidUntil: string;
+  voidedAt: string | null;
+  voidedBy: 'partner' | 'venue' | null;
+  /** El motivo de la anulación (solo aquí y en sus columnas: nunca al registro ni al log). */
+  reason: string | null;
+  balanceAfterCents: number;
+  /** «K7Q-•••»: el código del saldo, tapado. */
+  codeHint: string;
+}
+
+export interface PartnerLoadsPage {
+  loads: PartnerLoadAdminView[];
+  nextCursor: string | null;
 }
 
 export interface PartnerConnectionsOverview {

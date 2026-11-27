@@ -9,11 +9,13 @@ import {
   PartnerProblemSchema,
   partnerProblemType,
   type PartnerErrorResponseName,
+  type PartnerProblemExampleDef,
   type PartnerProblemExampleName,
 } from './errors';
 import {
   PARTNER_CONNECTION_EXAMPLE,
   PARTNER_OPENAPI_INFO,
+  PARTNER_LOAD_EXAMPLES,
   PARTNER_WALLET_EXAMPLES,
   PARTNER_OPENAPI_SERVERS,
   PARTNER_OPENAPI_TAGS,
@@ -40,10 +42,15 @@ type Json = Record<string, unknown>;
 type Io = 'input' | 'output';
 
 const SCHEMAS = '#/components/schemas/';
-const HEADER_NAMES: Readonly<Record<PartnerHeaderName, string>> = { RequestId: 'Request-Id', RetryAfter: 'Retry-After' };
+const HEADER_NAMES: Readonly<Record<PartnerHeaderName, string>> = {
+  RequestId: 'Request-Id',
+  RetryAfter: 'Retry-After',
+  IdempotentReplayed: 'Idempotent-Replayed',
+};
 const EXAMPLES: Readonly<Record<PartnerExampleName, Json>> = {
   ConnectionAtm: PARTNER_CONNECTION_EXAMPLE as unknown as Json,
   ...(PARTNER_WALLET_EXAMPLES as unknown as Record<string, Json>),
+  ...(PARTNER_LOAD_EXAMPLES as unknown as Record<string, Json>),
 } as Record<PartnerExampleName, Json>;
 
 const isEmptyObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 0;
@@ -151,7 +158,7 @@ function operation(name: string, def: PartnerRouteDef, defs: Map<string, Json>, 
     ...(def.body
       ? {
           requestBody: {
-            required: true,
+            required: def.bodyRequired ?? true,
             content: { 'application/json': { schema: toSchema(def.body, 'input', defs), ...examplesOf(def.bodyExamples, used) } },
           },
         }
@@ -163,6 +170,10 @@ function operation(name: string, def: PartnerRouteDef, defs: Map<string, Json>, 
 function errorResponse(name: PartnerErrorResponseName, used: Used): Json {
   const def: { description: string; codes: readonly string[]; examples?: readonly PartnerProblemExampleName[]; retryAfter?: boolean } =
     PARTNER_ERROR_RESPONSES[name];
+  const exampleKey = (e: PartnerProblemExampleName) => {
+    const ex: PartnerProblemExampleDef = PARTNER_PROBLEM_EXAMPLES[e];
+    return ex.key ?? ex.code;
+  };
   for (const e of def.examples ?? []) used.examples.add(e);
   return {
     description: def.description,
@@ -171,7 +182,7 @@ function errorResponse(name: PartnerErrorResponseName, used: Used): Json {
       'application/problem+json': {
         schema: { allOf: [{ $ref: `${SCHEMAS}Problem` }, { type: 'object', properties: { code: { enum: [...def.codes] } } }] },
         ...(def.examples?.length
-          ? { examples: Object.fromEntries(def.examples.map((e) => [PARTNER_PROBLEM_EXAMPLES[e].code, ref('examples', e)])) }
+          ? { examples: Object.fromEntries(def.examples.map((e) => [exampleKey(e), ref('examples', e)])) }
           : {}),
       },
     },
@@ -179,7 +190,7 @@ function errorResponse(name: PartnerErrorResponseName, used: Used): Json {
 }
 
 function problemExample(name: PartnerProblemExampleName): Json {
-  const ex: { summary: string; code: keyof typeof PARTNER_ERRORS; extra?: Record<string, string> } = PARTNER_PROBLEM_EXAMPLES[name];
+  const ex: PartnerProblemExampleDef = PARTNER_PROBLEM_EXAMPLES[name];
   const err = PARTNER_ERRORS[ex.code];
   return {
     summary: ex.summary,

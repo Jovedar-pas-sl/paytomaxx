@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Header, HttpCode, Inject, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Header, HttpCode, Inject, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
   CreatePartnerConnectionSchema,
   PartnerConnectionNoBodySchema,
+  PartnerLimitsUpdateSchema,
+  PartnerLoadVoidSchema,
   ResumePartnerConnectionSchema,
   RotatePartnerKeySchema,
   type CreatePartnerConnectionDto,
@@ -9,6 +11,11 @@ import {
   type PartnerConnectionView,
   type PartnerConnectionsOverview,
   type PartnerKeyIssued,
+  type PartnerLimitsUpdateDto,
+  type PartnerLoadAdminView,
+  type PartnerLoadVoidDto,
+  type PartnerLoadsPage,
+  type StatementBody,
   type ResumePartnerConnectionDto,
   type RotatePartnerKeyDto,
 } from '@nightpay/contracts';
@@ -18,6 +25,7 @@ import { RolesGuard } from '../../../common/guards/roles.guard';
 import { UserRateLimit, UserRateLimitGuard } from '../../../common/guards/user-rate-limit.guard';
 import { ZodValidationPipe } from '../../../common/pipes/zod.pipe';
 import { PartnerApiEnabledGuard } from '../partner-flag';
+import { PartnerLoadsService } from '../wallet/partner-loads.service';
 import { PartnerConnectionsService } from './partner-connections.service';
 
 const WRITE_LIMIT = { max: 10, windowSec: 60, scope: 'partner-connections-write' };
@@ -30,12 +38,19 @@ const WRITE_LIMIT = { max: 10, windowSec: 60, scope: 'partner-connections-write'
  *  - POST /v1/admin/partner-connections                 conectar (la clave sale una vez)
  *  - POST /v1/admin/partner-connections/:id/rotate      cambiar la clave
  *  - POST /v1/admin/partner-connections/:id/pause|revoke|resume
+ *  - PATCH /v1/admin/partner-connections/:id/limits     los topes de carga (subir, con 2FA)
+ *  - GET  /v1/admin/partner-connections/:id/loads       sus cargas de una noche («Movimientos»)
+ *  - GET  /v1/admin/partner-connections/:id/statement   sus totales de una noche
+ *  - POST /v1/admin/partner-connections/:id/loads/:loadId/void   anular una carga (2FA, 36 h)
  */
 @Controller('admin/partner-connections')
 @UseGuards(PartnerApiEnabledGuard, RolesGuard, UserRateLimitGuard)
 @Roles('OWNER', 'MANAGER')
 export class OwnerPartnerConnectionsController {
-  constructor(@Inject(PartnerConnectionsService) private readonly connections: PartnerConnectionsService) {}
+  constructor(
+    @Inject(PartnerConnectionsService) private readonly connections: PartnerConnectionsService,
+    @Inject(PartnerLoadsService) private readonly loads: PartnerLoadsService,
+  ) {}
 
   @Get()
   overview(@CurrentUser() user: JwtPayload): Promise<PartnerConnectionsOverview> {
@@ -99,5 +114,49 @@ export class OwnerPartnerConnectionsController {
     @Body(new ZodValidationPipe(ResumePartnerConnectionSchema)) dto: ResumePartnerConnectionDto,
   ): Promise<PartnerConnectionView> {
     return this.connections.resume(user, id, dto);
+  }
+
+  @Patch(':id/limits')
+  @Roles('OWNER')
+  @HttpCode(200)
+  @UserRateLimit(WRITE_LIMIT)
+  limits(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(PartnerLimitsUpdateSchema)) dto: PartnerLimitsUpdateDto,
+  ): Promise<PartnerConnectionView> {
+    return this.connections.updateLimits(user, id, dto);
+  }
+
+  @Get(':id/loads')
+  @Header('Cache-Control', 'no-store')
+  connectionLoads(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<PartnerLoadsPage> {
+    return this.loads.ownerLoads(user, id, query);
+  }
+
+  @Get(':id/statement')
+  @Header('Cache-Control', 'no-store')
+  connectionStatement(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: Record<string, unknown>,
+  ): Promise<StatementBody> {
+    return this.loads.ownerStatement(user, id, query);
+  }
+
+  @Post(':id/loads/:loadId/void')
+  @HttpCode(200)
+  @UserRateLimit(WRITE_LIMIT)
+  voidLoad(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('loadId', ParseUUIDPipe) loadId: string,
+    @Body(new ZodValidationPipe(PartnerLoadVoidSchema)) dto: PartnerLoadVoidDto,
+  ): Promise<PartnerLoadAdminView> {
+    return this.loads.voidByVenue(user, id, loadId, dto);
   }
 }

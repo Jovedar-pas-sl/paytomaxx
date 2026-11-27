@@ -13,7 +13,11 @@ import { PartnerKeySweepService } from './connections/partner-key-sweep.service'
 import { PartnerKeyExposureService } from './http/partner-key-exposure.service';
 import { PartnerResponseInterceptor } from './http/partner-response.interceptor';
 import { PartnerController } from './partner.controller';
+import { ChargeAlertModule } from '../wallets/charge-alert/charge-alert.module';
 import { WalletLiveCodeModule } from '../wallets/wallet-live-code.module';
+import { PartnerLoadWatch } from './wallet/partner-load-watch';
+import { PartnerLoadsController } from './wallet/partner-loads.controller';
+import { PartnerLoadsService } from './wallet/partner-loads.service';
 import { PartnerWalletController } from './wallet/partner-wallet.controller';
 import { PartnerWalletLimits } from './wallet/partner-wallet-limits';
 import { PartnerWalletRefs } from './wallet/partner-wallet-ref';
@@ -26,8 +30,9 @@ import { PartnerWalletRefs } from './wallet/partner-wallet-ref';
  */
 @Module({
   // WalletLiveCodeModule: leer los códigos del móvil (no todo WalletsModule).
-  imports: [AuthModule, WalletLiveCodeModule],
-  controllers: [PartnerController, PartnerWalletController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
+  // ChargeAlertModule: «Carga anulada» al móvil del cliente.
+  imports: [AuthModule, WalletLiveCodeModule, ChargeAlertModule],
+  controllers: [PartnerController, PartnerWalletController, PartnerLoadsController, OwnerPartnerConnectionsController, PartnerKeyClaimController],
   providers: [
     PartnerAuthLimiter,
     PartnerRateLimiter,
@@ -41,6 +46,8 @@ import { PartnerWalletRefs } from './wallet/partner-wallet-ref';
     PartnerKeySweepService,
     PartnerWalletLimits,
     PartnerWalletRefs,
+    PartnerLoadWatch,
+    PartnerLoadsService,
   ],
   exports: [PartnerFreezeService, PartnerAuthLimiter, PartnerRateLimiter, PartnerForeignIpService, PartnerKeyExposureService],
 })

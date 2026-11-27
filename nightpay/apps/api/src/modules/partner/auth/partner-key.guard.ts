@@ -131,7 +131,7 @@ export class PartnerKeyGuard implements CanActivate {
       );
     }
     await this.redis(() => this.limiter.markGood(keyHash));
-    req.partner = { connection: conn, keyMatch, keyHint: partnerKeyHint(presented), effectiveScopes };
+    req.partner = { connection: conn, keyMatch, keyHint: partnerKeyHint(presented), keyHash, effectiveScopes };
     return true;
   }
 

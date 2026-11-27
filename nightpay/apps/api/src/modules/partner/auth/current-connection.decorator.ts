@@ -18,6 +18,8 @@ export interface PartnerAuth {
   keyMatch: 'current' | 'previous';
   /** La pista de la clave con la que llamó. */
   keyHint: string;
+  /** El sha256 de la clave con la que llamó (la carga comprueba, con la conexión bloqueada, que aún vale). */
+  keyHash: string;
   /** Los de la conexión dentro del techo del socio, leído ahora. */
   effectiveScopes: PartnerScope[];
 }

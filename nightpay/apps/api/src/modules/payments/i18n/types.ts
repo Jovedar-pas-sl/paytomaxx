@@ -289,7 +289,8 @@ export interface WalletText {
   movementsLess: string;
   noMovements: string;
   /** Movimientos que pone el API (los consumos llevan lo que se pidió, tal cual). */
-  mv: { topUp: string; topUpCash: string; topUpCashVoid: string; payoutCash: string; payoutCard: string };
+  /** partnerLoad y partnerLoadVoid: las cargas de otras plataformas, con `{name}` (el socio) y `{text}` (su descripción). */
+  mv: { topUp: string; topUpCash: string; topUpCashVoid: string; payoutCash: string; payoutCard: string; partnerLoad: string; partnerLoadVoid: string };
   closed: string;
   depleted: string;
   merged: string;
