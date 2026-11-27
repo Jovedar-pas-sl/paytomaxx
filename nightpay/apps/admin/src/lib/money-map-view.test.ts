@@ -341,3 +341,32 @@ describe('mapa del dinero con bitcoin (BTCPay)', () => {
     expect(rows(map())).not.toContain('Bitcoin, en la cartera del local');
   });
 });
+
+describe('«En cajeros de otras plataformas» (API de socios, PR 3 B)', () => {
+  const withPartners = (cents: number): MoneyMap => {
+    const m = map();
+    return { ...m, where: { ...m.where, partnerCashCents: cents, totalCents: m.where.totalCents + cents } };
+  };
+  const LABEL = 'En cajeros de otras plataformas';
+
+  it('una línea más en dónde está el dinero, con el color del efectivo, solo si viene el campo', () => {
+    const v = moneyMapView(withPartners(9_000), SECTIONS);
+    expect(v.where.places.find((p) => p.label === LABEL)).toMatchObject({ cents: 9_000, color: 'var(--np-mm-efectivo)' });
+    expect(moneyMapView(map(), SECTIONS).where.places.some((p) => p.label === LABEL)).toBe(false);
+  });
+
+  it('la caja esperada no cambia (es lo del cajón de recepción)', () => {
+    const v = moneyMapView(withPartners(9_000), SECTIONS);
+    expect(v.where.places.find((p) => p.key === 'cash')).toMatchObject({ label: 'Caja esperada', cents: map().where.cashBoxCents });
+  });
+
+  it('también en negativo (una noche con solo una anulación del panel)', () => {
+    expect(moneyMapView(withPartners(-3_000), SECTIONS).where.places.find((p) => p.label === LABEL)?.cents).toBe(-3_000);
+  });
+
+  it('el detalle de caja y banco la enseña solo si viene', () => {
+    const rows = (m: MoneyMap) => moneyMapDetails(m).cash.rows;
+    expect(rows(withPartners(9_000)).find((r) => r.label === LABEL)?.cents).toBe(9_000);
+    expect(rows(map()).some((r) => r.label === LABEL)).toBe(false);
+  });
+});

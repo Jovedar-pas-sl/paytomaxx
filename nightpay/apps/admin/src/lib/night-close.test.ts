@@ -20,6 +20,7 @@ import {
   pendingHeading,
   pasoAbierto,
   pendingTodo,
+  partnerCashBlock,
   readyCount,
   stepTab,
   stepsFromBody,
@@ -395,5 +396,34 @@ describe('pasos listos plegados (entrega 10 A, idea 20)', () => {
     expect(pasoAbierto({ key: 'efectivo', status: 'ok', listoAlCargar: false, elegido: false })).toBe(false);
     expect(pasoAbierto({ key: 'saldo', status: 'warn', listoAlCargar: true, elegido: false })).toBe(true);
     expect(pasoAbierto({ key: 'efectivo', status: 'block', listoAlCargar: true })).toBe(true);
+  });
+});
+
+describe('«Fuera de este cajón»: el efectivo de los cajeros de otras plataformas (PR 3 B)', () => {
+  const sp = (s: string) => s.replace(/\u00a0/g, ' ');
+
+  it('sin partnerCash (o vacío), no sale', () => {
+    expect(partnerCashBlock(undefined)).toBeNull();
+    expect(partnerCashBlock([])).toBeNull();
+  });
+
+  it('una línea por plataforma y la nota de debajo', () => {
+    const block = partnerCashBlock([
+      { name: 'Cajeros Demo', count: 3, cents: 9000 },
+      { name: 'Otra red', count: 1, cents: 2500 },
+    ]);
+    expect(block?.title).toBe('Fuera de este cajón');
+    expect(block?.lines.map((l) => sp(l.text))).toEqual(['Caja · Cajeros Demo (3) 90,00 €', 'Caja · Otra red (1) 25,00 €']);
+    expect(block?.lines.map((l) => [l.label, sp(l.amount)])).toEqual([
+      ['Caja · Cajeros Demo (3)', '90,00 €'],
+      ['Caja · Otra red (1)', '25,00 €'],
+    ]);
+    expect(block?.note).toBe('Lo cobran sus cajeros: se cuenta aparte, contra «Movimientos».');
+  });
+
+  it('en negativo si esa noche solo hubo anulaciones', () => {
+    const block = partnerCashBlock([{ name: 'Cajeros Demo', count: -1, cents: -3000 }]);
+    expect(sp(block!.lines[0]!.amount)).toBe('−30,00 €');
+    expect(sp(block!.lines[0]!.text)).toBe('Caja · Cajeros Demo (−1) −30,00 €');
   });
 });
