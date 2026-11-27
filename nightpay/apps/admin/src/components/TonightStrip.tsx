@@ -48,7 +48,18 @@ interface PendingFigures {
  *    y los avisos abiertos), con el gráfico y la línea en «Pagado».
  * Si una cifra no llega, sale «—»; si la noche no llega nunca, su error y «Reintentar».
  */
-export function TonightStrip({ variant, onNavigate }: { variant: 'hero' | 'full'; onNavigate?: (key: TabKey) => void }) {
+export function TonightStrip({
+  variant,
+  onNavigate,
+  onCloseNight,
+  closeBusy = false,
+}: {
+  variant: 'hero' | 'full';
+  onNavigate?: (key: TabKey) => void;
+  /** «Cerrar noche» con la noche abierta (el dueño, o el encargado con permiso): abre el cierre en pasos. */
+  onCloseNight?: () => void;
+  closeBusy?: boolean;
+}) {
   const tz = useVenueTimezone();
   const titleId = useId();
   const { open } = useIncidents();
@@ -146,6 +157,13 @@ export function TonightStrip({ variant, onNavigate }: { variant: 'hero' | 'full'
     </>
   );
 
+  const closeButton =
+    night && onCloseNight ? (
+      <Button variant="ghost" size="sm" className="np-tonight-close" onClick={onCloseNight} loading={closeBusy}>
+        Cerrar noche
+      </Button>
+    ) : null;
+
   const error = failed ? (
     <div className="np-tonight-error">
       <FormError>No se pudo cargar la noche.</FormError>
@@ -163,6 +181,7 @@ export function TonightStrip({ variant, onNavigate }: { variant: 'hero' | 'full'
             Pagado esta noche
           </h2>
           {since}
+          {closeButton}
         </div>
         {error}
         <dl className="np-tonight-hero">
@@ -182,6 +201,7 @@ export function TonightStrip({ variant, onNavigate }: { variant: 'hero' | 'full'
           Esta noche
         </h2>
         {since}
+        {closeButton}
       </div>
       {error}
       <dl className="np-tonight-grid">

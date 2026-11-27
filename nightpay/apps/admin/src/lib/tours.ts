@@ -185,7 +185,7 @@ export const TOURS = {
     steps: [
       { target: 'cierre-progreso', title: 'Pasos listos', text: 'Cuántos pasos del cierre están listos. Cada uno repasa algo de la noche.' },
       { target: 'cierre-pasos', title: 'Los pasos', text: 'Cada paso dice si está listo o necesita algo. «Ir a…» te lleva a donde se arregla. Si algo no se puede arreglar, marca «Lo he visto: cerrar igualmente».' },
-      { target: 'cierre-congelar', title: 'Congelar el Z', text: 'Guarda el informe de la noche y la caja: ya no cambian. Solo se activa cuando todo está listo.' },
+      { target: 'cierre-congelar', title: 'Cerrar la noche', text: 'Deja fijos el informe Z y la caja de esta noche. Solo se activa cuando todo está listo.' },
     ],
   },
   perfil: {

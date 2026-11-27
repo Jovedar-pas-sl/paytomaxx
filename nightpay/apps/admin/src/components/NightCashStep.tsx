@@ -223,7 +223,7 @@ export function NightCashStep({
               onChange={(e) => onAck(e.target.checked)}
               disabled={disabled}
             />
-            <span>Confirmo lo contado: la diferencia queda congelada en el Z.</span>
+            <span>Confirmo lo contado: la diferencia queda fija en el Z.</span>
           </label>
         </div>
       ) : null}

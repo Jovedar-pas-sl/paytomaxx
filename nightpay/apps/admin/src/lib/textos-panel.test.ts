@@ -115,7 +115,8 @@ describe('cerrar la noche, sin «congelar»', () => {
       expect(source).not.toContain('Congelar el Z');
       expect(source).not.toMatch(/congelad/i);
     }
-    expect(CLOSE).not.toMatch(/congel/i);
+    // El nombre del paso del tutorial (data-tour="cierre-congelar") se queda: no se ve.
+    expect(CLOSE.replace(/cierre-congelar/g, '')).not.toMatch(/congel/i);
   });
 
   it('los textos nuevos', () => {
