@@ -5,13 +5,13 @@ import {
   INITIAL_MEMORY,
   PAID_SHOW_MS,
   amountText,
-  cardLine,
   isOtherTip,
   otherTipMaxText,
   otherTipOf,
   otherTipOffered,
   expireMemory,
   idleHint,
+  pricesOf,
   nextMemory,
   REST_SHIFT_MS,
   restOf,
@@ -49,7 +49,7 @@ function waiting(key = 'k1', over: Partial<WaitingView> = {}): WaitingView {
     ...over,
   };
 }
-const paid = (key = 'k1'): CustomerScreenView => ({ ...base, state: 'paid', key });
+const paid = (key = 'k1'): CustomerScreenView => ({ ...base, state: 'paid', key, paidCents: 3630 });
 const ended = (key = 'k1', reason: 'canceled' | 'expired' | 'failed' = 'canceled'): CustomerScreenView => ({
   ...base,
   state: 'ended',
@@ -66,7 +66,8 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     let mem = feed([idle, waiting()]);
     expect(mem.shown.kind).toBe('waiting');
     mem = nextMemory(mem, paid(), 2000);
-    expect(mem.shown).toEqual({ kind: 'paid', until: 2000 + PAID_SHOW_MS });
+    // Con lo pagado (idea 70).
+    expect(mem.shown).toEqual({ kind: 'paid', until: 2000 + PAID_SHOW_MS, cents: 3630 });
     // El camarero ya salió del cobro (el API dice reposo o sigue diciendo pagado): el «Pagado» sigue.
     expect(nextMemory(mem, idle, 3000).shown.kind).toBe('paid');
     expect(nextMemory(mem, paid(), 3000).shown.kind).toBe('paid');
@@ -107,8 +108,10 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     expect(waitingHint(waiting('k', { paying: true, qrUrl: null }))).toBe('Terminando el pago…');
     expect(waitingHint(waiting('k', { ficha: false, qrUrl: null }))).toBe('Paga en el datáfono');
     expect(amountText(waiting())).toMatch(/^33\s?€$/);
-    expect(cardLine(waiting())).toBeNull();
-    expect(cardLine(waiting('k', { cardAmountCents: 3630 }))).toMatch(/^Con tarjeta, 36,30\s?€$/);
+    // «Con tarjeta, 36,30 €» pequeño ya no existe: dos precios igual de grandes (idea 70, ui-pantalla-precios).
+    expect(pricesOf(waiting())).toBeNull();
+    expect(pricesOf(waiting('k', { cardAmountCents: 3630 }))).toEqual({ saldoCents: 3300, cardCents: 3630, feeCents: 330 });
+    expect(pricesOf(waiting('k', { cardAmountCents: 3630, ficha: false }))).toEqual({ saldoCents: null, cardCents: 3630, feeCents: 330 });
   });
 
   it('la ficha en esta tablet (Web NFC) o en el móvil del camarero', () => {
@@ -122,7 +125,8 @@ describe('pantalla del cliente: qué se enseña y cuánto rato', () => {
     expect(tipBreakdown(chosen)).toMatch(/^33\s?€ \+ 5\s?€ de propina$/);
     expect(tipBreakdown(waiting())).toBeNull();
     expect(tipButtonLabel({ cents: 200, percent: null })).toMatch(/^\+2\s?€$/);
-    expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^10\s% · \+10\s?€$/);
+    // Sin «%» (idea 66): lo que se ve es lo que se paga.
+    expect(tipButtonLabel({ cents: 1000, percent: 10 })).toMatch(/^\+10\s?€$/);
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import type { CustomerScreenView } from '@nightpay/contracts';
-import { Button, DoneMark, Logo, useWakeLock } from '@nightpay/ui';
+import { Button, DoneMark, FormError, Icon, Importe, Logo, useWakeLock } from '@nightpay/ui';
 import {
   currentDisplayToken,
   DisplayApiError,
@@ -15,24 +15,28 @@ import { askNfcPermission, nfcSupported } from '@/lib/nfc';
 import {
   INITIAL_MEMORY,
   amountText,
-  cardLine,
   expireMemory,
-  idleHint,
+  feeNote,
+  idleHintText,
   isOtherTip,
   nextMemory,
   otherTipOffered,
+  pricesOf,
   REST_SHIFT_MS,
   restOf,
   restShift,
+  SCREEN_TEXT,
   tipBreakdown,
   tipButtonLabel,
-  waitingHint,
+  tipTotalBase,
+  waitingHintText,
   type PantallaMemory,
   type RestView,
   type WaitingView,
 } from '@/lib/pantalla-state';
 import { CobroQr } from '../cobrar/CobroQr';
 import { formatEur } from '@/lib/money';
+import { tipDestination, type Bilingual } from '@/lib/pin-tip';
 import { TabletPin } from './TabletPin';
 import { TipOther } from './TipOther';
 import { usePantallaLive } from './use-pantalla-live';
@@ -153,16 +157,18 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
   const chooseTip = useCallback(
     async (key: string, tipCents: number) => {
       setTipBusy(true);
+      // Un toque: el error de antes se va.
+      ficha.setProblem(null);
       try {
         onView(await setScreenTip(key, tipCents));
       } catch (err) {
-        ficha.setNote(err instanceof DisplayApiError ? err.message : 'No se ha podido elegir la propina.');
+        ficha.setProblem(err instanceof DisplayApiError ? err.message : 'No se ha podido elegir la propina.');
         refresh();
       } finally {
         setTipBusy(false);
       }
     },
-    [onView, refresh, ficha.setNote],
+    [onView, refresh, ficha.setProblem],
   );
 
   // El «Pagado» y el texto corto se van solos.
@@ -196,9 +202,10 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
               ficha.closePin();
               refresh();
             }}
-            onClose={(note) => {
+            onClose={(problem) => {
               ficha.closePin();
-              if (note) ficha.setNote(note);
+              // Otro cobro o ya pagado (el API): se queda bajo el importe.
+              if (problem) ficha.setProblem(problem);
               refresh();
             }}
           />
@@ -209,9 +216,10 @@ function Screen({ token, onUnpaired }: { token: string; onUnpaired: () => void }
             reading={ficha.busy}
             tipBusy={tipBusy}
             onTip={(cents) => void chooseTip(shown.view.key, cents)}
+            problem={ficha.problem}
           />
         ) : shown.kind === 'paid' ? (
-          <Paid />
+          <Paid cents={shown.cents} />
         ) : rest ? (
           <Idle rest={rest} note={shown.note} />
         ) : null}
@@ -255,7 +263,9 @@ function Idle({ rest, note }: { rest: RestView; note: string | null }) {
             {rest.line2 ? <p className={s.messageSub}>{rest.line2}</p> : null}
           </div>
         ) : null}
-        <p className={s.idleHint}>{idleHint(rest.fichas)}</p>
+        <p className={s.idleHint}>
+          <Bi text={idleHintText(rest.fichas)} />
+        </p>
       </div>
       <div className={s.brand}>
         <Logo height="2rem" />
@@ -264,43 +274,100 @@ function Idle({ rest, note }: { rest: RestView; note: string | null }) {
   );
 }
 
-function Waiting({
+/** Un texto con su inglés debajo (idea 70): peso 500, más suave. */
+function Bi({ text }: { text: Bilingual }) {
+  return (
+    <>
+      {text.es}
+      <span lang="en" className={s.en}>
+        {text.en}
+      </span>
+    </>
+  );
+}
+
+/**
+ * El cobro que espera. Con «Comisión del servicio» (idea 70), los precios igual
+ * de grandes (con saldo y con tarjeta) y la comisión con su importe antes de
+ * elegir; sin comisión, un importe. Un error se queda debajo (FormError).
+ */
+export function Waiting({
   view,
   nfcHere,
   reading,
   tipBusy,
   onTip,
+  problem,
 }: {
   view: WaitingView;
   nfcHere: boolean;
   reading: boolean;
   tipBusy: boolean;
   onTip: (cents: number) => void;
+  problem: string | null;
 }) {
-  const card = cardLine(view);
-  const breakdown = tipBreakdown(view);
+  const prices = pricesOf(view);
+  const breakdown = prices ? null : tipBreakdown(view);
   return (
     <section className={s.waiting} aria-label="Cobro">
       <div className={s.amountBlock}>
-        <p className={s.label}>{view.topUp ? 'Recarga de saldo' : 'Total'}</p>
-        <p className={s.amount}>{amountText(view)}</p>
+        {prices ? (
+          <>
+            <div className={s.prices}>
+              {prices.saldoCents !== null ? (
+                <PriceBlock label={SCREEN_TEXT.withBalance} cents={prices.saldoCents} />
+              ) : null}
+              <PriceBlock label={SCREEN_TEXT.byCard} cents={prices.cardCents} />
+            </div>
+            <p className={s.feeNote}>
+              <Bi text={feeNote(prices.feeCents)} />
+            </p>
+          </>
+        ) : (
+          <>
+            <p className={s.label}>{view.topUp ? <Bi text={SCREEN_TEXT.topUp} /> : 'Total'}</p>
+            <p className={s.amount}>{amountText(view)}</p>
+          </>
+        )}
         {breakdown ? <p className={s.cardLine}>{breakdown}</p> : null}
-        {card ? <p className={s.cardLine}>{card}</p> : null}
+        {problem ? <FormError>{problem}</FormError> : null}
         {view.tip && !view.paying ? <TipChoice view={view} busy={tipBusy || reading} onTip={onTip} /> : null}
         <p className={s.hint}>
-          {view.ficha && !view.paying ? <NfcIcon /> : null}
-          {reading ? 'Leyendo la ficha…' : waitingHint(view, nfcHere)}
+          {view.ficha && !view.paying ? <Icon name="nfc" size={28} className={s.hintIcon} /> : null}
+          <span>
+            <Bi text={reading ? SCREEN_TEXT.reading : waitingHintText(view, nfcHere)} />
+          </span>
         </p>
-        {view.ficha && view.qrUrl && !view.paying ? <p className={s.cardLine}>o escanea el QR con tu móvil</p> : null}
+        {view.ficha && view.qrUrl && !view.paying ? (
+          <p className={s.cardLine}>
+            <Bi text={SCREEN_TEXT.orQr} />
+          </p>
+        ) : null}
       </div>
       {view.paying ? (
-        <div className={s.paying}>Pagando en el móvil del cliente…</div>
+        <div className={s.paying}>
+          <span>
+            <Bi text={SCREEN_TEXT.payingPhone} />
+          </span>
+        </div>
       ) : view.qrUrl ? (
         <div className={s.qrPlate}>
           <CobroQr value={view.qrUrl} fallbackPng={null} label="QR para pagar" />
         </div>
       ) : null}
     </section>
+  );
+}
+
+/** Un precio: su etiqueta (con su inglés) y el importe, igual de grande que el otro. */
+function PriceBlock({ label, cents }: { label: Bilingual; cents: number }) {
+  return (
+    <div className={s.priceBlock}>
+      <p className={s.priceLabel}>
+        <Bi text={label} />
+      </p>
+      <Importe cents={cents} className={s.price} />
+    </div>
   );
 }
 
@@ -314,11 +381,20 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
   const [typing, setTyping] = useState(false);
   const tip = view.tip;
   if (!tip) return null;
-  const options = [{ cents: 0, label: 'Sin propina' }, ...tip.presets.map((p) => ({ cents: p.cents, label: tipButtonLabel(p) }))];
+  // Debajo de cada propina, el total con ella (un precio); con dos precios, sin total.
+  const base = tipTotalBase(view);
+  const eur = (c: number) => formatEur(c, { compact: true });
+  const options = [
+    { cents: 0, label: SCREEN_TEXT.noTip as Bilingual | string, aria: 'Sin propina' },
+    ...tip.presets.map((p) => ({ cents: p.cents, label: tipButtonLabel(p) as Bilingual | string, aria: `Propina de ${eur(p.cents)}` })),
+  ];
   const other = isOtherTip(view);
+  const to = tipDestination(tip.toStaff);
   return (
     <div className={s.tips}>
-      <p className={s.tipsTitle}>¿Propina?</p>
+      <p className={s.tipsTitle}>
+        <Bi text={SCREEN_TEXT.tip} />
+      </p>
       <div className={s.tipRow} role="radiogroup" aria-label="Propina">
         {options.map((o) => (
           <button
@@ -326,12 +402,14 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
             type="button"
             role="radio"
             aria-checked={tip.chosenCents === o.cents}
+            aria-label={base !== null ? `${o.aria}. Total ${eur(base + o.cents)}` : undefined}
             className={s.tipBtn}
             data-on={tip.chosenCents === o.cents ? '1' : undefined}
             disabled={busy}
             onClick={() => tip.chosenCents !== o.cents && onTip(o.cents)}
           >
-            {o.label}
+            {typeof o.label === 'string' ? o.label : <Bi text={o.label} />}
+            {base !== null ? <span className={s.tipTotal}>{eur(base + o.cents)}</span> : null}
           </button>
         ))}
         {otherTipOffered(view) ? (
@@ -344,11 +422,16 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
             disabled={busy}
             onClick={() => setTyping(true)}
           >
-            {other ? `Otra · +${formatEur(tip.chosenCents, { compact: true })}` : 'Otra'}
+            {other ? `Otra · +${eur(tip.chosenCents)}` : 'Otra'}
+            <span lang="en" className={s.en}>
+              {SCREEN_TEXT.other.en}
+            </span>
           </button>
         ) : null}
       </div>
-      {tip.toStaff ? <p className={s.tipNote}>La propina va entera para el personal.</p> : null}
+      <p className={s.tipNote}>
+        <Bi text={to} />
+      </p>
       {typing ? (
         <TipOther
           maxCents={tip.maxCents}
@@ -365,12 +448,18 @@ function TipChoice({ view, busy, onTip }: { view: WaitingView; busy: boolean; on
   );
 }
 
-function Paid() {
+/** «Pagado», lo pagado (con tarjeta: con comisión y propina) y «¡Gracias!», con su inglés. */
+export function Paid({ cents }: { cents: number | null }) {
   return (
     <div className={s.paid} role="status">
       <DoneMark className={s.tick} />
-      <p className={s.paidWord}>Pagado</p>
-      <p className={s.paidSub}>¡Gracias!</p>
+      <p className={s.paidWord}>
+        <Bi text={SCREEN_TEXT.paid} />
+      </p>
+      {cents !== null ? <Importe cents={cents} className={s.paidAmount} /> : null}
+      <p className={s.paidSub}>
+        <Bi text={SCREEN_TEXT.thanks} />
+      </p>
     </div>
   );
 }
@@ -401,11 +490,7 @@ function Corner({ onUnpaired, nfc }: { onUnpaired: () => void; nfc: (() => void)
   return (
     <div className={s.corner}>
       <button type="button" className={s.menuBtn} aria-label="Opciones de la pantalla" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-          <circle cx="5" cy="12" r="2" />
-          <circle cx="12" cy="12" r="2" />
-          <circle cx="19" cy="12" r="2" />
-        </svg>
+        <Icon name="dots" size={24} />
       </button>
       {open ? (
         <div className={s.menu}>
@@ -460,16 +545,5 @@ function Corner({ onUnpaired, nfc }: { onUnpaired: () => void; nfc: (() => void)
         </div>
       ) : null}
     </div>
-  );
-}
-
-function NfcIcon() {
-  return (
-    <svg className={s.hintIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-      <path d="M8.5 7.5a6 6 0 0 1 0 9" />
-      <path d="M12 5a9.5 9.5 0 0 1 0 14" />
-      <path d="M15.5 2.5a13 13 0 0 1 0 19" />
-      <circle cx="5" cy="12" r="1.5" fill="currentColor" />
-    </svg>
   );
 }
