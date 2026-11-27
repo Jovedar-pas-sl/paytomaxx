@@ -1,0 +1,47 @@
+# Comprueba la demo de la API de socios contra lo que dicen sus guías
+# (nightpay/apps/e2e/partner/demo-check.mjs). Solo a mano y solo contra la
+# demo: OXP_DEMO_KEY es la clave de prueba «Pruebas OxioPay» (oxp_test_) y
+# OXP_DEMO_BASE la dirección de la API de la demo (…/v1/partner), los dos en
+# el environment `demo` de GitHub, que solo vale para la rama main. Nunca una
+# clave real ni producción: el guion se niega con cualquier clave que no
+# empiece por oxp_test_ y con un GET /me que no diga livemode: false.
+# Nunca a la vez que la prueba de carga (carga.mjs, a mano desde España).
+#
+# Las acciones de terceros van fijadas por commit (el comentario dice la versión).
+name: partner-demo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Una corrida detrás de otra: las fichas de prueba se reinician al empezar y al
+# acabar. La que está en marcha nunca se cancela.
+concurrency:
+  group: partner-demo
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: nightpay
+
+jobs:
+  demo-check:
+    # Además de la regla del environment `demo` (solo main).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: demo
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+      - name: La demo responde lo que dicen las guías
+        env:
+          OXP_KEY: ${{ secrets.OXP_DEMO_KEY }}
+          OXP_BASE: ${{ secrets.OXP_DEMO_BASE }}
+        run: node apps/e2e/partner/demo-check.mjs

@@ -12,6 +12,9 @@
 #               levantados en el job, base y Redis aislados
 #   docker      reglas de alertas (promtool) y las 5 imágenes que despliega
 #               Dokploy, construidas y arrancadas
+#   docs-socios la referencia de la API de socios (Redocly: lint y HTML) y sus
+#               guías en HTML, como artefacto; las pruebas de los guiones de la
+#               demo (apps/e2e/partner). No hace falta esperarlo para desplegar
 #   migraciones-orden  cada migración nueva se ordena después de la última de
 #               main (si no, una base nueva y producción las aplicarían en otro orden)
 #               y, desde 20261029, la que toma candados empieza con SET lock_timeout
@@ -101,6 +104,45 @@ jobs:
           path: nightpay/apps/api/coverage/
           retention-days: 14
           if-no-files-found: ignore
+
+  # La documentación de la API de socios, como artefacto (no se publica en
+  # ningún host): la referencia de Redocly (con las reglas de
+  # docs/partner-api/redocly.yaml) y las guías 00 a 08 de cada idioma en un
+  # HTML. Redocly solo aquí, con pnpm dlx y su versión fija: no es una
+  # dependencia del repositorio. Sin base de datos.
+  docs-socios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: nightpay/.nvmrc
+      - name: Referencia (Redocly lint)
+        run: pnpm --package=@redocly/cli@2.77.0 dlx redocly lint --config docs/partner-api/redocly.yaml docs/partner-api/openapi.json
+      - name: Referencia en HTML
+        run: |
+          mkdir -p "$RUNNER_TEMP/docs-socios"
+          pnpm --package=@redocly/cli@2.77.0 dlx redocly build-docs docs/partner-api/openapi.json --output "$RUNNER_TEMP/docs-socios/referencia.html"
+      - name: Guías en HTML (00 a 08 por idioma, sin la cabecera en_sha256)
+        run: |
+          OUT="$RUNNER_TEMP/docs-socios"
+          for lang in es en; do
+            for f in docs/partner-api/guides/$lang/0[0-8]-*.md; do
+              awk 'NR==1 && $0=="---" {skip=1} skip && NR<=3 {next} {print}' "$f"
+              echo
+            done > "$OUT/guias-$lang.md"
+            node scripts/md-to-html.js "$OUT/guias-$lang.md" "$OUT/guias-$lang.html"
+          done
+      - name: Guiones de la demo (se niegan con oxp_live_, id de la corrida, extractor)
+        run: node --test 'apps/e2e/partner/*.test.mjs'
+      - name: Artefacto docs-socios
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: docs-socios
+          path: ${{ runner.temp }}/docs-socios/
+          retention-days: 30
 
   # Prisma aplica las migraciones por orden de nombre: una nueva con fecha
   # anterior a la última de main se aplicaría en producción después de las que
