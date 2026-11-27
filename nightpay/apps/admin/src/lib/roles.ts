@@ -24,6 +24,7 @@ export type SectionKey = ClubSectionKey | PartySectionKey;
 
 /** Pestaña dentro de una sección. */
 export type TabKey =
+  | 'resumen'
   | 'payments'
   | 'money'
   | 'incidents'
@@ -118,7 +119,9 @@ const SECTION_ORDER: readonly SectionKey[] = ['hoy', 'chicas', 'clientes', 'info
 const PARTY_SECTION_ORDER: readonly PartySectionKey[] = ['directo', 'casetas', 'pulseras', 'devoluciones', 'cierre', 'ajustes'];
 
 export const PANEL_TABS: readonly PanelTab[] = [
-  // Hoy: los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»).
+  // Hoy: la portada (lo pagado, el dinero, lo que pide atención y los últimos cobros),
+  // los cobros en vivo y una sola bandeja (incidencias + «Por aprobar»). Solo OxioPay.
+  { key: 'resumen', label: 'Resumen', section: 'hoy', access: 'staff' },
   { key: 'payments', label: 'Cobros', section: 'hoy', access: 'staff' },
   // El mapa del dinero en directo (/v1/admin/money-map): como los informes.
   { key: 'money', label: 'Mapa del dinero', section: 'hoy', access: 'reports' },
