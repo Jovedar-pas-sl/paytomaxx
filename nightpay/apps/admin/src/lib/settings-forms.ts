@@ -316,7 +316,7 @@ export function serviceFeeRulesText(s: VenueSettings): { status: 'Encendida' | '
   if (!s.serviceFeeEnabled) {
     return { status: 'Apagada', lines: ['Los clientes pagan el precio, sin nada encima. La enciende OxioPay.'] };
   }
-  const short = (cents: number) => formatMoney(cents, { compact: true });
+  const eur = (cents: number) => formatMoney(cents);
   const cardBps = s.serviceFeeBps ?? DEFAULT_SERVICE_FEE_BPS;
   const topUpBps = s.topUpServiceFeeBps ?? DEFAULT_SERVICE_FEE_BPS;
   const charge = 3300;
@@ -324,8 +324,8 @@ export function serviceFeeRulesText(s: VenueSettings): { status: 'Encendida' | '
   return {
     status: 'Encendida',
     lines: [
-      `Pagos con tarjeta, Apple Pay, Google Pay o datáfono: ${formatBps(cardBps)} encima (un cobro de ${short(charge)} → el cliente paga ${short(charge + serviceFeeCents(charge, cardBps))}).`,
-      `Recargas del saldo (tarjeta o efectivo): ${formatBps(topUpBps)} encima (recarga ${short(topUp)} → paga ${short(topUp + serviceFeeCents(topUp, topUpBps))}; le quedan ${short(topUp)} de saldo).`,
+      `Pagos con tarjeta, Apple Pay, Google Pay o datáfono: ${formatBps(cardBps)} encima (un cobro de ${eur(charge)} → el cliente paga ${eur(charge + serviceFeeCents(charge, cardBps))}).`,
+      `Recargas del saldo (tarjeta o efectivo): ${formatBps(topUpBps)} encima (recarga ${eur(topUp)} → paga ${eur(topUp + serviceFeeCents(topUp, topUpBps))}; le quedan ${eur(topUp)} de saldo).`,
       'Gastar del saldo y las propinas no la llevan. El saldo cargado antes de encenderla sigue pagando la comisión de la plataforma al gastarse. Es de OxioPay: entra con el resto del cobro y se apunta aparte.',
     ],
   };

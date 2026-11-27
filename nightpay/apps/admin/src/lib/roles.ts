@@ -8,6 +8,7 @@
 // de OxioPay (compañeras y sus pagos, invitaciones, habitaciones, bitcoin…).
 
 import type { Edition } from '@nightpay/contracts';
+import type { IconName } from '@nightpay/ui';
 import { PANEL_EDITION } from './edition';
 
 export type PanelRole = 'OWNER' | 'MANAGER';
@@ -74,6 +75,26 @@ export interface PanelTab {
   needsPos?: true;
   /** Solo si la API de socios está encendida (GET /v1/admin/partner-connections contesta). */
   needsPartners?: true;
+  /** Ajustes (solo OxioPay): el grupo de la lista, su frase y su icono (SettingsNav). */
+  group?: SettingsGroupKey;
+  hint?: string;
+  icon?: IconName;
+}
+
+/** Los grupos de la lista de Ajustes, en orden. */
+export type SettingsGroupKey = 'local' | 'equipo' | 'cuenta';
+
+export const SETTINGS_GROUP_LABELS: Readonly<Record<SettingsGroupKey, string>> = {
+  local: 'El local',
+  equipo: 'El equipo',
+  cuenta: 'Tu cuenta',
+};
+
+/** Las pestañas de Ajustes por grupos; un grupo sin pestañas no sale (el encargado no ve «El equipo»). */
+export function settingsGroups(tabs: readonly PanelTab[]): { key: SettingsGroupKey; label: string; tabs: PanelTab[] }[] {
+  return (Object.keys(SETTINGS_GROUP_LABELS) as SettingsGroupKey[])
+    .map((key) => ({ key, label: SETTINGS_GROUP_LABELS[key], tabs: tabs.filter((t) => t.group === key) }))
+    .filter((g) => g.tabs.length > 0);
 }
 
 export interface PanelSection {
@@ -145,22 +166,31 @@ export const PANEL_TABS: readonly PanelTab[] = [
   { key: 'bank', label: 'Banco', section: 'informes', access: 'owner' },
   // Lo que el local debe a OxioPay cada semana (/v1/admin/oxiopay-settlements): solo el dueño, solo lectura.
   { key: 'oxiopay', label: 'Liquidaciones OxioPay', section: 'informes', access: 'owner' },
-  { key: 'carta', label: 'Carta', section: 'ajustes', access: 'staff' },
+  { key: 'carta', label: 'Carta', section: 'ajustes', access: 'staff', group: 'local', hint: 'Lo que vendes y a qué precio', icon: 'receipt' },
   // El mapa del dinero: nombre, color y si se usa cada sección (/v1/admin/venue/sections).
-  { key: 'sections', label: 'Secciones', section: 'ajustes', access: 'owner' },
+  { key: 'sections', label: 'Secciones', section: 'ajustes', access: 'owner', group: 'local', hint: 'Nombres y colores de cada sección', icon: 'list' },
   // Datáfonos PAX: con el datáfono apagado no sale (su código sigue, por si vuelve).
-  { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true },
-  { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner' },
-  { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner' },
+  { key: 'terminals', label: 'Datáfonos', section: 'ajustes', access: 'staff', needsPos: true, group: 'local', hint: 'Los aparatos de cobro del local', icon: 'pos' },
+  { key: 'rules', label: 'Reglas del local', section: 'ajustes', access: 'owner', group: 'local', hint: 'Comisiones, esperas y topes', icon: 'sliders' },
+  { key: 'methods', label: 'Formas de cobro', section: 'ajustes', access: 'owner', group: 'local', hint: 'Cómo te pagan, propinas y saldo desde casa', icon: 'card' },
   // Las claves de otras plataformas (los cajeros…): el dueño conecta y cambia; el encargado pausa y anula.
-  { key: 'partners', label: 'Otras plataformas', section: 'ajustes', access: 'staff', needsPartners: true },
+  {
+    key: 'partners',
+    label: 'Otras plataformas',
+    section: 'ajustes',
+    access: 'staff',
+    needsPartners: true,
+    group: 'local',
+    hint: 'Las claves de los cajeros y otras plataformas',
+    icon: 'share',
+  },
   // NFC sin PIN, teclado del PIN, recepción y avisos al cobrar (/v1/admin/venue/night).
-  { key: 'night', label: 'Noche', section: 'ajustes', access: 'owner' },
-  { key: 'permissions', label: 'Permisos', section: 'ajustes', access: 'owner' },
-  { key: 'alerts', label: 'Telegram', section: 'ajustes', access: 'owner' },
-  { key: 'security', label: 'Seguridad', section: 'ajustes', access: 'staff' },
+  { key: 'night', label: 'Noche', section: 'ajustes', access: 'owner', group: 'local', hint: 'Fichas, PIN y recepción', icon: 'moon' },
+  { key: 'permissions', label: 'Permisos', section: 'ajustes', access: 'owner', group: 'equipo', hint: 'Lo que pueden hacer encargados y camareros', icon: 'users' },
+  { key: 'alerts', label: 'Avisos por Telegram', section: 'ajustes', access: 'owner', group: 'equipo', hint: 'Qué te avisa y dónde', icon: 'bell' },
+  { key: 'security', label: 'Seguridad', section: 'ajustes', access: 'staff', group: 'cuenta', hint: 'Tu sesión y la verificación en dos pasos', icon: 'lock' },
   // Consola de toda la plataforma (components/superadmin).
-  { key: 'superadmin', label: 'Super admin', section: 'ajustes', access: 'superadmin' },
+  { key: 'superadmin', label: 'Super admin', section: 'ajustes', access: 'superadmin', group: 'cuenta', hint: 'Todos los locales de la plataforma', icon: 'user' },
 ];
 
 /**

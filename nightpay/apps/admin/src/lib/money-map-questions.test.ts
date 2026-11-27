@@ -73,7 +73,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     // Se devolvieron 12 € de ventas: «ganado» baja (aunque el reparto no cambie) y lo dice.
     const refunded = card(withRefunds(map(), { salesCents: 1_200 }), 'ganado');
     expect(refunded.cents).toBe(75_100);
-    expect(sp(refunded.caption)).toContain('y menos 12 € devueltos de ventas');
+    expect(sp(refunded.caption)).toContain('y menos 12,00 € devueltos de ventas');
     // Con la comisión del banco sin saber, lo dice.
     const unknownBank = map({ split: { ...map().split, commissions: { platformCents: 0, bankCents: null, totalCents: 0 } } });
     expect(card(unknownBank, 'ganado').caption).toContain('Sin la comisión del banco');
@@ -84,7 +84,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     // El mapa base no trae refunds.salesCents y tiene 12 € devueltos a tarjeta.
     const c = card(map({ frozen: true, scope: { kind: 'night', nightId: 'n1', open: false } }), 'ganado');
     expect(c.cents).toBe(76_300);
-    expect(sp(c.caption)).toContain('No descuenta los 12 € devueltos a tarjeta');
+    expect(sp(c.caption)).toContain('No descuenta los 12,00 € devueltos a tarjeta');
     // Con la cifra (aunque sea 0), o sin devoluciones, no hay aviso.
     expect(card(withRefunds(map(), { salesCents: 0 }), 'ganado').caption).not.toContain('No descuenta');
     expect(card(withRefunds(map(), { cardCents: 0, cardCount: 0 }), 'ganado').caption).not.toContain('No descuenta');
@@ -103,7 +103,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
   it('«La caja» es where.cashBoxCents y su texto desglosa fondo, entradas y salidas (no dice que el fondo va aparte)', () => {
     const c = card(map(), 'caja');
     expect(c.cents).toBe(50_000);
-    expect(sp(c.caption)).toBe('Fondo de caja 100 € + efectivo cobrado 450 € − salidas 50 €. No sustituye al arqueo.');
+    expect(sp(c.caption)).toBe('Fondo de caja 100,00 € + efectivo cobrado 450,00 € − salidas 50,00 €. No sustituye al arqueo.');
     const noFloat = card(map({ where: { ...map().where, cashBox: { openingFloatCents: null, inCents: 450, outCents: 0 } } }), 'caja');
     expect(sp(noFloat.caption)).toContain('Sin fondo de caja apuntado');
   });
@@ -113,7 +113,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     const c = card(period, 'caja');
     expect(c.question).toBe('Efectivo de estas fechas');
     expect(c.cents).toBe(140_000);
-    expect(sp(c.caption)).toBe('Efectivo cobrado 2.100 € − salidas 700 €. El fondo y el arqueo van por noche: míralos en Noches.');
+    expect(sp(c.caption)).toBe('Efectivo cobrado 2.100,00 € − salidas 700,00 €. El fondo y el arqueo van por noche: míralos en Noches.');
     expect(c.caption).not.toContain('Sin fondo');
     expect(c.action).toBeNull();
   });
@@ -124,7 +124,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     const c = card(day, 'caja');
     expect(c.question).toBe('Efectivo desde el último cierre');
     expect(c.cents).toBe(-10_000);
-    expect(sp(c.caption)).toBe('Efectivo cobrado 0 € − salidas 100 €. El fondo y el arqueo van por noche: míralos en Noches.');
+    expect(sp(c.caption)).toBe('Efectivo cobrado 0,00 € − salidas 100,00 €. El fondo y el arqueo van por noche: míralos en Noches.');
     expect(c.caption).not.toContain('fondo de caja?');
     expect(c.action).toBeNull();
   });
@@ -148,7 +148,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
   it('«El banco» es where.bbvaCents; las devoluciones a tarjeta salen en el texto', () => {
     const c = card(map(), 'banco');
     expect(c.cents).toBe(68_200);
-    expect(sp(c.caption)).toContain('menos 12 € devueltos');
+    expect(sp(c.caption)).toContain('menos 12,00 € devueltos');
     expect(sp(c.caption)).toContain('El día de abono lo confirma el banco');
     const clean = card(withRefunds(map(), { cardCents: 0, cardCount: 0 }), 'banco');
     expect(clean.caption).not.toContain('menos');
@@ -172,7 +172,7 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     const m = map({ where: { ...map().where, owed: { chicasCents: 20_000, camarerosCents: 0, debtCents: 8_000 } } });
     const c = card(m, 'debo');
     expect(c.cents).toBe(20_000);
-    expect(sp(c.caption)).toContain('te deben 80 € por devoluciones');
+    expect(sp(c.caption)).toContain('te deben 80,00 € por devoluciones');
   });
 
   it('sin deuda total (un periodo pasado) usa lo pendiente del periodo y lo dice', () => {
@@ -189,11 +189,11 @@ describe('mapa del dinero en cuatro preguntas: de qué campo sale cada cifra', (
     const m = map({ where: { ...map().where, owed: { chicasCents: 10_700, camarerosCents: 3_000 } } });
     const c = card(m, 'debo');
     expect(c.cents).toBe(10_700);
-    expect(sp(c.caption)).toContain('Aparte, a camareros: 30 €');
+    expect(sp(c.caption)).toContain('Aparte, a camareros: 30,00 €');
   });
 
   it('el saldo sin gastar es where.liveSaldoCents; null se dice como no se sabe', () => {
-    expect(sp(moneyMapQuestions(map(), SECTIONS).savedBalance.text)).toContain('217 € son saldo de clientes sin gastar');
+    expect(sp(moneyMapQuestions(map(), SECTIONS).savedBalance.text)).toContain('217,00 € son saldo de clientes sin gastar');
     const unknown = moneyMapQuestions(map({ where: { ...map().where, liveSaldoCents: null } }), SECTIONS).savedBalance;
     expect(unknown.cents).toBeNull();
     expect(unknown.text).toContain('No se sabe');
