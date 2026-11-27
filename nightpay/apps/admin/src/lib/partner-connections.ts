@@ -85,6 +85,18 @@ export const ACTION_LABELS: Readonly<Record<ConnectionAction, string>> = {
 };
 
 /**
+ * Los botones de la consola de OxioPay: «Reanudar» en una pausada o dormida
+ * (reanudar la despierta), «Pausar» en una activa y «Anular»; en una caducada
+ * solo «Anular» (pausar o reanudar no le devuelven la clave); en una anulada, nada.
+ */
+export function consoleConnectionActions(c: PartnerConnectionView): Array<'resume' | 'pause' | 'revoke'> {
+  if (c.state === 'revoked') return [];
+  if (c.state === 'expired') return ['revoke'];
+  const stopped = c.state === 'paused' || c.state === 'dormant' || c.pausedBy !== null;
+  return [stopped ? 'resume' : 'pause', 'revoke'];
+}
+
+/**
  * Los botones de una conexión: «Movimientos» para el dueño y el encargado,
  * también en una anulada (el recuento de la mañana); «Topes», solo el dueño
  * y no en una anulada. Además, el dueño cambia la clave, pausa, reanuda (no
@@ -192,9 +204,19 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const dayOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-/** Del calendario: de mañana a un año (364 días: a las 23:59 cabe en los 365 del API); se propone el año. */
+/** Lo más lejos que acepta el API: 365 × 24 h. */
+const KEY_EXPIRY_MAX_MS = 365 * 24 * 3_600_000;
+
+/**
+ * Del calendario: de mañana a un año (364 días: a las 23:59 cabe en los 365 × 24 h
+ * del API); se propone el año. Si por medio queda una hora de más (el cambio de
+ * octubre), ese día ya no cabe: uno menos.
+ */
 export function expiryBounds(now: Date): { min: string; max: string; suggested: string } {
-  const max = dayOf(addDays(now, 364));
+  let last = addDays(now, 364);
+  const endOf = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59);
+  if (endOf(last).getTime() - now.getTime() > KEY_EXPIRY_MAX_MS) last = addDays(now, 363);
+  const max = dayOf(last);
   return { min: dayOf(addDays(now, 1)), max, suggested: max };
 }
 

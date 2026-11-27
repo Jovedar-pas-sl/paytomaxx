@@ -12,7 +12,7 @@ import {
   setSaPartnerFreeze,
   suspendSaPartner,
 } from '@/lib/endpoints/superadmin';
-import { SCOPE_LABELS, connectionTag } from '@/lib/partner-connections';
+import { SCOPE_LABELS, connectionTag, consoleConnectionActions } from '@/lib/partner-connections';
 import { CHANNEL_LABELS, COLLECTION_TEXT, FREEZE_CHOICES, partnerMissing } from '@/lib/superadmin/partner-forms';
 import '../../styles/panel-partners.css';
 import { PartnerFormDialog } from './PartnerFormDialog';
@@ -187,8 +187,7 @@ function ConnectionsTable({ connections, onOpen }: { connections: SuperAdminPart
               <tbody>
                 {connections.map((c) => {
                   const tag = connectionTag(c);
-                  const open = c.state !== 'revoked';
-                  const paused = c.state === 'paused' || c.pausedBy !== null;
+                  const actions = consoleConnectionActions(c);
                   return (
                     <tr key={c.id}>
                       <td data-label="Local" data-card="title">
@@ -207,17 +206,18 @@ function ConnectionsTable({ connections, onOpen }: { connections: SuperAdminPart
                         {c.lastUsedAt ? `${formatRelative(c.lastUsedAt, now)}${c.lastUsedIp ? ` · ${c.lastUsedIp}` : ''}` : 'Aún no'}
                       </td>
                       <td data-label="" data-card="actions">
-                        {open ? (
+                        {actions.length > 0 ? (
                           <span className="np-ptn-actions">
-                            {paused ? (
+                            {actions.includes('resume') ? (
                               <SmallButton onClick={() => onOpen({ kind: 'connection', action: 'partner.connectionResume', connection: c })}>
                                 Reanudar
                               </SmallButton>
-                            ) : (
+                            ) : null}
+                            {actions.includes('pause') ? (
                               <SmallButton onClick={() => onOpen({ kind: 'connection', action: 'partner.connectionPause', connection: c })}>
                                 Pausar
                               </SmallButton>
-                            )}
+                            ) : null}
                             <SmallButton
                               variant="danger"
                               onClick={() => onOpen({ kind: 'connection', action: 'partner.connectionRevoke', connection: c })}

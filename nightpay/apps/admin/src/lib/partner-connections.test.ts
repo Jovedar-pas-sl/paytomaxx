@@ -13,6 +13,7 @@ import {
   OVERLAP_CHOICES,
   PAUSED_BY_OXIOPAY_LABEL,
   connectionActions,
+  consoleConnectionActions,
   connectionNotices,
   connectionTag,
   createPayload,
@@ -259,6 +260,22 @@ describe('las IP: solo las que la plataforma declaró a OxioPay (ningún botón 
 describe('la caducidad: de mañana a un año; para cargar saldo, obligatoria', () => {
   it('los límites del calendario y la propuesta (un año)', () => {
     expect(expiryBounds(NOW)).toEqual({ min: '2026-11-27', max: '2027-11-25', suggested: '2027-11-25' });
+  });
+
+  it('con el cambio de hora de octubre por medio, el último día cabe en 365 × 24 h', () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'Europe/Madrid';
+    try {
+      // Domingo 26-10-2025 a las 00:30 (verano); 364 días después es el domingo del cambio de 2026.
+      const now = new Date('2025-10-25T22:30:00Z');
+      const { max } = expiryBounds(now);
+      expect(max).toBe('2026-10-24');
+      expect(new Date(expiryToIso(max)!).getTime() - now.getTime()).toBeLessThanOrEqual(365 * 24 * 3_600_000);
+      // Un día cualquiera, los 364 de siempre.
+      expect(expiryBounds(new Date('2026-06-10T10:00:00Z')).max).toBe('2027-06-09');
+    } finally {
+      process.env.TZ = tz;
+    }
   });
 
   it('el día elegido vale hasta las 23:59 de ese día (hora del navegador)', () => {
@@ -517,5 +534,19 @@ describe('«Topes»: los tres máximos en euros', () => {
     const body = { perOperationCents: 40000, walletDayCents: 60000, nightCents: 200000 };
     expect(limitsStepUpAction(conn().id, body)).toBe(stepUpActions.partner('limits', conn().id, '40000-60000-200000'));
     expect(limitsStepUpAction(conn().id, body)).toBe(`partner:limits:${conn().id}:40000-60000-200000`);
+  });
+});
+
+describe('la consola de OxioPay: los botones de una conexión', () => {
+  it('activa: «Pausar» y «Anular»; pausada o dormida: «Reanudar» y «Anular»', () => {
+    expect(consoleConnectionActions(conn())).toEqual(['pause', 'revoke']);
+    expect(consoleConnectionActions(conn({ state: 'paused', pausedBy: 'owner' }))).toEqual(['resume', 'revoke']);
+    expect(consoleConnectionActions(conn({ state: 'dormant' }))).toEqual(['resume', 'revoke']);
+  });
+
+  it('caducada: solo «Anular»; anulada: nada', () => {
+    expect(consoleConnectionActions(conn({ state: 'expired' }))).toEqual(['revoke']);
+    expect(consoleConnectionActions(conn({ state: 'expired', pausedBy: 'oxiopay' }))).toEqual(['revoke']);
+    expect(consoleConnectionActions(conn({ state: 'revoked' }))).toEqual([]);
   });
 });
