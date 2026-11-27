@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { PartnerConnectionView, PartnerKeyIssued, PartnerOptionView } from '@nightpay/contracts';
 import {
+  stepUpActions,
+  type PartnerConnectionView,
+  type PartnerKeyIssued,
+  type PartnerLoadAdminView,
+  type PartnerOptionView,
+  type PartnerOwnerStatement,
+} from '@nightpay/contracts';
+import {
+  ACTION_LABELS,
   CHANGE_KEY_LABEL,
   OVERLAP_CHOICES,
   PAUSED_BY_OXIOPAY_LABEL,
@@ -12,8 +20,20 @@ import {
   expiryBounds,
   expiryRequired,
   expiryToIso,
+  LIMITS_START_TEXT,
+  NIGHT_WINDOW_TEXT,
+  canVoidLoad,
+  deviceLabel,
   issuedOutcome,
+  limitsFormOf,
+  limitsPayload,
+  limitsStepUpAction,
+  loadState,
+  nightNav,
   rotatePayload,
+  statementTotals,
+  voidLoadWarning,
+  voidReasonProblem,
   splitPartnerIps,
   suggestedOverlap,
   type ConnectForm,
@@ -96,16 +116,20 @@ describe('el estado de cada conexión, en una etiqueta', () => {
 });
 
 describe('qué botones hay', () => {
+  // «Movimientos» (dueño y encargado, también en una anulada: el recuento de
+  // la mañana) y «Topes» (solo el dueño, no en una anulada) van delante.
+  const base = (actions: string[]) => actions.filter((a) => a !== 'movements' && a !== 'limits');
+
   it('el dueño: cambiar la clave, pausar y anular; reanudar si está en pausa o dormida', () => {
-    expect(connectionActions(conn(), 'OWNER')).toEqual(['rotate', 'pause', 'revoke']);
-    expect(connectionActions(conn({ state: 'paused', pausedBy: 'manager' }), 'OWNER')).toEqual(['resume', 'rotate', 'revoke']);
-    expect(connectionActions(conn({ pausedBy: 'foreign_ip', pausedScopes: ['wallet:load'] }), 'OWNER')).toEqual([
+    expect(base(connectionActions(conn(), 'OWNER'))).toEqual(['rotate', 'pause', 'revoke']);
+    expect(base(connectionActions(conn({ state: 'paused', pausedBy: 'manager' }), 'OWNER'))).toEqual(['resume', 'rotate', 'revoke']);
+    expect(base(connectionActions(conn({ pausedBy: 'foreign_ip', pausedScopes: ['wallet:load'] }), 'OWNER'))).toEqual([
       'resume',
       'rotate',
       'revoke',
     ]);
-    expect(connectionActions(conn({ state: 'dormant' }), 'OWNER')).toEqual(['resume', 'rotate', 'revoke']);
-    expect(connectionActions(conn({ state: 'expired' }), 'OWNER')).toEqual(['rotate', 'revoke']);
+    expect(base(connectionActions(conn({ state: 'dormant' }), 'OWNER'))).toEqual(['resume', 'rotate', 'revoke']);
+    expect(base(connectionActions(conn({ state: 'expired' }), 'OWNER'))).toEqual(['rotate', 'revoke']);
   });
 
   it('la pausa de OxioPay no la quita el dueño (solo la consola)', () => {
@@ -114,14 +138,62 @@ describe('qué botones hay', () => {
   });
 
   it('el encargado solo pausa y anula', () => {
-    expect(connectionActions(conn(), 'MANAGER')).toEqual(['pause', 'revoke']);
-    expect(connectionActions(conn({ state: 'paused', pausedBy: 'owner' }), 'MANAGER')).toEqual(['revoke']);
-    expect(connectionActions(conn({ state: 'dormant' }), 'MANAGER')).toEqual(['revoke']);
+    expect(base(connectionActions(conn(), 'MANAGER'))).toEqual(['pause', 'revoke']);
+    expect(base(connectionActions(conn({ state: 'paused', pausedBy: 'owner' }), 'MANAGER'))).toEqual(['revoke']);
+    expect(base(connectionActions(conn({ state: 'dormant' }), 'MANAGER'))).toEqual(['revoke']);
   });
 
-  it('anulada: nada', () => {
-    expect(connectionActions(conn({ state: 'revoked' }), 'OWNER')).toEqual([]);
-    expect(connectionActions(conn({ state: 'revoked' }), 'MANAGER')).toEqual([]);
+  it('anulada: solo «Movimientos» (cambiado a propósito en la PR 3 B: antes, nada)', () => {
+    expect(connectionActions(conn({ state: 'revoked' }), 'OWNER')).toEqual(['movements']);
+    expect(connectionActions(conn({ state: 'revoked' }), 'MANAGER')).toEqual(['movements']);
+  });
+
+  it('«Movimientos», al dueño y al encargado, en todos los estados', () => {
+    for (const state of ['active', 'paused', 'dormant', 'expired', 'revoked'] as const) {
+      for (const role of ['OWNER', 'MANAGER']) expect(connectionActions(conn({ state }), role)[0]).toBe('movements');
+    }
+  });
+
+  it('«Topes»: solo el dueño y no en una anulada', () => {
+    expect(connectionActions(conn(), 'OWNER')).toEqual(['movements', 'limits', 'rotate', 'pause', 'revoke']);
+    expect(connectionActions(conn({ state: 'paused', pausedBy: 'oxiopay' }), 'OWNER')).toEqual(['movements', 'limits', 'rotate', 'revoke']);
+    expect(connectionActions(conn({ state: 'expired' }), 'OWNER')).toContain('limits');
+    expect(connectionActions(conn({ state: 'revoked' }), 'OWNER')).not.toContain('limits');
+    for (const state of ['active', 'paused', 'dormant', 'expired', 'revoked'] as const) {
+      expect(connectionActions(conn({ state }), 'MANAGER')).not.toContain('limits');
+    }
+  });
+
+  it('los botones nuevos se llaman «Movimientos» y «Topes»', () => {
+    expect(ACTION_LABELS.movements).toBe('Movimientos');
+    expect(ACTION_LABELS.limits).toBe('Topes');
+  });
+});
+
+describe('las cargas en pausa (load_refusals, load_burst, load_voids)', () => {
+  const texts = {
+    load_refusals: 'En pausa: 3 cargas por encima del máximo por recarga en 10 minutos.',
+    load_burst: 'En pausa: más de 30 cargas en un minuto.',
+    load_voids: 'En pausa: 3 cargas anuladas por la plataforma esta noche.',
+  } as const;
+
+  for (const [pausedBy, text] of Object.entries(texts) as Array<[keyof typeof texts, string]>) {
+    it(`${pausedBy}: «Cargas en pausa», con su texto`, () => {
+      const c = conn({ pausedBy, pausedScopes: ['wallet:load'] });
+      for (const role of ['OWNER', 'MANAGER']) {
+        expect(connectionNotices(c, role)).toEqual([{ tone: 'warning', title: 'Cargas en pausa', text, action: null }]);
+      }
+      // La quita el dueño con «Reanudar» (ya pide la 2FA).
+      expect(connectionActions(c, 'OWNER')).toContain('resume');
+      expect(connectionActions(c, 'MANAGER')).not.toContain('resume');
+    });
+  }
+
+  it('otras pausas no lo dicen; una anulada tampoco', () => {
+    for (const pausedBy of ['owner', 'manager', 'foreign_ip', 'oxiopay'] as const) {
+      expect(connectionNotices(conn({ state: 'paused', pausedBy }), 'OWNER').some((n) => n.title === 'Cargas en pausa')).toBe(false);
+    }
+    expect(connectionNotices(conn({ state: 'revoked', pausedBy: 'load_burst' }), 'OWNER')).toEqual([]);
   });
 });
 
@@ -277,5 +349,172 @@ describe('lo que sale al conectar o cambiar la clave', () => {
     expect(issuedOutcome({ ...base, claim: { sentTo: 'o***@cajeros.example', expiresAt: null, delivered: false } })).toEqual({
       kind: 'failed',
     });
+  });
+});
+
+// ─── «Movimientos», «Anular carga» y «Topes» (PR 3 B) ────────────────────
+
+const sp = (s: string) => s.replace(/\u00a0/g, ' ');
+
+function load(over: Partial<PartnerLoadAdminView> = {}): PartnerLoadAdminView {
+  return {
+    id: '33333333-3333-4333-8333-333333333333',
+    publicId: 'wl_33333333333343338333333333333333',
+    status: 'succeeded',
+    amountCents: 3000,
+    description: 'Carga en cajero',
+    reference: null,
+    funding: 'cash',
+    device: 'ATM-1',
+    createdAt: '2026-11-26T23:00:00.000Z',
+    // Los 10 minutos del socio por la API: el panel anula hasta 36 h.
+    voidUntil: '2026-11-26T23:10:00.000Z',
+    voidedAt: null,
+    voidedBy: null,
+    reason: null,
+    balanceAfterCents: 3000,
+    codeHint: 'K7Q-•••',
+    ...over,
+  };
+}
+
+describe('«Movimientos»: la noche', () => {
+  it('va de 08:00 a 08:00', () => {
+    expect(NIGHT_WINDOW_TEXT).toBe('La noche va de 08:00 a 08:00.');
+  });
+
+  it('la anterior y la siguiente; nunca después de hoy', () => {
+    expect(nightNav('2026-11-26', '2026-11-26')).toEqual({ previous: '2026-11-25', next: null });
+    expect(nightNav('2026-11-24', '2026-11-26')).toEqual({ previous: '2026-11-23', next: '2026-11-25' });
+    expect(nightNav('2026-12-01', '2026-11-26')).toEqual({ previous: '2026-11-30', next: null });
+    expect(nightNav('2026-03-01', '2026-11-26').previous).toBe('2026-02-28');
+  });
+});
+
+describe('«Movimientos»: los totales y por cajero', () => {
+  const st: PartnerOwnerStatement = {
+    object: 'statement',
+    from: '2026-11-26T07:00:00Z',
+    to: '2026-11-27T07:00:00Z',
+    currency: 'eur',
+    livemode: true,
+    loads: {
+      count: 4,
+      amount: 12000,
+      by_funding: {
+        cash: { count: 4, amount: 12000 },
+        card: { count: 0, amount: 0 },
+        transfer: { count: 0, amount: 0 },
+        bank_app: { count: 0, amount: 0 },
+      },
+    },
+    load_voids: { count: 1, amount: 3000 },
+    net_loads: 9000,
+    byDevice: [],
+  } as unknown as PartnerOwnerStatement;
+
+  it('«Cargas», «Anuladas» y «Neto»', () => {
+    expect(statementTotals(st)).toEqual([
+      { key: 'loads', label: 'Cargas', count: 4, cents: 12000 },
+      { key: 'voids', label: 'Anuladas', count: 1, cents: 3000 },
+      { key: 'net', label: 'Neto', count: null, cents: 9000 },
+    ]);
+  });
+
+  it('las cargas sin cajero: «Sin cajero»', () => {
+    expect(deviceLabel(null)).toBe('Sin cajero');
+    expect(deviceLabel('ATM-1')).toBe('ATM-1');
+    expect(deviceLabel('  ')).toBe('Sin cajero');
+  });
+});
+
+describe('«Movimientos»: cada carga', () => {
+  const NOW_MS = Date.parse('2026-11-27T10:00:00.000Z');
+
+  it('anulada por la plataforma o en el panel, con su motivo', () => {
+    expect(loadState(load())).toBeNull();
+    expect(loadState(load({ status: 'voided', voidedAt: '2026-11-27T00:00:00Z', voidedBy: 'partner', reason: 'duplicada' }))).toEqual({
+      label: 'Anulada por la plataforma',
+      reason: 'duplicada',
+    });
+    expect(loadState(load({ status: 'voided', voidedAt: '2026-11-27T00:00:00Z', voidedBy: 'venue', reason: 'no pagó' }))).toEqual({
+      label: 'Anulada en el panel',
+      reason: 'no pagó',
+    });
+    expect(loadState(load({ status: 'voided', voidedAt: '2026-11-27T00:00:00Z', voidedBy: 'venue', reason: null }))).toEqual({
+      label: 'Anulada en el panel',
+      reason: null,
+    });
+  });
+
+  it('«Anular carga»: solo si no está anulada y tiene menos de 36 h (manda el servidor)', () => {
+    expect(canVoidLoad(load(), NOW_MS)).toBe(true);
+    // Pasados los 10 minutos del socio, el panel aún puede (hasta 36 h desde la carga).
+    expect(canVoidLoad(load({ voidUntil: '2026-11-26T23:10:00.000Z' }), NOW_MS)).toBe(true);
+    const created = Date.parse('2026-11-26T23:00:00.000Z');
+    expect(canVoidLoad(load(), created + 36 * 3_600_000 - 1)).toBe(true);
+    expect(canVoidLoad(load(), created + 36 * 3_600_000)).toBe(false);
+    expect(canVoidLoad(load({ status: 'voided', voidedAt: '2026-11-27T00:00:00Z', voidedBy: 'partner' }), NOW_MS)).toBe(false);
+  });
+
+  it('el motivo: de 3 a 140 letras', () => {
+    expect(voidReasonProblem('')).toBe('Explica por qué se anula');
+    expect(voidReasonProblem('  ab  ')).toBe('Explica por qué se anula');
+    expect(voidReasonProblem('abc')).toBeNull();
+    expect(voidReasonProblem('x'.repeat(140))).toBeNull();
+    expect(voidReasonProblem('x'.repeat(141))).toBe('Explica por qué se anula');
+  });
+
+  it('lo que pasa al anularla', () => {
+    expect(sp(voidLoadWarning(3000))).toBe(
+      'El saldo del cliente baja 30,00 € y le llega el aviso «Carga anulada». Hazlo solo si el dinero no se quedó en el local.',
+    );
+  });
+});
+
+describe('«Topes»: los tres máximos en euros', () => {
+  const current = { perOperationCents: 30000, walletDayCents: 60000, nightCents: 500000 };
+
+  it('el consejo para empezar', () => {
+    expect(LIMITS_START_TEXT).toBe('Si los cajeros se vacían menos de una vez al día, empieza con 2.000 € por noche.');
+  });
+
+  it('el formulario sale con los de ahora', () => {
+    expect(limitsFormOf(current)).toEqual({ perOperation: '300', walletDay: '600', night: '5000' });
+    expect(limitsFormOf({ perOperationCents: 1050, walletDayCents: 60000, nightCents: 200000 }).perOperation).toBe('10,50');
+  });
+
+  it('bajar no pide la 2FA; subir cualquiera, sí', () => {
+    expect(limitsPayload({ perOperation: '300', walletDay: '600', night: '2.000' }, current)).toEqual({
+      ok: true,
+      value: { body: { perOperationCents: 30000, walletDayCents: 60000, nightCents: 200000 }, raises: false },
+    });
+    expect(limitsPayload({ perOperation: '300,01', walletDay: '600', night: '2000' }, current)).toMatchObject({
+      ok: true,
+      value: { raises: true },
+    });
+    expect(limitsPayload({ perOperation: '300', walletDay: '600', night: '6000' }, current)).toMatchObject({ ok: true, value: { raises: true } });
+  });
+
+  it('con los máximos de LOAD_CAPS', () => {
+    expect(limitsPayload({ perOperation: '999,99', walletDay: '999,99', night: '50.000' }, current).ok).toBe(true);
+    const over = limitsPayload({ perOperation: '1000', walletDay: '600', night: '2000' }, current);
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(sp(over.error)).toBe('El máximo por recarga va de 0,01 € a 999,99 €.');
+    const night = limitsPayload({ perOperation: '300', walletDay: '600', night: '50.000,01' }, current);
+    if (!night.ok) expect(sp(night.error)).toBe('El máximo por noche va de 0,01 € a 50.000,00 €.');
+    expect(night.ok).toBe(false);
+    expect(limitsPayload({ perOperation: '300', walletDay: '', night: '2000' }, current).ok).toBe(false);
+    expect(limitsPayload({ perOperation: '300', walletDay: '0', night: '2000' }, current).ok).toBe(false);
+  });
+
+  it('sin cambiar nada, no se manda', () => {
+    expect(limitsPayload(limitsFormOf(current), current)).toEqual({ ok: false, error: 'No has cambiado ningún tope.' });
+  });
+
+  it('la acción de la llave: partner:limits:<conexión>:<op>-<día>-<noche>, en céntimos (como la comprueba el API)', () => {
+    const body = { perOperationCents: 40000, walletDayCents: 60000, nightCents: 200000 };
+    expect(limitsStepUpAction(conn().id, body)).toBe(stepUpActions.partner('limits', conn().id, '40000-60000-200000'));
+    expect(limitsStepUpAction(conn().id, body)).toBe(`partner:limits:${conn().id}:40000-60000-200000`);
   });
 });

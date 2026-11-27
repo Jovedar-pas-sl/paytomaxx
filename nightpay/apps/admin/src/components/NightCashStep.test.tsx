@@ -23,11 +23,11 @@ const CASH: NightCash = {
 const NBSP = new RegExp(String.fromCharCode(160), 'g');
 const DISABLED_SHOW = /<button[^>]*disabled[^>]*>(?:(?!<\/button>).)*Ver si cuadra/;
 
-function render(countDone: boolean, countedText = '140', firstCountCents: number | null = null): string {
+function render(countDone: boolean, countedText = '140', firstCountCents: number | null = null, cash: NightCash = CASH): string {
   const noop = () => undefined;
   return renderToStaticMarkup(
     <NightCashStep
-      cash={CASH}
+      cash={cash}
       draft={{ floatText: '', countedText }}
       onDraft={noop}
       cashNote=""
@@ -92,6 +92,31 @@ describe('paso «Efectivo» a ciegas', () => {
     const again = render(false, '', 14_000);
     expect(again).toContain('Vuelves a contar: el primer recuento (140,00 €) queda en el Z con el nuevo.');
     expect(again).not.toContain('Debería haber');
+  });
+});
+
+describe('«Fuera de este cajón» (cajeros de otras plataformas): también a ciegas', () => {
+  const withPartners: NightCash = { ...CASH, partnerCash: [{ name: 'Cajeros Demo', count: 3, cents: 9100 }] };
+
+  it('antes de «Ver si cuadra», no sale', () => {
+    const html = render(false, '140', null, withPartners);
+    expect(html).not.toContain('Fuera de este cajón');
+    expect(html).not.toContain('Cajeros Demo');
+    expect(html).not.toContain('91,00 €');
+  });
+
+  it('después, dentro de los movimientos: una línea por plataforma y la nota', () => {
+    const html = render(true, '140', null, withPartners);
+    expect(html).toContain('Fuera de este cajón');
+    expect(html).toContain('Caja · Cajeros Demo (3)');
+    expect(html).toContain('91,00 €');
+    expect(html).toContain('Lo cobran sus cajeros: se cuenta aparte, contra «Movimientos».');
+    // Lo esperado del cajón no cambia.
+    expect(html).toContain('145,00 €');
+  });
+
+  it('sin partnerCash, nada', () => {
+    expect(render(true)).not.toContain('Fuera de este cajón');
   });
 });
 

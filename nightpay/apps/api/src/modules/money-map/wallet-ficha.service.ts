@@ -5,6 +5,7 @@ import { ISSUED_CARD_STATUSES } from '../wallets/wallet-card-ops';
 import { formatWalletCode, sameWalletGroup } from '../wallets/wallet-rules';
 import { paymentMethodLabel, paymentMethodOf, personOf } from './cobros-rows';
 import { peopleById, saldoCharges } from './cobros.service';
+import { partnerLabel } from '../reports/export-csv';
 
 const PAID = ['AUTHORIZED', 'PARTIALLY_REFUNDED', 'REFUNDED'] as const;
 const MAX_ROWS = 200;
@@ -73,7 +74,17 @@ export class WalletFichaService {
           where: { walletId },
           orderBy: { createdAt: 'desc' },
           take: MAX_ROWS,
-          select: { id: true, tenantId: true, amountCents: true, serviceFeeCents: true, createdAt: true, takenByUserId: true, terminalId: true, reason: true },
+          select: {
+            id: true,
+            tenantId: true,
+            amountCents: true,
+            serviceFeeCents: true,
+            createdAt: true,
+            takenByUserId: true,
+            terminalId: true,
+            reason: true,
+            partnerConnectionId: true,
+          },
         }),
         saldoCharges(tx, { walletId }, MAX_ROWS),
         tx.walletPayout.findMany({
@@ -91,12 +102,17 @@ export class WalletFichaService {
         ...new Set([wallet.tenantId, ...[...payments, ...cash, ...consumptions, ...payouts].map((r) => r.tenantId)]),
       ];
       const terminalIds = cash.flatMap((c) => (c.terminalId ? [c.terminalId] : []));
-      const [venues, terminals, people] = await Promise.all([
+      const connectionIds = [...new Set(cash.flatMap((c) => (c.partnerConnectionId ? [c.partnerConnectionId] : [])))];
+      const [venues, terminals, people, connections] = await Promise.all([
         tx.venue.findMany({ where: { id: { in: venueIds } }, select: { id: true, name: true } }),
         terminalIds.length > 0
           ? tx.terminal.findMany({ where: { id: { in: terminalIds } }, select: { id: true, label: true } })
           : Promise.resolve([]),
         peopleById(tx, [...cash.flatMap((c) => (c.takenByUserId ? [c.takenByUserId] : [])), ...payouts.map((p) => p.paidByUserId)]),
+        // El socio de las recargas que cobró un cajero de otra plataforma (API de socios).
+        connectionIds.length > 0
+          ? tx.partnerConnection.findMany({ where: { id: { in: connectionIds } }, select: { id: true, partner: { select: { name: true } } } })
+          : Promise.resolve([]),
       ]);
       const venueName = (id: string) => venues.find((v) => v.id === id)?.name ?? '';
 
@@ -127,7 +143,14 @@ export class WalletFichaService {
         serviceFeeCents: c.serviceFeeCents ?? 0,
         method: 'CASH',
         methodLabel: c.amountCents < 0 ? `${CHARGE_METHOD_LABELS.CASH} (anulada)` : CHARGE_METHOD_LABELS.CASH,
-        by: personOf(c.takenByUserId ? people.get(c.takenByUserId) : null),
+        // El efectivo de un cajero lo cobró el socio (también si la anulación se hizo en el panel).
+        by: c.partnerConnectionId
+          ? {
+              id: c.partnerConnectionId,
+              name: partnerLabel(connections.find((pc) => pc.id === c.partnerConnectionId)?.partner.name),
+              role: 'PARTNER',
+            }
+          : personOf(c.takenByUserId ? people.get(c.takenByUserId) : null),
         terminalLabel: c.terminalId ? (terminals.find((t) => t.id === c.terminalId)?.label ?? null) : null,
         venueName: venueName(c.tenantId),
         status: c.amountCents < 0 ? 'VOID' : 'DONE',

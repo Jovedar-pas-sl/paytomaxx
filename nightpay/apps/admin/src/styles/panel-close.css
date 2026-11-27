@@ -719,3 +719,45 @@
   line-height: 1.5;
   color: var(--np-text);
 }
+
+/* ─── «Fuera de este cajón»: el efectivo de los cajeros de otras plataformas ──
+   Aparte de lo que debería haber en el cajón (PR 3 B). Sin gap ni inset. */
+
+.np-cash-moves li.np-cash-partner-head {
+  display: block;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--np-border);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-cash-moves li.np-cash-partner span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.np-cash-moves li.np-cash-partner-note {
+  display: block;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.np-caja-partner {
+  min-width: 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--np-border);
+}
+
+.np-caja-partner-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--np-text);
+}
+
+.np-caja-partner .np-cash-moves li span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

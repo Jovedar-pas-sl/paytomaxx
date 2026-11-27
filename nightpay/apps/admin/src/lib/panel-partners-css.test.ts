@@ -83,3 +83,42 @@ describe('Otras plataformas y Socios: medidas', () => {
     expect(CSS).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 });
+
+describe('«Movimientos» de una conexión (PR 3 B): medidas', () => {
+  const NEW = RULES.filter((r) => /np-ptn-mv/.test(r.selector));
+
+  it('hay reglas que mirar', () => {
+    expect(NEW.length).toBeGreaterThan(5);
+  });
+
+  it('hasta 640 px: los botones, uno bajo otro, a lo ancho y de 44 px', () => {
+    expect(decl('.np-ptn-mv .np-btn', 'width', MOBILE)).toBe('100%');
+    expect(decl('.np-ptn-mv .np-btn', 'min-height', MOBILE)).toBe('2.75rem');
+    expect(decl('.np-ptn-mv-night', 'flex-direction', MOBILE)).toBe('column');
+    expect(decl('.np-ptn-mv-night', 'align-items', MOBILE)).toBe('stretch');
+  });
+
+  it('las cargas: en fila desde 641 px; en el móvil, tarjetas', () => {
+    expect(decl('.np-ptn-mv-load', 'display')).toBe('grid');
+    expect(decl('.np-ptn-mv-load', 'grid-template-columns')).toContain('minmax(0, 1fr)');
+    expect(decl('.np-ptn-mv-load', 'display', MOBILE)).toBe('block');
+    expect(decl('.np-ptn-mv-load', 'border', MOBILE)).toBe('1px solid var(--np-border)');
+    expect(decl('.np-ptn-mv-load', 'border-radius', MOBILE)).toBe('var(--np-r-md)');
+  });
+
+  it('nada se sale a 360 px: lo largo se parte y nada tiene un ancho mínimo', () => {
+    expect(decl('.np-ptn-mv-load', 'min-width')).toBe('0');
+    expect(decl('.np-ptn-mv-desc', 'overflow-wrap')).toBe('anywhere');
+    expect(decl('.np-ptn-mv-device', 'overflow-wrap')).toBe('anywhere');
+    for (const r of NEW) expect(r.body, r.selector).not.toMatch(/(?:^|[;\s])(?:min-)?width\s*:\s*\d{3,}px/);
+  });
+
+  it('para un Chrome 64: sin inset, sin gap, sin min()/clamp() en las reglas nuevas', () => {
+    for (const r of NEW) {
+      expect(r.body, r.selector).not.toMatch(/(?:^|[;\s])(?:inset|gap|row-gap|column-gap)\s*:/);
+      expect(r.body, r.selector).not.toMatch(/\b(?:min|max|clamp)\(/);
+      expect(r.selector).not.toMatch(/:has\(/);
+    }
+    expect(CSS).not.toMatch(/rgba\(\s*\d+\s+\d+/);
+  });
+});

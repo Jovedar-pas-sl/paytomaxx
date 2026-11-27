@@ -305,7 +305,10 @@ describe('3. lista, resumen y pausa automática', () => {
     const api = await get(c, `/statement?from=${from}&to=${to}`);
     expect(api.statusCode, api.body).toBe(200);
     expect(Statement.parse(api.json())).toEqual(api.json());
-    expect(api.json()).toEqual(night);
+    // PR 3 B: el del dueño lleva además «Movimientos» por cajero (byDevice); el del socio no cambia.
+    const { byDevice, ...ownerWithoutDevices } = night as { byDevice: Array<{ netCents: number }> };
+    expect(api.json()).toEqual(ownerWithoutDevices);
+    expect(byDevice.reduce((a, d) => a + d.netCents, 0)).toBe((night as { net_loads: number }).net_loads);
     expect(api.json()).toMatchObject({ loads: { count: 3, amount: 9000, by_funding: { cash: { count: 3, amount: 9000 } } }, load_voids: { count: 2, amount: 7000 }, net_loads: 2000 });
     // La lista: de la más antigua a la más nueva, cada una una vez con su estado de ahora; páginas con cursor.
     const page1 = await get(c, `/wallet/operations?from=${from}&to=${to}&limit=2`);

@@ -24,6 +24,7 @@ import {
   stepUpActions,
   type JwtPayload,
   type PartnerLoadAdminView,
+  type PartnerOwnerStatement,
   type PartnerLoadVoidDto,
   type PartnerLoadsPage,
   type PartnerQueryFault,
@@ -64,7 +65,7 @@ import {
   voidUntil,
 } from './partner-load-rules';
 import { PARTNER_LOAD_AUDIT, PartnerLoadWatch, type LoadRefused } from './partner-load-watch';
-import { listLoads, loadById, loadByKey, loadWindowTotals, lockLoad, partnerStatementSql, type LoadRow } from './partner-loads.sql';
+import { listLoads, loadById, loadByKey, loadWindowTotals, lockLoad, partnerDeviceTotalsSql, partnerStatementSql, type LoadRow } from './partner-loads.sql';
 import { PartnerWalletLimits } from './partner-wallet-limits';
 import { PartnerWalletRefs, type DeferredAudit } from './partner-wallet-ref';
 
@@ -549,11 +550,18 @@ export class PartnerLoadsService {
     };
   }
 
-  async ownerStatement(user: JwtPayload, connectionId: string, query: Readonly<Record<string, unknown>>): Promise<StatementBody> {
+  /** El `/statement` del socio (sin cambiar) más `byDevice`, que solo ve el dueño («Movimientos» por cajero). */
+  async ownerStatement(user: JwtPayload, connectionId: string, query: Readonly<Record<string, unknown>>): Promise<PartnerOwnerStatement> {
     const conn = await this.ownConnection(user, connectionId);
     const q = parseOperationsQuery({ business_date: query.business_date ?? madridDay(lastNightCutoff(new Date())) }, nightOf);
     if (!q.ok) throw ownerQueryError(q);
-    return this.statementOf(user.tenantId, conn.id, q.from, q.to, conn.keyMode === 'live');
+    const [statement, byDevice] = await Promise.all([
+      this.statementOf(user.tenantId, conn.id, q.from, q.to, conn.keyMode === 'live'),
+      this.prisma.withTenant(user.tenantId, (tx) =>
+        partnerDeviceTotalsSql(tx, { tenantId: user.tenantId, connectionId: conn.id, from: q.from, to: q.to }),
+      ),
+    ]);
+    return { ...statement, byDevice };
   }
 
   /** La vista del dueño; la pista del saldo, de otra lectura en asSystem (como CashTopUpService.recent()). */

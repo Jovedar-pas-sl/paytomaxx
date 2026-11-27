@@ -23,11 +23,16 @@ export interface SecondFactorState {
 
 /**
  * El segundo factor que pide el API para crear, cambiar o reanudar una
- * clave: el código de la 2FA o, sin 2FA, la llave de acceso para esa acción
+ * clave, anular una carga o subir los topes: el código de la 2FA o, sin 2FA, la llave de acceso para esa acción
  * (stepUpActions.partner). El código se borra tras cada intento: el API lo
  * gasta antes de mirar lo demás.
  */
-export function useSecondFactor(action: string | null, active: boolean, next: string): SecondFactorState {
+export function useSecondFactor(
+  action: string | null,
+  active: boolean,
+  next: string,
+  reason = 'Para la clave de una plataforma.',
+): SecondFactorState {
   const method = useStepUpMethod(active);
   const [askedForKey, setAskedForKey] = useState(false);
   const [proof, setProof] = useState<StepUpProof | null>(null);
@@ -37,7 +42,7 @@ export function useSecondFactor(action: string | null, active: boolean, next: st
   const keyProof = withKey ? proofFor(proof, action, Date.now()) : null;
 
   const field = withKey ? (
-    <KeyConfirm action={action} confirmed={Boolean(keyProof)} onProof={setProof} reason="Para la clave de una plataforma." next={next} />
+    <KeyConfirm action={action} confirmed={Boolean(keyProof)} onProof={setProof} reason={reason} next={next} />
   ) : (
     <OtpInput
       label="Código de tu app de verificación (2FA)"

@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateCash, type NightCash } from '@nightpay/contracts';
+import { cashMovesCount, evaluateCash, type NightCash } from '@nightpay/contracts';
 import { summarize } from '../reports/export-csv';
-import type { CobroRow, ConsumoRow, DevolucionRow } from '../reports/export-rows';
-import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, cashFromRows, unresolvedPaymentsWhere, zStart } from './night-rules';
+import type { CobroRow, ConsumoRow, DevolucionRow, RecargaEfectivoRow } from '../reports/export-rows';
+import { autoCloseAt, buildAdjustments, buildNightCaja, buildNightZ, cashFromRows, partnerCashOf, unresolvedPaymentsWhere, zStart } from './night-rules';
 
 describe('desde dónde cuenta el Z y desde cuándo busca ajustes', () => {
   const opened = new Date('2026-10-14T20:00:00Z');
@@ -204,5 +204,59 @@ describe('el efectivo de la noche sale de las filas del Z', () => {
     });
     const caja = buildNightCaja(cash, evaluateCash(cash), null, at);
     expect(caja).toMatchObject({ chicaCashPayoutsCount: 2, chicaCashPayoutsCents: 851, camareroCashPayoutsCount: 1, camareroCashPayoutsCents: 750 });
+  });
+});
+
+describe('el efectivo de los cajeros de otras plataformas (API de socios, PR 3 B): fuera del cajón de recepción', () => {
+  const at = new Date('2026-11-27T23:00:00Z');
+  const row = (id: string, amountCents: number, extra: Partial<RecargaEfectivoRow> = {}): RecargaEfectivoRow => ({
+    id, at, amountCents, takenByName: null, takenByEmail: 'recepcion@local.es', terminalLabel: null, ...extra,
+  });
+  const socio = (id: string, amountCents: number, connection: string, name: string, voidOfId?: string): RecargaEfectivoRow =>
+    row(id, amountCents, { partnerConnectionId: connection, partnerName: name, takenByEmail: null, ...(voidOfId ? { voidOfId } : {}) });
+  const reception = [row('r1', 10_000), row('r2', 2000), row('v2', -2000, { voidOfId: 'r2' })];
+  const partners = [
+    socio('a1', 3000, 'pc-b', 'Cajeros Beta'),
+    socio('a2', 3000, 'pc-b', 'Cajeros Beta'),
+    socio('va2', -3000, 'pc-b', 'Cajeros Beta', 'a2'),
+    socio('z1', 3000, 'pc-a', 'Alfa ATM'),
+    // Una carga de la noche anterior anulada esta noche (en el panel): solo la anulación.
+    socio('vz0', -2500, 'pc-c', 'Cajeros Gamma', 'z0'),
+  ];
+
+  it('las filas de un socio no entran en lo que entra, ni en lo esperado, ni en la cuenta de movimientos', () => {
+    const solo = cashFromRows(5000, { recargasEfectivo: reception, pagosSaldo: [], liquidaciones: [] });
+    const both = cashFromRows(5000, { recargasEfectivo: [...reception, ...partners], pagosSaldo: [], liquidaciones: [] });
+    const { partnerCash, ...rest } = both;
+    expect(rest).toEqual(solo);
+    expect(both).toMatchObject({ cashInCents: 10_000, walletCashTopUpsCount: 1, walletCashTopUpsCents: 10_000, expectedCents: 15_000 });
+    expect(cashMovesCount(both)).toBe(cashMovesCount(solo));
+    expect(partnerCash).toBeDefined();
+  });
+
+  it('una línea por conexión, por nombre: la anulación resta y una noche con solo una anulación da negativo', () => {
+    const cash = cashFromRows(null, { recargasEfectivo: [...reception, ...partners], pagosSaldo: [], liquidaciones: [] });
+    expect(cash.partnerCash).toEqual([
+      { name: 'Alfa ATM', count: 1, cents: 3000 },
+      { name: 'Cajeros Beta', count: 1, cents: 3000 },
+      { name: 'Cajeros Gamma', count: -1, cents: -2500 },
+    ]);
+    expect(partnerCashOf(partners)).toEqual(cash.partnerCash);
+  });
+
+  it('sin socios, el campo no sale', () => {
+    const cash = cashFromRows(null, { recargasEfectivo: reception, pagosSaldo: [], liquidaciones: [] });
+    expect('partnerCash' in cash).toBe(false);
+    expect(partnerCashOf(reception)).toEqual([]);
+  });
+
+  it('buildNightCaja() lo copia; sin él, la caja no tiene el campo', () => {
+    const cash = cashFromRows(0, { recargasEfectivo: [...reception, ...partners], pagosSaldo: [], liquidaciones: [] });
+    const caja = buildNightCaja(cash, evaluateCash(cash, { countedCents: 10_000 }), null, at);
+    expect(caja.partnerCash).toEqual(cash.partnerCash);
+    // El arqueo de recepción cuadra con lo de recepción.
+    expect(caja).toMatchObject({ expectedCents: 10_000, countedCents: 10_000, diffCents: 0 });
+    const plain = cashFromRows(0, { recargasEfectivo: reception, pagosSaldo: [], liquidaciones: [] });
+    expect('partnerCash' in buildNightCaja(plain, evaluateCash(plain), null, at)).toBe(false);
   });
 });

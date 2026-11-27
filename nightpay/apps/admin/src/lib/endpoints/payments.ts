@@ -200,7 +200,15 @@ export async function registerBankRefund(
 }
 
 /** Fase 1C — informes para la gestoría (CSV). */
-export type ExportKind = 'cobros' | 'devoluciones' | 'liquidaciones' | 'resumen' | 'recargas-efectivo' | 'saldo-devuelto';
+export type ExportKind =
+  | 'cobros'
+  | 'devoluciones'
+  | 'liquidaciones'
+  | 'resumen'
+  | 'recargas-efectivo'
+  | 'saldo-devuelto'
+  /** Las cargas de los cajeros de otras plataformas (API de socios). */
+  | 'recargas-socios';
 
 export async function downloadExport(kind: ExportKind, from: string, to: string): Promise<Blob> {
   const qs = new URLSearchParams({ from, to }).toString();

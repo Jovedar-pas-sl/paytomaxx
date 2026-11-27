@@ -117,6 +117,12 @@ export interface NightCaja {
   bitcoinCashOutCents?: number;
   cashOutCents: number;
   expectedCents: number;
+  /**
+   * El efectivo de los cajeros de otras plataformas (API de socios): del local,
+   * pero no en este cajón (no entra en lo esperado). Sin ninguno, o en los Z de
+   * antes, no viene.
+   */
+  partnerCash?: Array<{ name: string; count: number; cents: number }>;
   /** null = no se contó (cierre automático o sin efectivo). */
   countedCents: number | null;
   /** Se volvió a contar tras «Ver si cuadra»: el primer recuento (countedCents es el último). */

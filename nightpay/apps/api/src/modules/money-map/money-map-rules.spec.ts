@@ -468,3 +468,43 @@ describe('mapa del dinero con un cobro en bitcoin (BTCPay)', () => {
     expect(saleMethodOf(p)).toBe('CARD');
   });
 });
+
+describe('el efectivo de los cajeros de otras plataformas (API de socios, PR 3 B)', () => {
+  const ownersSum = (m: ReturnType<typeof buildMoneyMap>) => {
+    const o = m.where.owners;
+    return o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0);
+  };
+  // 90 € cargados en los cajeros: ya están en las recargas en efectivo (y en el saldo), no en la caja de recepción.
+  const withPartner = (partnerCents: number) =>
+    buildMoneyMap(
+      input({
+        topUps: { cardCents: 20_000, cardCount: 1, cashCents: 10_000 + partnerCents, cashCount: 2 },
+        cashBox: { openingFloatCents: 5_000, inCents: 10_000, outCents: 2_000, expectedCents: 13_000, partnerCashCents: partnerCents },
+      }),
+    );
+
+  it('suma partnerCashCents una sola vez al total, y owners suma el total', () => {
+    const base = buildMoneyMap(input());
+    const m = withPartner(9_000);
+    expect(m.where.partnerCashCents).toBe(9_000);
+    expect(m.where.cashBoxCents).toBe(13_000);
+    expect(m.where.totalCents).toBe(m.where.bbvaCents + m.where.cashBoxCents + 9_000);
+    expect(m.where.totalCents).toBe(base.where.totalCents + 9_000);
+    expect(ownersSum(m)).toBe(m.where.totalCents);
+    // El saldo cargado en los cajeros es del cliente: el local no gana nada por él.
+    expect(m.where.owners.venueCents).toBe(base.where.owners.venueCents);
+    expect(m.where.owners.saldoCents).toBe(base.where.owners.saldoCents + 9_000);
+  });
+
+  it('negativo (una noche con solo una anulación del panel): sale y owners sigue sumando el total', () => {
+    const m = withPartner(-2_500);
+    expect(m.where.partnerCashCents).toBe(-2_500);
+    expect(m.where.totalCents).toBe(m.where.bbvaCents + m.where.cashBoxCents - 2_500);
+    expect(ownersSum(m)).toBe(m.where.totalCents);
+  });
+
+  it('con 0 (o sin el campo), no sale', () => {
+    expect('partnerCashCents' in withPartner(0).where).toBe(false);
+    expect('partnerCashCents' in buildMoneyMap(input()).where).toBe(false);
+  });
+});

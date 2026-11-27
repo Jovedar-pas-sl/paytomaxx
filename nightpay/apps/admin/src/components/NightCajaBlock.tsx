@@ -4,19 +4,22 @@ import { Icon } from '@nightpay/ui';
 import type { NightCaja } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
-import { cajaInText, cajaOutText, diffLabel } from '@/lib/night-close';
+import { cajaInText, cajaOutText, diffLabel, partnerCashBlock } from '@/lib/night-close';
 import { useVenueTimezone } from '@/lib/venue-context';
 
 /**
  * Bloque «Caja» de un Z congelado: fondo, lo que entró (recargas del saldo en
  * efectivo) y salió en efectivo, lo que debería haber, lo contado y la
  * diferencia, con el candado y la hora a la que se congeló. Ya no cambia.
+ * Con cajeros de otras plataformas, «Fuera de este cajón»: su efectivo, que
+ * se cuenta aparte (no entra en lo que debería haber).
  */
 export function NightCajaBlock({ caja }: { caja: NightCaja }) {
   const tz = useVenueTimezone();
   const counted = caja.countedCents !== null;
   const diff = caja.diffCents ?? 0;
   const tone = !counted ? 'none' : diff < 0 ? 'short' : diff > 0 ? 'over' : 'ok';
+  const partners = partnerCashBlock(caja.partnerCash);
   return (
     <section className="np-caja" aria-label="Caja de la noche">
       <header className="np-caja-head">
@@ -69,6 +72,20 @@ export function NightCajaBlock({ caja }: { caja: NightCaja }) {
         {counted ? '' : ' Nadie contó la caja (cierre automático o sin efectivo).'}
       </p>
       {caja.note ? <p className="np-caja-quote">«{caja.note}»</p> : null}
+      {partners ? (
+        <div className="np-caja-partner" aria-label={partners.title}>
+          <p className="np-caja-partner-title">{partners.title}</p>
+          <ul className="np-cash-moves">
+            {partners.lines.map((l) => (
+              <li key={l.key}>
+                <span>{l.label}</span>
+                <span className="np-num">{l.amount}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="np-caja-note">{partners.note}</p>
+        </div>
+      ) : null}
     </section>
   );
 }

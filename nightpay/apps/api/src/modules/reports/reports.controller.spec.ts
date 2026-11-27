@@ -35,6 +35,7 @@ function makeController() {
       { id: 'wp-1', at: new Date('2026-08-01T03:00:00Z'), amountCents: 8000, method: 'CASH', paidByName: null, paidByEmail: 'jefe@local.es' },
     ]),
     recargasEfectivo: vi.fn().mockResolvedValue([]),
+    recargasSocios: vi.fn().mockResolvedValue([]),
     venueName: vi.fn().mockResolvedValue('Local Centro'),
     sectionLabeler: vi.fn().mockResolvedValue(venueSectionLabeler(null)),
   };
@@ -75,6 +76,18 @@ describe('GET /v1/admin/export/:kind', () => {
     const two = fakeReply();
     await controller.export(owner, 't-1', 'saldo-devuelto', '2026-10-01', '2026-10-31', two.reply);
     expect(two.sent.body).toMatch(/;80,00;Efectivo;/);
+  });
+
+  it('«recargas-socios»: las cargas de los cajeros de otras plataformas, con su nombre de fichero', async () => {
+    const { controller, reports } = makeController();
+    const { reply, sent } = fakeReply();
+    await controller.export(owner, 't-1', 'recargas-socios', '2026-11-01', '2026-11-30', reply);
+    expect(reports.recargasSocios).toHaveBeenCalledWith('t-1', expect.objectContaining({ fromDay: '2026-11-01' }));
+    expect(reports.recargasEfectivo).not.toHaveBeenCalled();
+    expect(sent.status).toBe(200);
+    expect(sent.headers['Content-Disposition']).toBe('attachment; filename="recargas-socios-2026-11.csv"');
+    expect(sent.headers['Cache-Control']).toBe('no-store');
+    expect(sent.body?.startsWith('\uFEFFFecha;Hora;Plataforma;Tipo;Importe')).toBe(true);
   });
 
   it('informe desconocido o fechas mal → 400 sin consultar nada', async () => {

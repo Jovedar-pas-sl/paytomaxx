@@ -247,3 +247,226 @@
     min-height: 2.75rem;
   }
 }
+
+/* ─── «Movimientos» de una conexión (PR 3 B) ──────────────────────────────
+   Para un Chrome 64: sin gap en flex, sin inset, sin min()/clamp(); los
+   huecos, con márgenes. Desde 641 px, cada carga en una fila; hasta 640 px,
+   una tarjeta por carga y los botones a lo ancho. */
+
+.np-ptn-mv {
+  display: block;
+  min-width: 0;
+}
+
+.np-ptn-mv > * + * {
+  margin-top: 1rem;
+}
+
+.np-ptn-mv-night {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.np-ptn-mv-day {
+  flex: 1 1 10rem;
+  min-width: 0;
+  margin: 0.25rem 0.75rem;
+  text-align: center;
+  color: var(--np-text);
+}
+
+.np-ptn-mv-day strong {
+  display: block;
+  font-size: 1.0625rem;
+  text-transform: capitalize;
+}
+
+.np-ptn-mv-loading > * + * {
+  margin-top: 0.75rem;
+}
+
+.np-ptn-mv-totals {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -0.25rem;
+}
+
+.np-ptn-mv-total {
+  flex: 1 1 8rem;
+  min-width: 0;
+  margin: 0.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--np-border);
+  border-radius: var(--np-r-md);
+  background: var(--np-surface);
+}
+
+.np-ptn-mv-total[data-key='net'] {
+  border-color: var(--np-border-hi);
+}
+
+.np-ptn-mv-total dt {
+  font-size: 0.875rem;
+  color: var(--np-text-dim);
+}
+
+.np-ptn-mv-total dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--np-text);
+  white-space: nowrap;
+}
+
+.np-ptn-mv-section > * + * {
+  margin-top: 0.375rem;
+}
+
+.np-ptn-mv-devices,
+.np-ptn-mv-loads {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.np-ptn-mv-devices li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding: 0.5rem 0;
+  border-bottom: 1px dashed var(--np-border);
+  color: var(--np-text);
+}
+
+.np-ptn-mv-devices li:last-child {
+  border-bottom: 0;
+}
+
+.np-ptn-mv-devices .np-ptn-mv-device {
+  flex: 1 1 8rem;
+  margin-right: 0.75rem;
+}
+
+.np-ptn-mv-count {
+  margin-right: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--np-text-mute);
+}
+
+.np-ptn-mv-load {
+  display: grid;
+  grid-template-columns: 3.5rem 6rem minmax(0, 7rem) minmax(0, 1fr) auto;
+  align-items: start;
+  min-width: 0;
+  padding: 0.625rem 0;
+  border-bottom: 1px solid var(--np-border);
+  color: var(--np-text);
+}
+
+.np-ptn-mv-load > * {
+  min-width: 0;
+  padding-right: 0.75rem;
+}
+
+.np-ptn-mv-load > *:last-child {
+  padding-right: 0;
+}
+
+.np-ptn-mv-load[data-state='voided'] .np-ptn-mv-amount {
+  color: var(--np-text-mute);
+  text-decoration: line-through;
+}
+
+.np-ptn-mv-time {
+  font-size: 0.875rem;
+  color: var(--np-text-dim);
+}
+
+.np-ptn-mv-amount {
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.np-ptn-mv-device {
+  overflow-wrap: anywhere;
+}
+
+.np-ptn-mv-desc {
+  overflow-wrap: anywhere;
+}
+
+.np-ptn-mv-state {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.np-ptn-mv-state .np-ptn-help {
+  display: inline;
+  margin-left: 0.375rem;
+}
+
+.np-ptn-mv-more {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .np-ptn-mv-night {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .np-ptn-mv-day {
+    margin: 0.5rem 0;
+  }
+
+  .np-ptn-mv .np-btn {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  .np-ptn-mv-total {
+    flex-basis: 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+  }
+
+  .np-ptn-mv-total dd {
+    margin: 0 0 0 0.75rem;
+  }
+
+  /* Una tarjeta por carga: la hora y el importe arriba, lo demás debajo. */
+  .np-ptn-mv-load {
+    display: block;
+    margin-bottom: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--np-border);
+    border-radius: var(--np-r-md);
+    background: var(--np-surface);
+  }
+
+  .np-ptn-mv-load > * {
+    display: block;
+    padding-right: 0;
+  }
+
+  .np-ptn-mv-load > * + * {
+    margin-top: 0.25rem;
+  }
+
+  .np-ptn-mv-amount {
+    text-align: left;
+    font-size: 1.125rem;
+  }
+
+  .np-ptn-mv-act:empty {
+    display: none;
+  }
+
+  .np-ptn-mv-act .np-btn {
+    margin-top: 0.5rem;
+  }
+}

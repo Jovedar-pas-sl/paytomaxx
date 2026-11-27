@@ -10,6 +10,7 @@ import type {
   LiquidacionRow,
   PagoSaldoRow,
   RecargaEfectivoRow,
+  RecargaSocioRow,
   SectionLabeler,
 } from './export-rows';
 import { venueSectionLabeler } from './export-rows';
@@ -209,15 +210,53 @@ export class ReportsService {
              ct."createdWallet",
              u."displayName" AS "takenByName",
              u.email AS "takenByEmail",
-             t.label AS "terminalLabel"
+             t.label AS "terminalLabel",
+             ct."partnerConnectionId"::text AS "partnerConnectionId",
+             pa.name AS "partnerName"
         FROM wallet_cash_topups ct
         LEFT JOIN users u ON u.id = ct."takenByUserId"
         LEFT JOIN terminals t ON t.id = ct."terminalId"
+        LEFT JOIN partner_connections pc ON pc.id = ct."partnerConnectionId"
+        LEFT JOIN partners pa ON pa.id = pc."partnerId"
        WHERE ct."tenantId" = ${tenantId}::uuid
          AND ct."createdAt" >= ${p.from}
          AND ct."createdAt" < ${p.to}
          ${recorded}
        ORDER BY ct."createdAt" ASC
+       LIMIT ${MAX_EXPORT_ROWS + 1}
+    `, REPORT_TX));
+  }
+
+  /**
+   * Las cargas de los cajeros de otras plataformas del local en el periodo
+   * («recargas-socios»): cada carga a su hora y cada anulación a la suya, con
+   * el cajero, la referencia y la descripción de su carga. `"tenantId"`
+   * explícito en cada tabla (producción entra como superusuario).
+   */
+  async recargasSocios(tenantId: string, p: TimeWindow): Promise<RecargaSocioRow[]> {
+    return capped(await this.prisma.withTenant(tenantId, (tx) => tx.$queryRaw<RecargaSocioRow[]>`
+      SELECT o.id::text AS id,
+             COALESCE(o."reversesId", o.id)::text AS "loadId",
+             o.kind::text AS kind,
+             o."createdAt" AS "at",
+             o."amountCents",
+             COALESCE(l.funding, o.funding) AS funding,
+             pa.name AS "partnerName",
+             COALESCE(l.device, o.device) AS device,
+             COALESCE(l.reference, o.reference) AS reference,
+             COALESCE(l.description, o.description) AS description,
+             o.reason,
+             u."displayName" AS "voidedByName",
+             u.email AS "voidedByEmail"
+        FROM partner_wallet_operations o
+        JOIN partner_connections pc ON pc.id = o."connectionId" AND pc."tenantId" = ${tenantId}::uuid
+        JOIN partners pa ON pa.id = pc."partnerId"
+        LEFT JOIN partner_wallet_operations l ON l.id = o."reversesId" AND l."tenantId" = ${tenantId}::uuid
+        LEFT JOIN users u ON u.id = o."voidedByUserId"
+       WHERE o."tenantId" = ${tenantId}::uuid
+         AND o."createdAt" >= ${p.from}
+         AND o."createdAt" < ${p.to}
+       ORDER BY o."createdAt" ASC, o.id ASC
        LIMIT ${MAX_EXPORT_ROWS + 1}
     `, REPORT_TX));
   }

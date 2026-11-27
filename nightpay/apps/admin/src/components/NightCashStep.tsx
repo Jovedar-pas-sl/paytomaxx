@@ -4,7 +4,7 @@ import { useId, useState } from 'react';
 import { Button } from '@nightpay/ui';
 import type { NightCash, NightCashCountResult } from '@nightpay/contracts';
 import { formatEur } from '@/lib/money';
-import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, countReady, diffLabel, parseCashInput, type CashDraft } from '@/lib/night-close';
+import { FLOAT_OWNER_ONLY_TEXT, cashOutcome, countReady, diffLabel, parseCashInput, partnerCashBlock, type CashDraft } from '@/lib/night-close';
 import { OtpInput } from './OtpInput';
 
 interface Props {
@@ -251,6 +251,8 @@ export function NightCashStep({
 
 /** Lo que entró y salió en efectivo por OxioPay: solo tras «Ver si cuadra» (deja calcular lo esperado). */
 function CashMoves({ cash }: { cash: NightCash }) {
+  // El efectivo de los cajeros de otras plataformas: aparte, no suma a lo que debería haber en este cajón.
+  const partners = partnerCashBlock(cash.partnerCash);
   return (
     <>
       {(cash.walletCashTopUpsCount ?? 0) > 0 ? (
@@ -284,6 +286,18 @@ function CashMoves({ cash }: { cash: NightCash }) {
           <span>Pagos con bitcoin devueltos en efectivo ({cash.bitcoinCashOutCount})</span>
           <span className="np-num">{formatEur(-(cash.bitcoinCashOutCents ?? 0))}</span>
         </li>
+      ) : null}
+      {partners ? (
+        <>
+          <li className="np-cash-partner-head">{partners.title}</li>
+          {partners.lines.map((l) => (
+            <li key={l.key} className="np-cash-partner">
+              <span>{l.label}</span>
+              <span className="np-num">{l.amount}</span>
+            </li>
+          ))}
+          <li className="np-cash-partner-note">{partners.note}</li>
+        </>
       ) : null}
     </>
   );

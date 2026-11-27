@@ -19,6 +19,7 @@ import {
   type NightCloseStatus,
   type NightCloseStep,
   type NightCloseStepKey,
+  type NightPartnerCash,
 } from '@nightpay/contracts';
 import { formatEur } from './money';
 import type { PanelTab, TabKey } from './roles';
@@ -227,6 +228,41 @@ export function cajaOutText(caja: {
       ? ` · pagos con bitcoin devueltos en efectivo: ${formatEur(caja.bitcoinCashOutCents ?? 0)} (${caja.bitcoinCashOutCount})`
       : '';
   return `${wallet} · pagos a las compañeras en efectivo: ${staff}${camareros}${bitcoin}.`;
+}
+
+/** Una línea de «Fuera de este cajón»: «Caja · {socio} (3)» y su importe. */
+export interface PartnerCashLine {
+  key: string;
+  label: string;
+  amount: string;
+  /** La línea entera: «Caja · {socio} (3) 90,00 €». */
+  text: string;
+}
+
+export interface PartnerCashBlock {
+  title: string;
+  lines: PartnerCashLine[];
+  note: string;
+}
+
+export const PARTNER_CASH_TITLE = 'Fuera de este cajón';
+export const PARTNER_CASH_NOTE = 'Lo cobran sus cajeros: se cuenta aparte, contra «Movimientos».';
+
+/**
+ * El efectivo que cobraron los cajeros de otras plataformas (API de socios):
+ * es del local pero no está en este cajón (no entra en lo que debería haber).
+ * Una línea por plataforma (cargas − anulaciones; en negativo si esa noche
+ * solo hubo anulaciones). Sin ninguna, o con un API de antes, null.
+ */
+export function partnerCashBlock(partnerCash: ReadonlyArray<NightPartnerCash> | undefined): PartnerCashBlock | null {
+  if (!partnerCash || partnerCash.length === 0) return null;
+  const lines = partnerCash.map((p, i) => {
+    const count = p.count < 0 ? `−${Math.abs(p.count)}` : String(p.count);
+    const label = `Caja · ${p.name} (${count})`;
+    const amount = formatEur(p.cents);
+    return { key: `${i}-${p.name}`, label, amount, text: `${label} ${amount}` };
+  });
+  return { title: PARTNER_CASH_TITLE, lines, note: PARTNER_CASH_NOTE };
 }
 
 /** Un aviso confirmado: el paso y cómo estaba al confirmarlo (su huella). */
