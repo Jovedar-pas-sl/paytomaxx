@@ -193,9 +193,10 @@ export class SuperAdminPartnersService {
   async revokeConnection(actor: SuperAdminActor, id: string, dto: PartnerStepUpReasonDto): Promise<SuperAdminPartnerConnectionView> {
     await this.stepUp.verify(actor, dto.totpCode, 'partner.connection.revoke');
     return this.changeConnection(actor, id, dto.reason, async (tx, conn) => {
+      // pausedReason 'oxiopay' en la anulada: la marca de que fue OxioPay (el local no puede conectar otra vez).
       const row = await tx.partnerConnection.update({
         where: { id: conn.id, tenantId: conn.tenantId },
-        data: { status: 'REVOKED', keyClaimHash: null, keyClaimSealed: null, keyClaimExpiresAt: null },
+        data: { status: 'REVOKED', pausedReason: 'oxiopay', keyClaimHash: null, keyClaimSealed: null, keyClaimExpiresAt: null },
         include: CONNECTION_INCLUDE,
       });
       return { row, action: PARTNER_AUDIT.keyRevoked };

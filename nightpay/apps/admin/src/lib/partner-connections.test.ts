@@ -156,7 +156,8 @@ describe('qué botones hay', () => {
 
   it('«Topes»: solo el dueño y no en una anulada', () => {
     expect(connectionActions(conn(), 'OWNER')).toEqual(['movements', 'limits', 'rotate', 'pause', 'revoke']);
-    expect(connectionActions(conn({ state: 'paused', pausedBy: 'oxiopay' }), 'OWNER')).toEqual(['movements', 'limits', 'rotate', 'revoke']);
+    expect(connectionActions(conn({ state: 'paused', pausedBy: 'oxiopay' }), 'OWNER')).toEqual(['movements', 'limits', 'rotate']);
+    expect(connectionActions(conn({ state: 'paused', pausedBy: 'oxiopay' }), 'MANAGER')).toEqual(['movements']);
     expect(connectionActions(conn({ state: 'expired' }), 'OWNER')).toContain('limits');
     expect(connectionActions(conn({ state: 'revoked' }), 'OWNER')).not.toContain('limits');
     for (const state of ['active', 'paused', 'dormant', 'expired', 'revoked'] as const) {

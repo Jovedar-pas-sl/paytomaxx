@@ -86,16 +86,20 @@ export const ACTION_LABELS: Readonly<Record<ConnectionAction, string>> = {
  * Los botones de una conexión: «Movimientos» para el dueño y el encargado,
  * también en una anulada (el recuento de la mañana); «Topes», solo el dueño
  * y no en una anulada. Además, el dueño cambia la clave, pausa, reanuda (no
- * la pausa de OxioPay) y anula; el encargado pausa y anula.
+ * la pausa de OxioPay) y anula (tampoco la pausa de OxioPay); el encargado
+ * pausa y anula (no la pausa de OxioPay).
  */
 export function connectionActions(c: PartnerConnectionView, role: string): ConnectionAction[] {
   if (c.state === 'revoked') return ['movements'];
   const isOwner = role === 'OWNER';
   const paused = c.state === 'paused' || c.pausedBy !== null;
   const stopped = paused || c.state === 'dormant' || c.state === 'expired';
-  if (!isOwner) return stopped ? ['movements', 'revoke'] : ['movements', 'pause', 'revoke'];
+  // La pausa de OxioPay no se reanuda ni se anula desde aquí (el API dice 409: habla con OxioPay).
+  const byOxioPay = c.pausedBy === 'oxiopay';
+  if (!isOwner) return byOxioPay ? ['movements'] : stopped ? ['movements', 'revoke'] : ['movements', 'pause', 'revoke'];
   const head: ConnectionAction[] = ['movements', 'limits'];
-  if (c.state === 'expired' || c.pausedBy === 'oxiopay') return [...head, 'rotate', 'revoke'];
+  if (byOxioPay) return [...head, 'rotate'];
+  if (c.state === 'expired') return [...head, 'rotate', 'revoke'];
   if (paused || c.state === 'dormant') return [...head, 'resume', 'rotate', 'revoke'];
   return [...head, 'rotate', 'pause', 'revoke'];
 }

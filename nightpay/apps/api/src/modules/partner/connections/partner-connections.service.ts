@@ -135,6 +135,12 @@ export class PartnerConnectionsService {
         select: { id: true },
       });
       if (existing) throw adminError('PARTNER_ALREADY_CONNECTED');
+      // Lo que pausó o anuló OxioPay no se esquiva anulando y conectando otra vez.
+      const byOxioPay = await tx.partnerConnection.findFirst({
+        where: { tenantId: user.tenantId, partnerId: partner.id, pausedReason: 'oxiopay', status: { in: ['PAUSED', 'REVOKED'] } },
+        select: { id: true },
+      });
+      if (byOxioPay) throw adminError('PARTNER_PAUSED_BY_OXIOPAY');
 
       const id = randomUUID();
       const key = generatePartnerKey(mode);
@@ -231,6 +237,7 @@ export class PartnerConnectionsService {
 
   async revoke(user: JwtPayload, id: string): Promise<PartnerConnectionView> {
     return this.change(user, id, async (tx, conn) => {
+      if (conn.status === 'PAUSED' && conn.pausedReason === 'oxiopay') throw adminError('PARTNER_PAUSED_BY_OXIOPAY');
       const row = await tx.partnerConnection.update({
         where: { id: conn.id, tenantId: user.tenantId },
         data: { status: 'REVOKED', keyClaimHash: null, keyClaimSealed: null, keyClaimExpiresAt: null },

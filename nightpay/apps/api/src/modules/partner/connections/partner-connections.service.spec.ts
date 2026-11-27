@@ -10,6 +10,15 @@ const owner = { sub: 'dddddddd-0000-0000-0000-000000000001', tenantId: TENANT, r
 
 type Row = Record<string, unknown>;
 
+/** El where de Prisma que usa el servicio: igualdad, `{ not }` y `{ in }`. */
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([k, v]) => {
+    if (v && typeof v === 'object' && 'not' in v) return row[k] !== (v as { not: unknown }).not;
+    if (v && typeof v === 'object' && 'in' in v) return (v as { in: unknown[] }).in.includes(row[k]);
+    return row[k] === v;
+  });
+}
+
 /**
  * Base de mentira con transacciones de verdad: lo que se escribe dentro de
  * withTenant se aplica solo si la transacción acaba bien.
@@ -74,12 +83,10 @@ function fakeDb() {
         },
         auditEvent: { findMany: vi.fn(async () => []) },
         partnerConnection: {
-          findFirst: vi.fn(async ({ where }: { where: Row }) =>
-            draft.find((c) => (where.id === undefined || c.id === where.id) && c.tenantId === where.tenantId && (where.partnerId === undefined || c.partnerId === where.partnerId) && c.status !== 'REVOKED') ?? null,
-          ),
+          findFirst: vi.fn(async ({ where }: { where: Row }) => draft.find((c) => matches(c, where)) ?? null),
           findMany: vi.fn(async () => draft),
           create: vi.fn(async ({ data }: { data: Row }) => {
-            const row = { ...data, id: 'ffffffff-0000-0000-0000-000000000001', createdAt: new Date(), partner: { id: PARTNER, name: 'Cajeros Demo' } };
+            const row = { status: 'ACTIVE', pausedScopes: [], pausedReason: null, ...data, id: 'ffffffff-0000-0000-0000-000000000001', createdAt: new Date(), partner: { id: PARTNER, name: 'Cajeros Demo' } };
             draft.push(row);
             return row;
           }),
@@ -146,5 +153,40 @@ describe('sin registro no hay cambio', () => {
     await service(prisma, audit).revoke(owner, CONN);
     expect(state.connections[0]).toMatchObject({ status: 'REVOKED' });
     expect(audit.logInTx).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'partner.key.revoked', tenantId: TENANT }));
+  });
+});
+
+describe('la pausa de OxioPay no se esquiva', () => {
+  const audit = { log: vi.fn(), logInTx: vi.fn(async () => undefined) };
+  const manager = { ...owner, role: 'MANAGER' } as JwtPayload;
+  const connect = { partnerId: PARTNER, scopes: ['wallet:balance'], ipAllowlist: [], expiresAt: null, delivery: 'copy' } as const;
+
+  it('pausada por OxioPay: ni el dueño ni el encargado la anulan', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'PAUSED', pausedReason: 'oxiopay' });
+    const s = service(prisma, audit);
+    for (const who of [owner, manager]) await expect(s.revoke(who, CONN)).rejects.toThrow('La pausó OxioPay: habla con OxioPay.');
+    expect(state.connections[0]).toMatchObject({ status: 'PAUSED', pausedReason: 'oxiopay' });
+  });
+
+  it('pausada por el dueño: sí la anula', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'PAUSED', pausedReason: 'owner' });
+    await service(prisma, audit).revoke(owner, CONN);
+    expect(state.connections[0]).toMatchObject({ status: 'REVOKED' });
+  });
+
+  it('anulada por OxioPay: conectar otra vez con ese socio da 409 y no sale clave', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'REVOKED', pausedReason: 'oxiopay' });
+    await expect(service(prisma, audit).create(owner, connect)).rejects.toThrow('La pausó OxioPay: habla con OxioPay.');
+    expect(state.connections).toHaveLength(1);
+  });
+
+  it('anulada por el dueño: conectar otra vez sí vale', async () => {
+    const { prisma, state } = fakeDb();
+    Object.assign(state.connections[0]!, { status: 'REVOKED', pausedReason: 'owner' });
+    const out = await service(prisma, audit).create(owner, connect);
+    expect(out.key).toMatch(/^oxp_test_/);
   });
 });
