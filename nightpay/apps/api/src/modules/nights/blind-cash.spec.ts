@@ -170,6 +170,26 @@ describe('cierre a ciegas: nada del efectivo sale restando', () => {
   });
 });
 
+describe('cierre a ciegas: el efectivo de los cajeros de otras plataformas', () => {
+  it('con una carga en un cajero de socios, entra, «dónde está» y «de quién es» suman lo mismo (y como sin efectivo)', () => {
+    const strip = (m: MoneyMap) => ({ ...m, inflow: { ...m.inflow, topUps: { ...m.inflow.topUps, count: 0 } } });
+    const base = mapInput(true);
+    // 100 € cargados en el cajero de un socio: en las recargas en efectivo, no en la caja de recepción.
+    const input: MoneyMapInput = {
+      ...base,
+      topUps: { ...base.topUps, cashCents: base.topUps.cashCents + 10_000 },
+      cashBox: { ...base.cashBox, partnerCashCents: 10_000 },
+    };
+    const m = blindMoneyMap(buildMoneyMap(input));
+    expect(m.where.partnerCashCents).toBeUndefined();
+    expect(strip(m)).toEqual(strip(blindMoneyMap(buildMoneyMap(mapInput(false)))));
+    const o = m.where.owners;
+    expect(o.venueCents + o.staffCents + o.saldoCents + (o.oxioPayCents ?? 0) + (o.paidOutCents ?? 0) + (o.commissionsCents ?? 0)).toBe(m.where.totalCents);
+    // Lo del cajero no sale como del local.
+    expect(o.venueCents).toBe(blindMoneyMap(buildMoneyMap(mapInput(false))).where.owners.venueCents);
+  });
+});
+
 describe('cierre a ciegas: las otras vías del API', () => {
   const user = (role: string) => ({ sub: 'u-1', tenantId: 't-1', role }) as never;
   const openFrom = new Date('2026-11-26T21:00:00Z');

@@ -80,11 +80,13 @@ export function blindNightView(v: NightView): NightView {
  * siguen sumando lo mismo entre ellos). El saldo vivo del local, tampoco.
  */
 export function blindMoneyMap(m: MoneyMap): MoneyMap {
-  const { inflow, where, outflow } = m;
+  const { inflow, outflow } = m;
+  // Lo de los cajeros de otras plataformas, fuera también: las recargas en efectivo que se quitan del saldo lo incluyen.
+  const { partnerCashCents: partnerCash = 0, ...where } = m.where;
   const cashTopUps = inflow.topUps.cashCents;
   const cashFee = m.serviceFee?.cashCents ?? 0;
   const cashPayouts = outflow.refunds.cashCents;
-  const totalCents = where.totalCents - where.cashBoxCents;
+  const totalCents = where.totalCents - where.cashBoxCents - partnerCash;
   const saldoCents = where.owners.saldoCents - cashTopUps + cashPayouts;
   const oxioPayCents = where.owners.oxioPayCents === undefined ? undefined : where.owners.oxioPayCents - cashFee;
   const venueCents =
