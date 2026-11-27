@@ -6,7 +6,7 @@ import type { ApprovalView, PermissionSet } from '@nightpay/contracts';
 import { createPayoutBatch, fetchApprovalRules, fetchMyPermissions, fetchOperators, fetchStepUp, type Operator } from '@/lib/api';
 import { ApiError } from '@/lib/api-errors';
 import { ApprovalsContext } from '@/lib/use-approvals';
-import { BATCH_2FA_TEXT } from '@/lib/payout-batch';
+import { BATCH_2FA_TEXT, NEEDS_2FA_TEXT } from '@/lib/payout-batch';
 import { FichasContext } from './fichas/fichas-context';
 import { PayoutBatchList } from './PayoutBatchList';
 
@@ -165,6 +165,18 @@ describe('«A quién hay que pagar»', () => {
     expect(text()).not.toContain('Repasar y pagar');
     expect(buttons('Pedir al dueño')).toHaveLength(4);
     expect(text()).toContain('En este local los pagos los aprueba el dueño');
+  });
+
+  it('el encargado con direct_2fa sin 2FA ni llave: solo mirar (sin «Pagar», que fallaría) y «Activa la verificación en dos pasos para pagar»', async () => {
+    vi.mocked(fetchApprovalRules).mockResolvedValue({ payoutRequiresApproval: false, refundApprovalThresholdCents: 0, payout: 'direct_2fa', refundRequestFromCents: null });
+    vi.mocked(fetchStepUp).mockResolvedValue({ method: null } as Awaited<ReturnType<typeof fetchStepUp>>);
+    await mount(false);
+    expect(boxes()).toHaveLength(0);
+    expect(buttons('Pagar')).toHaveLength(0);
+    expect(text()).not.toContain('Repasar y pagar');
+    expect(text()).toContain(NEEDS_2FA_TEXT);
+    expect(text()).not.toContain(BATCH_2FA_TEXT);
+    expect(buttons('Ir a Seguridad')).toHaveLength(1);
   });
 
   it('el encargado con direct_2fa y permiso marca; sin permiso, solo mira', async () => {
