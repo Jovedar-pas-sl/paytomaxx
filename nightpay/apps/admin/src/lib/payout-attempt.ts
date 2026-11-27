@@ -36,7 +36,7 @@ const LOST_TEXT =
 
 /** La clave de este intento ya se usó con otra petición (otras notas, otra chica…). */
 export const KEY_REUSED_CODE = 'IDEMPOTENCY_KEY_REUSED';
-const KEY_REUSED_TEXT =
+export const KEY_REUSED_TEXT =
   'Este intento ya se usó con otros datos y no se ha apuntado ni pedido nada nuevo. Cierra y vuelve a abrirlo.';
 
 export type PayoutFailure =
@@ -59,8 +59,11 @@ export function payoutFailure(err: unknown): PayoutFailure {
   return { kind: 'retry', text: err.message };
 }
 
-/** UUID v4; fuera de HTTPS (sin randomUUID) 32 hex aleatorios. */
-function newKey(): string {
+/**
+ * UUID v4; fuera de HTTPS (sin randomUUID) 32 hex aleatorios. También la
+ * clave de «Pagar a varias» (cabe en PAYOUT_BATCH_KEY_RE).
+ */
+export function newKey(): string {
   if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   const bytes = crypto.getRandomValues(new Uint8Array(16));
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');

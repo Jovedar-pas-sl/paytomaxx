@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import { formatMoney, type PromoterView } from '@nightpay/contracts';
 import { fetchOperators, type Operator } from '@/lib/endpoints/operators';
 import { createPromoter, fetchPromoters, updatePromoter } from '@/lib/endpoints/reservations';
@@ -89,9 +89,9 @@ export function PromotersCard({ isOwner }: { isOwner: boolean }) {
         </section>
       ) : null}
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
     </div>
   );

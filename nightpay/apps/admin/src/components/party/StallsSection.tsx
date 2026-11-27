@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { STALL_SELLS_MAX, STALL_ZONE_MAX, type StallStaffPerson, type StallView, type UpdateStallDto } from '@nightpay/contracts';
-import { Button, Checkbox, Input } from '@nightpay/ui';
+import { Button, Checkbox, FormError, Input } from '@nightpay/ui';
 import { totpRetryState } from '@/lib/api-errors';
 import { assignStall, createStall, deleteStall, fetchPartySettings, fetchStallStaff, fetchStalls, updateStall } from '@/lib/endpoints/party';
 import { OTP_LENGTH } from '@/lib/otp';
@@ -426,9 +426,9 @@ function StallFormCard({
         />
       ) : null}
       {error ? (
-        <p role="alert" className="np-set-error">
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       <div className="np-party-actions">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>

@@ -76,6 +76,7 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   'operator.invite.regenerated': 'Invitación nueva',
   'operator.password.reset': 'Contraseña de la compañera restablecida',
   'operator.payout.created': 'Pago a compañera apuntado',
+  'operator.payout.batch': 'Pagos a compañeras apuntados de una vez',
   'operator.payout.verified': 'Pago a compañera verificado',
   'operator.payout.confirmed_manual': 'Pago a compañera confirmado a mano',
   'operator.self_onboarding.submitted': 'Ficha de la compañera enviada',

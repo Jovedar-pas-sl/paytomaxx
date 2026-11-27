@@ -1,7 +1,9 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { useConfirm } from '@nightpay/ui';
 import { pulseraLabel, type PulseraRow, type PulserasView, type WalletCardStatus } from '@nightpay/contracts';
+import { REPLACE_PULSERA_BODY, preparePulserasText, replacePulseraText, splitQuestion } from '@/lib/confirm-text';
 import { blockPulsera, downloadPulseraSheet, fetchPulseras, preparePulseras, replacePulsera } from '@/lib/endpoints/party-pulseras';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
@@ -120,12 +122,13 @@ function PrepareCard(props: { onPrepared: () => void }) {
   const [to, setTo] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   async function prepare(e: FormEvent): Promise<void> {
     e.preventDefault();
     const n = parseBatchCount(count);
     if (n === null) return setMsg({ tone: 'bad', text: 'Escribe cuántas: de 1 a 500.' });
-    if (!window.confirm(`¿Preparar ${n} pulseras nuevas? Salen con números seguidos, ya en el stock.`)) return;
+    if (!(await confirm({ ...splitQuestion(preparePulserasText(n)), confirmLabel: `Preparar ${n} pulseras`, tone: 'primary' }))) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -161,22 +164,25 @@ function PrepareCard(props: { onPrepared: () => void }) {
   }
 
   return (
-    <DayCard title="Preparar pulseras" labelId="pa-preparar" aside={<p className="pa-sub">Como mucho 500 de una vez · cada una con su número y su QR · en la hoja, solo las que aún no se han entregado</p>}>
-      <form className="pa-row" onSubmit={(e) => void prepare(e)}>
-        <DayField id="pa-count" label="Cuántas" inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value.replace(/\D/g, '').slice(0, 4))} style={{ width: '8rem' }} />
-        <DayButton type="submit" variant="primary" disabled={busy}>
-          Preparar
-        </DayButton>
-      </form>
-      <div className="pa-row">
-        <DayField id="pa-from" label="Hoja desde" placeholder="P-0001" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: '9rem' }} />
-        <DayField id="pa-to" label="hasta" placeholder="P-0100" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: '9rem' }} />
-        <DayButton onClick={() => void print()} disabled={busy}>
-          Hoja para imprimir
-        </DayButton>
-      </div>
-      {msg ? <DayMessage tone={msg.tone}>{msg.text}</DayMessage> : null}
-    </DayCard>
+    <>
+      <DayCard title="Preparar pulseras" labelId="pa-preparar" aside={<p className="pa-sub">Como mucho 500 de una vez · cada una con su número y su QR · en la hoja, solo las que aún no se han entregado</p>}>
+        <form className="pa-row" onSubmit={(e) => void prepare(e)}>
+          <DayField id="pa-count" label="Cuántas" inputMode="numeric" value={count} onChange={(e) => setCount(e.target.value.replace(/\D/g, '').slice(0, 4))} style={{ width: '8rem' }} />
+          <DayButton type="submit" variant="primary" disabled={busy}>
+            Preparar
+          </DayButton>
+        </form>
+        <div className="pa-row">
+          <DayField id="pa-from" label="Hoja desde" placeholder="P-0001" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: '9rem' }} />
+          <DayField id="pa-to" label="hasta" placeholder="P-0100" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: '9rem' }} />
+          <DayButton onClick={() => void print()} disabled={busy}>
+            Hoja para imprimir
+          </DayButton>
+        </div>
+        {msg ? <DayMessage tone={msg.tone}>{msg.text}</DayMessage> : null}
+      </DayCard>
+      {dialog}
+    </>
   );
 }
 
@@ -185,9 +191,10 @@ export function PulseraList(props: { rows: PulseraRow[] | null; tz: string; quer
   const [busy, setBusy] = useState<string | null>(null);
   const [replacing, setReplacing] = useState<{ id: string; draft: string } | null>(null);
   const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   async function block(row: PulseraRow): Promise<void> {
-    if (!window.confirm(blockConfirmText(row))) return;
+    if (!(await confirm({ ...splitQuestion(blockConfirmText(row)), confirmLabel: 'Bloquear pulsera', cancelLabel: 'No bloquear' }))) return;
     setBusy(row.id);
     setMsg(null);
     try {
@@ -205,7 +212,7 @@ export function PulseraList(props: { rows: PulseraRow[] | null; tz: string; quer
     e.preventDefault();
     const n = replacing ? pulseraNumberInput(replacing.draft) : null;
     if (n === null) return setMsg({ tone: 'bad', text: 'Escribe el número de la pulsera nueva (P-0413).' });
-    if (!window.confirm(`¿Bloquear ${row.label} y pasar su saldo a ${pulseraLabel(n)}?`)) return;
+    if (!(await confirm({ ...splitQuestion(replacePulseraText(row.label, pulseraLabel(n))), body: REPLACE_PULSERA_BODY, confirmLabel: 'Bloquear y pasar saldo' }))) return;
     setBusy(row.id);
     setMsg(null);
     try {
@@ -220,7 +227,13 @@ export function PulseraList(props: { rows: PulseraRow[] | null; tz: string; quer
     }
   }
 
-  if (props.rows === null) return <p className="pa-empty">Cargando…</p>;
+  if (props.rows === null)
+    return (
+      <>
+        <p className="pa-empty">Cargando…</p>
+        {dialog}
+      </>
+    );
   return (
     <>
       {msg ? <DayMessage tone={msg.tone}>{msg.text}</DayMessage> : null}
@@ -298,6 +311,7 @@ export function PulseraList(props: { rows: PulseraRow[] | null; tz: string; quer
           </table>
         </div>
       )}
+      {dialog}
     </>
   );
 }

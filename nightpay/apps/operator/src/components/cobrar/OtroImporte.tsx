@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { BusyWord, haptic, Icon } from '@nightpay/ui';
+import { BusyWord, FormError, haptic, Icon } from '@nightpay/ui';
 import { STICKY_ACTION_BOTTOM } from '../layout';
 import { formatEur } from '@/lib/money';
 import type { CuentaSection } from '@/lib/cuenta';
@@ -102,9 +102,9 @@ export function OtroImporte({ ctx, who, adding, onDone, onBack, busy, error }: P
           {busy ? adding ? 'Un momento…' : <BusyWord word="Cobrando" /> : action}
         </button>
         {error ? (
-          <p role="alert" className={styles.error}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
       </div>
     </div>

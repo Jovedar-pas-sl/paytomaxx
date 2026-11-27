@@ -21,6 +21,7 @@ interface CheckboxProps {
  * Switch. Estilos en pieces-2.css: .np-checkbox.
  */
 export function Checkbox({ label, hint, checked, onChange, disabled, indeterminate = false }: CheckboxProps) {
+  const labelId = useId();
   const hintId = useId();
   const input = useRef<HTMLInputElement>(null);
   // «A medias» no es un atributo: se le dice a la casilla.
@@ -35,6 +36,8 @@ export function Checkbox({ label, hint, checked, onChange, disabled, indetermina
           ref={input}
           type="checkbox"
           disabled={disabled}
+          // El nombre es solo la etiqueta: la pista va dentro del <label>, pero se lee una vez, como descripción.
+          aria-labelledby={labelId}
           aria-describedby={hint ? hintId : undefined}
           data-mixed={indeterminate ? '' : undefined}
           checked={checked}
@@ -43,7 +46,9 @@ export function Checkbox({ label, hint, checked, onChange, disabled, indetermina
         <Icon name={indeterminate ? 'minus' : 'check'} size={20} />
       </span>
       <span className="np-checkbox-text">
-        <span className="np-checkbox-label">{label}</span>
+        <span id={labelId} className="np-checkbox-label">
+          {label}
+        </span>
         {hint ? (
           <span id={hintId} className="np-checkbox-hint">
             {hint}

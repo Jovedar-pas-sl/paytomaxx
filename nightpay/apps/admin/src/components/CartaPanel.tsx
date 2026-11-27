@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Checkbox, Input, Select, Switch } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError, Input, Select, Switch } from '@nightpay/ui';
 import { MAX_PACK_COMPONENTS, parseEuroCents, type SectionCode } from '@nightpay/contracts';
 import { createServiceItem, fetchCarta, setServiceSoldOut, updateServiceItem, type ServiceItem, type ServiceItemInput } from '@/lib/api';
 import { groupBySection, packFromDraft, packRemainder, type PartDraft } from '@/lib/carta-form';
@@ -91,9 +91,9 @@ export function CartaPanel() {
       </Card>
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
 
       {loadError ? (
@@ -348,9 +348,9 @@ function ServiceForm({
       ) : null}
 
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         <Button type="submit" loading={submitting}>

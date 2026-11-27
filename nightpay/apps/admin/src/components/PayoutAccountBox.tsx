@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type KeyboardEvent } from 'react';
-import { Button } from '@nightpay/ui';
+import { Button, FormError } from '@nightpay/ui';
 import type { PayoutAccountFull } from '@nightpay/contracts';
 import { revealOperatorPayoutAccount, type PayoutMethod } from '@/lib/api';
 import { ApiError, totpLockedUntil } from '@/lib/api-errors';
@@ -174,9 +174,11 @@ export function PayoutAccountBox({
       ) : null}
       {!canReveal && masked ? <p style={dim}>Solo el dueño puede ver la cuenta entera.</p> : null}
       {error ? (
-        <p role="alert" style={{ color: 'var(--np-danger)', margin: '0.5rem 0 0', fontSize: '0.875rem' }}>
-          {error}
-        </p>
+        <div style={{ marginTop: '0.5rem' }}>
+          <FormError>
+            {error}
+          </FormError>
+        </div>
       ) : null}
     </div>
   );

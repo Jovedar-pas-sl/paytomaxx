@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Input, Modal, Select } from '@nightpay/ui';
+import { Button, FormError, Input, Modal, Select } from '@nightpay/ui';
 import { confirmPayoutManual, verifyPayout, type OperatorPayout, type PayoutMethod } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
 import { formatEur } from '@/lib/money';
@@ -137,9 +137,9 @@ export function PayoutVerifyModal({ payout, operatorMethod, onClose, onChanged }
               />
             )}
             {error ? (
-              <p role="alert" style={{ color: 'var(--np-danger)', margin: 0, fontSize: '0.875rem' }}>
+              <FormError>
                 {error}
-              </p>
+              </FormError>
             ) : null}
             <div style={{ display: 'flex', gap: '0.75rem' }}>
               <Button variant="ghost" type="button" onClick={onClose} disabled={submitting} style={{ flex: 1 }}>

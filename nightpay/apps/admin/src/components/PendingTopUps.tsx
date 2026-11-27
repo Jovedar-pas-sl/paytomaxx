@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type CSSProperties, type FormEvent } from 'react';
-import { Button, Card, Input } from '@nightpay/ui';
+import { Button, Card, FormError, Input } from '@nightpay/ui';
 import type { PendingTopUpView } from '@nightpay/contracts';
 import { assignPendingTopUp, fetchPendingTopUps } from '@/lib/api';
 import { formatDateTime } from '@/lib/dates';
@@ -53,9 +53,9 @@ export function PendingTopUps() {
         </p>
       ) : null}
       {error ? (
-        <p role="alert" style={{ margin: 0, color: 'var(--np-danger)' }}>
+        <FormError>
           {error}
-        </p>
+        </FormError>
       ) : null}
       {rows === null ? <p style={mutedStyle}>Cargando…</p> : null}
       <ul style={listStyle}>
@@ -121,9 +121,11 @@ function AssignRow({ row, when, onAssigned }: { row: PendingTopUpView; when: str
         </Button>
       </form>
       {error ? (
-        <p role="alert" style={{ margin: 0, width: '100%', color: 'var(--np-danger)', fontSize: '0.875rem' }}>
-          {error}
-        </p>
+        <div style={{ width: '100%' }}>
+          <FormError>
+            {error}
+          </FormError>
+        </div>
       ) : null}
     </li>
   );

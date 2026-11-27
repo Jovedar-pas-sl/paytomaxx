@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent, type JSX } from 'react';
-import { Button, Card, Checkbox, Input, Modal, Select } from '@nightpay/ui';
+import { Button, Card, Checkbox, FormError, Input, Modal, Select, useConfirm } from '@nightpay/ui';
 import {
   bulkCreateTerminals,
   createPairingCode,
@@ -11,6 +11,7 @@ import {
   updateTerminal,
   type Terminal,
 } from '@/lib/api';
+import { UNPAIR_TEXT, splitQuestion } from '@/lib/confirm-text';
 import { formatDateTime } from '@/lib/dates';
 import { isPartyEdition } from '@/lib/edition';
 import { useVenueTimezone } from '@/lib/venue-context';
@@ -403,9 +404,9 @@ function BulkCreateModal({
           ))}
         </Select>
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <p style={{ fontSize: '0.875rem', color: 'var(--np-text-mute)' }}>
           Crea {countOk ? parsedCount : '?'} terminales con externalId {prefix}1, {prefix}2,… asignados a zona{' '}
@@ -492,9 +493,9 @@ function EditTerminalModal({
         <Checkbox label="Activo" checked={active} onChange={setActive} />
         {isOwner ? <Checkbox label="Recepción (el único que cobra recargas en efectivo)" checked={reception} onChange={setReception} /> : null}
         {error ? (
-          <p role="alert" style={{ color: 'var(--np-danger)', fontSize: '0.875rem' }}>
+          <FormError>
             {error}
-          </p>
+          </FormError>
         ) : null}
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
           <Button variant="ghost" type="button" onClick={onClose}>
@@ -519,6 +520,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   useEffect(() => {
     setCode(null);
@@ -541,9 +543,7 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
   }
 
   async function unpair() {
-    if (!window.confirm('¿Desvincular la app de este datáfono? No recibirá cobros hasta que lo vuelvas a vincular.')) {
-      return;
-    }
+    if (!(await confirm({ ...splitQuestion(UNPAIR_TEXT), confirmLabel: 'Desvincular' }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -557,44 +557,47 @@ function PairingModal({ terminal, onClose }: { terminal: Terminal | null; onClos
   }
 
   return (
-    <Modal open onClose={onClose} title={`App OxioPay · ${current.label}`}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-          <li>Abre la app OxioPay en este datáfono.</li>
-          <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
-          <li>
-            {isPartyEdition()
-              ? 'Desde entonces el datáfono ve los cobros del personal y los cobra sin teclear el ticket.'
-              : 'Desde entonces el datáfono ve los cobros de las compañeras y los cobra sin teclear el ticket.'}
-          </li>
-        </ol>
-        {code ? (
-          <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
-            <p className="np-num" style={{ margin: 0, fontSize: '2.5rem', fontWeight: 700, letterSpacing: '0.12em' }}>
-              {code.code}
-            </p>
-            <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
-              Caduca a las {formatDateTime(code.expiresAt, tz, 'time')}
-            </p>
-          </div>
-        ) : null}
-        {error ? <p role="alert" style={{ color: 'var(--np-danger)', margin: 0 }}>{error}</p> : null}
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <Button loading={busy} onClick={() => void generate()}>
-            {code ? 'Generar otro código' : current.devicePaired ? 'Volver a vincular' : 'Generar código'}
-          </Button>
-          {current.devicePaired ? (
-            <Button variant="ghost" loading={busy} onClick={() => void unpair()}>
-              Desvincular
+    <>
+      <Modal open onClose={onClose} title={`App OxioPay · ${current.label}`}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <ol style={{ margin: 0, paddingLeft: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+            <li>Abre la app OxioPay en este datáfono.</li>
+            <li>Genera el código y tecléalo en el datáfono (vale 15 minutos y una sola vez).</li>
+            <li>
+              {isPartyEdition()
+                ? 'Desde entonces el datáfono ve los cobros del personal y los cobra sin teclear el ticket.'
+                : 'Desde entonces el datáfono ve los cobros de las compañeras y los cobra sin teclear el ticket.'}
+            </li>
+          </ol>
+          {code ? (
+            <div style={{ textAlign: 'center', border: '1px solid var(--np-border-hi)', borderRadius: 'var(--np-r-lg)', padding: '1rem' }}>
+              <p className="np-num" style={{ margin: 0, fontSize: '2.5rem', fontWeight: 700, letterSpacing: '0.12em' }}>
+                {code.code}
+              </p>
+              <p style={{ margin: '0.25rem 0 0', color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
+                Caduca a las {formatDateTime(code.expiresAt, tz, 'time')}
+              </p>
+            </div>
+          ) : null}
+          {error ? <FormError>{error}</FormError> : null}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <Button loading={busy} onClick={() => void generate()}>
+              {code ? 'Generar otro código' : current.devicePaired ? 'Volver a vincular' : 'Generar código'}
             </Button>
+            {current.devicePaired ? (
+              <Button variant="ghost" loading={busy} onClick={() => void unpair()}>
+                Desvincular
+              </Button>
+            ) : null}
+          </div>
+          {current.devicePaired ? (
+            <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
+              Volver a vincular deja sin acceso al aparato anterior en cuanto se use el código nuevo.
+            </p>
           ) : null}
         </div>
-        {current.devicePaired ? (
-          <p style={{ margin: 0, color: 'var(--np-text-mute)', fontSize: '0.875rem' }}>
-            Volver a vincular deja sin acceso al aparato anterior en cuanto se use el código nuevo.
-          </p>
-        ) : null}
-      </div>
-    </Modal>
+      </Modal>
+      {dialog}
+    </>
   );
 }
