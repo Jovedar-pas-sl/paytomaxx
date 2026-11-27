@@ -53,6 +53,14 @@ const EXAMPLES: Readonly<Record<PartnerExampleName, Json>> = {
   ...(PARTNER_LOAD_EXAMPLES as unknown as Record<string, Json>),
 } as Record<PartnerExampleName, Json>;
 
+/** Los `servers` de una ruta solo de la demo: el de la demo del contrato, solo con su host por defecto. */
+const DEMO_SERVERS = [
+  {
+    url: PARTNER_OPENAPI_SERVERS[1].url,
+    variables: { demo_api_host: { default: PARTNER_OPENAPI_SERVERS[1].variables.demo_api_host.default } },
+  },
+];
+
 const isEmptyObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v) && Object.keys(v).length === 0;
 
 /**
@@ -138,7 +146,7 @@ function operation(name: string, def: PartnerRouteDef, defs: Map<string, Json>, 
   const success: Json = {
     description: PARTNER_SUCCESS_DESCRIPTIONS[name as keyof typeof PARTNER_SUCCESS_DESCRIPTIONS] ?? 'OK',
     headers: headersOf(def.successHeaders, used),
-    ...(def.successStatus === 204
+    ...(def.successStatus === 204 || def.response === null
       ? {}
       : { content: { 'application/json': { schema: toSchema(def.response, 'output', defs), ...examplesOf(def.responseExamples, used) } } }),
   };
@@ -153,6 +161,7 @@ function operation(name: string, def: PartnerRouteDef, defs: Map<string, Json>, 
     summary: def.summary,
     description: def.description,
     ...(def.scopes.length === 0 ? { security: [] } : {}),
+    ...(def.demoOnly ? { 'x-demo-only': true, servers: DEMO_SERVERS } : {}),
     'x-required-scope': [...def.scopes],
     ...(def.parameters.length > 0 ? { parameters: def.parameters.map((p) => ref('parameters', p)) } : {}),
     ...(def.body
