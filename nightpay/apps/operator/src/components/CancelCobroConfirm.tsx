@@ -3,6 +3,9 @@
 import { Button, Sheet } from '@nightpay/ui';
 import { CANCEL_AT_BANK_TEXT, CANCEL_CONFIRM_TITLE } from '@/lib/cobro-state';
 
+/** Mientras cancela no se cierra (✕, Esc, «atrás» ni arrastrar): si no, la compañera creería que lo ha parado. Como ConfirmDialog. */
+const stay = () => undefined;
+
 /**
  * «¿Cancelar este cobro?»: «Cancelar cobro» siempre pide confirmar (decisión
  * del dueño). Con el cliente en su banco, además, que el pago puede entrar igual
@@ -28,7 +31,7 @@ export function CancelCobroConfirm({
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      onClose={busy ? stay : onClose}
       title={CANCEL_CONFIRM_TITLE}
       footer={
         <div className="np-pregunta-pie">
